@@ -1,7 +1,16 @@
+use anyhow::anyhow;
+use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
+use once_cell::sync::OnceCell;
 use std::arch::asm;
 use std::ffi::OsStr;
+use std::fmt::{Display, Formatter};
+use std::io::{BufRead, Write};
 use std::os::windows::ffi::OsStrExt;
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex};
+use std::{io, thread};
 use std::{ptr, slice};
+use tokio::runtime::Runtime;
 use winapi::shared::minwindef::{HINSTANCE, LPVOID};
 use winapi::um::libloaderapi::{FreeLibrary, GetModuleHandleW};
 use winapi::um::memoryapi::VirtualProtect;
@@ -10,28 +19,46 @@ use windows::Win32::Foundation::BOOL;
 use windows::Win32::System::Console::{AllocConsole, FreeConsole};
 
 const TARGET_FUNCTION: usize = 0x1b4595;
+//static mut LOCATION_LIST: VecDeque<Location> = VecDeque::new();
+
+static TX: OnceCell<Sender<Location>> = OnceCell::new();
+//static RX: OnceCell<Receiver<Location>> = OnceCell::new();
+
+struct Location {
+    item_id: u64,
+    room: i32,
+}
+
+impl Display for Location {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Ok(
+            write!(f, "Room ID: {:#} Item ID: {:#x}", self.room, self.item_id)
+                .expect("Failed to print Location as String!"),
+        )
+    }
+}
 
 #[no_mangle]
 pub unsafe extern "system" fn check_off_location() {
     let item_id: u64;
     asm!(
-        "sub rsp, 8", // Align stack to 16 bytes
-        "push rcx",
-        "push rdx",
-        "push r8",
-        "push r9",
-        "push r10",
-        "push r11",
-        "mov {}, rdx",
-        out(reg) item_id
+    "sub rsp, 16", // Align stack to 16 bytes
+    "push rcx",
+    "push rdx",
+    "push r8",
+    "push r9",
+    "push r10",
+    "push r11",
+    "mov {}, rdx",
+    lateout(reg) item_id
     );
-
-    println!(
-        "Item: {} (0x{:#x}) Room: {:#}",
-        get_item(item_id),
-        item_id,
-        read_int_from_address(0xC8F258)
-    ); // Address is for current room
+    if let Some(tx) = TX.get() {
+        tx.send(Location {
+            item_id,
+            room: read_int_from_address(0xC8F258),
+        })
+        .expect("Failed to send Location!");
+    }
 
     asm!(
         "pop r11",
@@ -40,7 +67,8 @@ pub unsafe extern "system" fn check_off_location() {
         "pop r8",
         "pop rdx",
         "pop rcx",
-        "add rsp, 8", // Restore original stack alignment
+        "pop rax",
+        "add rsp, 16", // Restore original stack alignment
         "movzx r9d, byte ptr [rcx+0x60]"
     );
 }
@@ -110,9 +138,7 @@ fn get_item(item_id: u64) -> &'static str {
 }
 
 fn read_int_from_address(address: usize) -> i32 {
-    unsafe {
-        *((address + get_dmc3_base_address()) as *const i32)
-    }
+    unsafe { *((address + get_dmc3_base_address()) as *const i32) }
 }
 
 #[no_mangle]
@@ -131,7 +157,7 @@ pub unsafe extern "system" fn get_dmc3_base_address() -> usize {
     }
 }
 fn install_jump_for_location(custom_function: usize) {
-    // This is for location checking
+    // This is for Location checking
     unsafe {
         modify_call_offset(0x1b7143usize + get_dmc3_base_address(), 11); //sub
         let target_address = get_dmc3_base_address() + TARGET_FUNCTION;
@@ -148,14 +174,16 @@ fn install_jump_for_location(custom_function: usize) {
         let target_code = slice::from_raw_parts_mut(target_address as *mut u8, 16);
 
         // MOV RAX, custom_function
-        target_code[0] = 0x48; // REX.W
-        target_code[1] = 0xB8; // MOV RAX, imm64
-        target_code[2..10].copy_from_slice(&custom_function.to_le_bytes());
+        target_code[0] = 0x50; // Push RAX
+        target_code[1] = 0x48; // REX.W
+        target_code[2] = 0xB8; // MOV RAX, imm64
+        target_code[3..11].copy_from_slice(&custom_function.to_le_bytes());
 
         // JMP RAX
-        target_code[10] = 0xFF; // JMP opcode
-        target_code[11] = 0xD0; // JMP RAX
-        for i in 12..16 {
+        target_code[11] = 0xFF; // JMP opcode
+        target_code[12] = 0xD0; // JMP RAX
+                                //target_code[13] = 0x58; // POP Rax
+        for i in 13..16 {
             target_code[i] = 0x90; // NOP
         }
 
@@ -233,6 +261,37 @@ pub unsafe extern "system" fn free_self() -> bool {
     }
 }
 
+// fn input(text: &str) -> String {
+//     println!("{}", text);
+//
+//     match io::stdin().lock().lines().next() {
+//         Some(x) => x.unwrap_or_else(|_| String::from("")),
+//         None => String::from(""),
+//     }
+// }
+
+fn input(text: &str) -> Result<String, anyhow::Error> {
+    println!("{}", text);
+
+    Ok(io::stdin().lock().lines().next().unwrap()?)
+}
+
+// fn input<T: FromStr>() -> Result<T, <T as FromStr>::Err> {
+//     let mut input: String = String::with_capacity(64);
+//
+//     std::io::stdin()
+//         .read_line(&mut input)
+//         .expect("Input could not be read");
+//
+//     input.parse()
+// }
+
+fn setup_channel() -> Arc<Mutex<Receiver<Location>>> {
+    let (tx, rx) = mpsc::channel();
+    TX.set(tx).expect("TX already initialized");
+    Arc::new(Mutex::new(rx))
+}
+
 #[no_mangle]
 pub extern "system" fn DllMain(
     _hinst_dll: HINSTANCE,
@@ -246,11 +305,31 @@ pub extern "system" fn DllMain(
 
     match fdw_reason {
         DLL_PROCESS_ATTACH => unsafe {
-            create_console();
+            let rx = setup_channel();
+            //create_console();
+            // thread::Builder::new()
+            //     .name("Archipelago Client".to_string())
+            //     .spawn(async {
+            //         create_console();
+            //         println!("Spawn thread...");
+            //         spawn_arch_thread(rx).await
+            //     })
+            //     .expect("Failed to spawn arch thread");
+            thread::Builder::new()
+                .name("Archipelago Client".to_string())
+                .spawn(move || {
+                    create_console();
+                    //let runtime = Runtime::new().expect("Failed to create Tokio runtime");
+                    //runtime.spawn(async {
+                        spawn_arch_thread(rx);
+                    //});
+                    println!("Spawn thread...");
+                })
+                .expect("Failed to spawn arch thread");
             install_jump_for_location(check_off_location as usize);
         },
         DLL_PROCESS_DETACH => {
-            // Handle cleanup here if needed
+            // For cleanup
         }
         DLL_THREAD_ATTACH | DLL_THREAD_DETACH => {
             // Normally ignored if DisableThreadLibraryCalls is used
@@ -258,5 +337,73 @@ pub extern "system" fn DllMain(
         _ => {}
     }
 
-    BOOL(1) // TRUE
+    BOOL(1)
+}
+#[tokio::main(flavor="current_thread")]
+async unsafe fn spawn_arch_thread(rx: Arc<Mutex<Receiver<Location>>>) {
+    let mut connected = false;
+    let mut client = Err(anyhow::anyhow!("Archipelago Client not initialized"));
+    println!("In thread");
+    loop {
+        if connected == false {
+            println!("Going for connection");
+            client = connect_archipelago().await;
+            match &client {
+                Ok(..) => connected = true,
+                Err(..) => println!("Failed to connect"),
+            }
+        }
+        match &client {
+            Ok(cl) => handle_things(cl, &rx),
+            Err(..) => println!("Not connected?"),
+        }
+    }
+}
+
+fn handle_things(cl: &ArchipelagoClient, rx: &Arc<Mutex<Receiver<Location>>>) {
+    if let Ok(rec) = rx.lock() {
+        while let Ok(item) = rec.recv() {
+            println!("Processing item: {}", item);
+        }
+    }
+}
+// async fn disconnect_archipelago() {
+//     match CLIENT {
+//         Some(_client) => {
+//             println!("Disconnecting from Archipelago server...");
+//         }
+//         None => {
+//             println!("Not connected")
+//         }
+//     }
+// }
+
+async fn connect_archipelago() -> Result<ArchipelagoClient, anyhow::Error> {
+    let url = input("Archipelago URL: ")?;
+    println!("url: {}", url);
+    let mut client = ArchipelagoClient::new(&url).await; //perform_connection(url).await;
+    let name = input("Name: ")?;
+    let password = input("Password (Leave blank if unneeded): ")?;
+    println!("Connecting to url");
+    match client { // Whether we have a client
+        Ok(mut cl) => {
+            println!("Attempting room connection");
+            let res = cl.connect("Devil May Cry 3", &name, Some(&password), Option::from(0b101), vec!["AP".to_string()], true);
+            match res.await {
+                Ok(_stat) => Ok(cl),
+                _err => Err(anyhow!("Failed to connect to room")),
+            }
+        }
+
+        _ => {Err(anyhow!("Failed to connect to server"))}
+    }
+}
+
+async fn perform_connection(url: String) ->  Result<ArchipelagoClient, ArchipelagoError> {
+    let result = ArchipelagoClient::new(&url).await;
+    result
+    // match result {
+    //     Ok(res) => Some(res),
+    //     Err(err) => { println!("{}", err); None },
+    // }
 }
