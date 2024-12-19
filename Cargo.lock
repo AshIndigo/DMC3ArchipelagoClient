@@ -3,18 +3,6 @@
 version = 4
 
 [[package]]
-name = "DMC3A"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "archipelago_rs",
- "once_cell",
- "tokio",
- "winapi",
- "windows",
-]
-
-[[package]]
 name = "addr2line"
 version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -173,6 +161,20 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "dmc3a"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "archipelago_rs",
+ "once_cell",
+ "serde",
+ "serde_json",
+ "tokio",
+ "winapi",
+ "windows",
 ]
 
 [[package]]

@@ -1,16 +1,20 @@
 use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
+use archipelago_rs::protocol::{ClientStatus, GameData, RoomInfo};
 use once_cell::sync::OnceCell;
+use serde::{Deserialize, Serialize};
 use std::arch::asm;
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt::{Display, Formatter};
-use std::io::{BufRead, Write};
+use std::fs::{remove_file, File};
+use std::io::{BufRead, BufReader, Write};
 use std::os::windows::ffi::OsStrExt;
+use std::path::Path;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::{io, thread};
 use std::{ptr, slice};
-use tokio::runtime::Runtime;
 use winapi::shared::minwindef::{HINSTANCE, LPVOID};
 use winapi::um::libloaderapi::{FreeLibrary, GetModuleHandleW};
 use winapi::um::memoryapi::VirtualProtect;
@@ -19,7 +23,6 @@ use windows::Win32::Foundation::BOOL;
 use windows::Win32::System::Console::{AllocConsole, FreeConsole};
 
 const TARGET_FUNCTION: usize = 0x1b4595;
-//static mut LOCATION_LIST: VecDeque<Location> = VecDeque::new();
 
 static TX: OnceCell<Sender<Location>> = OnceCell::new();
 //static RX: OnceCell<Receiver<Location>> = OnceCell::new();
@@ -38,11 +41,48 @@ impl Display for Location {
     }
 }
 
+// #[no_mangle]
+// pub unsafe extern "system" fn check_off_location() {
+//     let item_id: u64;
+//     asm!(
+//     "sub rsp, 16", // Align stack to 16 bytes
+//     "push rax",
+//     "push rcx",
+//     "push rdx",
+//     "push r8",
+//     "push r9",
+//     "push r10",
+//     "push r11",
+//     "mov {}, rdx",
+//     lateout(reg) item_id
+//     );
+//     if let Some(tx) = TX.get() {
+//         tx.send(Location {
+//             item_id,
+//             room: read_int_from_address(0xC8F258),
+//         })
+//         .expect("Failed to send Location!");
+//     }
+//
+//     asm!(
+//         "pop r11",
+//         "pop r10",
+//         "pop r9",
+//         "pop r8",
+//         "pop rdx",
+//         "pop rcx",
+//         "pop rax",
+//         "add rsp, 16", // Restore original stack alignment
+//         "movzx r9d, byte ptr [rcx+0x60]"
+//     );
+// }
+
 #[no_mangle]
 pub unsafe extern "system" fn check_off_location() {
     let item_id: u64;
     asm!(
     "sub rsp, 16", // Align stack to 16 bytes
+    //"push rax",
     "push rcx",
     "push rdx",
     "push r8",
@@ -52,13 +92,13 @@ pub unsafe extern "system" fn check_off_location() {
     "mov {}, rdx",
     lateout(reg) item_id
     );
-    if let Some(tx) = TX.get() {
-        tx.send(Location {
-            item_id,
-            room: read_int_from_address(0xC8F258),
-        })
-        .expect("Failed to send Location!");
-    }
+    // if let Some(tx) = TX.get() {
+    //     tx.send(Location {
+    //         item_id,
+    //         room: read_int_from_address(0xC8F258),
+    //     })
+    //     .expect("Failed to send Location!");
+    // }
 
     asm!(
         "pop r11",
@@ -67,12 +107,14 @@ pub unsafe extern "system" fn check_off_location() {
         "pop r8",
         "pop rdx",
         "pop rcx",
-        "pop rax",
+        //"pop rax",
         "add rsp, 16", // Restore original stack alignment
         "movzx r9d, byte ptr [rcx+0x60]"
     );
 }
 
+
+#[allow(dead_code)]
 fn get_item(item_id: u64) -> &'static str {
     match item_id {
         0x00 => "Red Orb Smol",
@@ -182,8 +224,8 @@ fn install_jump_for_location(custom_function: usize) {
         // JMP RAX
         target_code[11] = 0xFF; // JMP opcode
         target_code[12] = 0xD0; // JMP RAX
-                                //target_code[13] = 0x58; // POP Rax
-        for i in 13..16 {
+                                target_code[13] = 0x58; // POP Rax
+        for i in 14..16 {
             target_code[i] = 0x90; // NOP
         }
 
@@ -321,7 +363,7 @@ pub extern "system" fn DllMain(
                     create_console();
                     //let runtime = Runtime::new().expect("Failed to create Tokio runtime");
                     //runtime.spawn(async {
-                        spawn_arch_thread(rx);
+                    spawn_arch_thread(rx);
                     //});
                     println!("Spawn thread...");
                 })
@@ -339,9 +381,10 @@ pub extern "system" fn DllMain(
 
     BOOL(1)
 }
-#[tokio::main(flavor="current_thread")]
+#[tokio::main(flavor = "current_thread")]
 async unsafe fn spawn_arch_thread(rx: Arc<Mutex<Receiver<Location>>>) {
     let mut connected = false;
+    let mut setup = false;
     let mut client = Err(anyhow::anyhow!("Archipelago Client not initialized"));
     println!("In thread");
     loop {
@@ -349,22 +392,61 @@ async unsafe fn spawn_arch_thread(rx: Arc<Mutex<Receiver<Location>>>) {
             println!("Going for connection");
             client = connect_archipelago().await;
             match &client {
-                Ok(..) => connected = true,
+                Ok(cl) => {
+                    println!("Room Info: {:?}", cl.room_info());
+                    //println!("Slot Info: {:?}", cl.());
+                    connected = true
+                }
                 Err(..) => println!("Failed to connect"),
             }
         }
-        match &client {
-            Ok(cl) => handle_things(cl, &rx),
+        match client {
+            Ok(ref mut cl) => {
+                if setup == false {
+                    cl.status_update(ClientStatus::ClientConnected).await.expect("Status update failed?");
+                    run_setup(&cl);
+                    setup = true;
+                }
+                handle_things(cl, &rx).await;
+            }
             Err(..) => println!("Not connected?"),
         }
     }
 }
 
-fn handle_things(cl: &ArchipelagoClient, rx: &Arc<Mutex<Receiver<Location>>>) {
+fn run_setup(cl: &ArchipelagoClient) {
+    println!("Running setup");
+    match cl.data_package() {
+        Some(dat) => {
+            println!(
+                "Item to ID: {:#?}",
+                &dat.games["Devil May Cry 3"].item_name_to_id
+            );
+            println!(
+                "Loc to ID: {:#?}",
+                &dat.games["Devil May Cry 3"].location_name_to_id
+            );
+        }
+        None => {}
+    }
+}
+
+async fn handle_things(cl: &mut ArchipelagoClient, rx: &Arc<Mutex<Receiver<Location>>>) {
     if let Ok(rec) = rx.lock() {
         while let Ok(item) = rec.recv() {
             println!("Processing item: {}", item);
+            //&cl.location_checks(vec![]).await;
         }
+    }
+    println!("Ready for receiving");
+    match cl.recv().await {
+        Ok(opt_msg) => {
+            match opt_msg {
+                None => {println!("Received None for msg");}
+                Some(msg) => { println!("Received message: {:?}", msg); }
+            }
+        }
+        Err(err) => {println!("Failed to receive data: {}", err)}
     }
 }
 // async fn disconnect_archipelago() {
@@ -381,29 +463,195 @@ fn handle_things(cl: &ArchipelagoClient, rx: &Arc<Mutex<Receiver<Location>>>) {
 async fn connect_archipelago() -> Result<ArchipelagoClient, anyhow::Error> {
     let url = input("Archipelago URL: ")?;
     println!("url: {}", url);
-    let mut client = ArchipelagoClient::new(&url).await; //perform_connection(url).await;
+
+    let mut client: Result<ArchipelagoClient, ArchipelagoError> = Err(ArchipelagoError::ConnectionClosed);
+    if !check_for_cache_file() {
+        client = ArchipelagoClient::with_data_package(&url, Some(vec!["Devil May Cry 3".parse()?])).await; //perform_connection(url).await;
+        match &client {
+            Ok(cl) => {
+                match &cl.data_package() {
+                    None => return Err(anyhow!("Data package does not exist")),
+                    Some(ref dp) => {
+                        let mut clone_data = HashMap::new();
+                        let _ = &dp.games.iter().for_each(|g| {
+                            let dat = CoolGameData {
+                                item_name_to_id: g.1.item_name_to_id.clone(),
+                                location_name_to_id: g.1.location_name_to_id.clone(),
+                            };
+                            clone_data.insert(g.0.clone(), dat);
+                        });
+                        write_cache(clone_data, cl.room_info()).await.expect("Shit fucked up!");
+                    },
+                }
+            },
+            Err(er) => return Err(anyhow!("Failed to connect to (Data) Archipelago: {}", er))
+        }
+    } else {
+        client = ArchipelagoClient::new(&url).await;
+        match client {
+            Ok(ref mut cl) => {
+                let option = check_checksums(cl.room_info()).await;
+                match option {
+                    None => println!("Checksums check out!"),
+                    Some(failures) => {
+                        println!("Checksums check failures: {:?}", failures);
+                        remove_file("cache.json")?;
+                        client = Err(ArchipelagoError::ConnectionClosed);
+                        return Err(anyhow!("Reconnecting to grab cache!"));
+                        // // Re-acquire the data package to write the new data
+                        // client = ArchipelagoClient::with_data_package(&url, Some(vec!["Devil May Cry 3".parse()?])).await;
+                        // match &cl.data_package() {
+                        //     None => return Err(anyhow!("Data package does not exist")),
+                        //     Some(ref dp) => {
+                        //         let mut clone_data = HashMap::new();
+                        //         let _ = &dp.games.iter().for_each(|g| {
+                        //             let dat = CoolGameData {
+                        //                 item_name_to_id: g.1.item_name_to_id.clone(),
+                        //                 location_name_to_id: g.1.location_name_to_id.clone(),
+                        //             };
+                        //             clone_data.insert(g.0.clone(), dat);
+                        //         });
+                        //         write_cache(clone_data, cl.room_info()).await.expect("Shit fucked up!");
+                        //     },
+                        // }
+                    }
+                }
+            },
+            Err(er) => return Err(anyhow!("Failed to connect to Archipelago: {}", er)),
+        }
+    }
     let name = input("Name: ")?;
     let password = input("Password (Leave blank if unneeded): ")?;
     println!("Connecting to url");
-    match client { // Whether we have a client
+    match client {
+        // Whether we have a client
         Ok(mut cl) => {
             println!("Attempting room connection");
-            let res = cl.connect("Devil May Cry 3", &name, Some(&password), Option::from(0b101), vec!["AP".to_string()], true);
+            let res = cl.connect(
+                "Devil May Cry 3",
+                &name,
+                Some(&password),
+                Option::from(0b101),
+                vec!["AP".to_string()],
+                true,
+            );
             match res.await {
-                Ok(_stat) => Ok(cl),
+                Ok(stat) => {
+                    println!("Connected info: {:?}", stat);
+                    Ok(cl)
+                }
                 _err => Err(anyhow!("Failed to connect to room")),
             }
         }
 
-        _ => {Err(anyhow!("Failed to connect to server"))}
+        _ => Err(anyhow!("Failed to connect to server")),
     }
 }
 
-async fn perform_connection(url: String) ->  Result<ArchipelagoClient, ArchipelagoError> {
-    let result = ArchipelagoClient::new(&url).await;
-    result
-    // match result {
-    //     Ok(res) => Some(res),
-    //     Err(err) => { println!("{}", err); None },
-    // }
+/// Checks for the Archipelago RoomInfo cache file
+/// If file exists then check the checksums in it
+/// Returns false if file doesn't exist (or if it cant be checked for)
+fn check_for_cache_file() -> bool {
+    match Path::new("cache.json").try_exists() {
+        Ok(res) => {
+            if res == true {
+                println!("Cache file Exists!");
+                true
+            } else {
+                false
+            }
+        }
+        Err(_) => {
+            println!("Failed to check for cache file!");
+            false
+        }
+    }
 }
+
+#[derive(Deserialize, Serialize)]
+struct Cache {
+    checksums: HashMap<String, String>,
+    data_package: HashMap<String, CoolGameData>
+}
+
+// impl Serialize for Cache {
+//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+//     where
+//         S: Serializer
+//     {
+//         self.checksums.serialize(&serializer)?;
+//         self.data_package.serialize(&serializer)?;
+//         serializer.end();
+//     }
+// }
+
+/// Check the cached checksums with the stored file. Return any that do not match
+async fn check_checksums(room_info: &RoomInfo) -> Option<Vec<String>> {
+    let file = File::open("cache.json");
+    match file {
+        Ok(cache) => {
+            let reader = BufReader::new(cache);
+            let mut json_reader = serde_json::Deserializer::from_reader(reader);
+            let json = Cache::deserialize(&mut json_reader);
+            match json {
+                Ok(cac) => {
+                    let mut failed_checks = vec![];
+                    for key in cac.checksums.keys() {
+                        if room_info.datapackage_checksums.get(key) != cac.checksums.get(key.as_str()) {
+                            failed_checks.push(key.clone());
+                        }
+                    }
+                    if failed_checks.is_empty() {
+                        None
+                    } else {
+                        Some(failed_checks)
+                    }
+                }
+                _err => None // TODO ?
+            }
+        }
+        Err(_) => None
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct CloneableData(GameData);
+
+// Provide your own implementations
+impl Clone for CloneableData {
+    fn clone(&self) -> Self {
+        todo!()
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct CoolGameData {
+    pub item_name_to_id: HashMap<String, i32>,
+    pub location_name_to_id: HashMap<String, i32>,
+}
+
+
+/// Write the DataPackage to a JSON file
+async fn write_cache(data: HashMap<String, CoolGameData>, room_info: &RoomInfo) -> Result<(), anyhow::Error> {
+    let mut file = File::create("cache.json")?;
+    // let mut game_data = HashMap::new();
+    // game_data.clone_from(&mut data);
+    let cache: Cache = Cache {
+        checksums: room_info.datapackage_checksums.clone(),
+        data_package: data,
+    };
+    // let string = serde_json::to_string(&cache)?;
+    file.write_all(serde_json::to_string_pretty(&cache)?.as_bytes())?;
+    file.flush()?;
+    println!("Writing cache");
+    Ok(())
+}
+
+// async fn perform_connection(url: String) -> Result<ArchipelagoClient, ArchipelagoError> {
+//     let result = ArchipelagoClient::new(&url).await;
+//     result
+//     // match result {
+//     //     Ok(res) => Some(res),
+//     //     Err(err) => { println!("{}", err); None },
+//     // }
+// }
