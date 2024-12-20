@@ -25,7 +25,6 @@ use windows::Win32::System::Console::{AllocConsole, FreeConsole};
 const TARGET_FUNCTION: usize = 0x1b4595;
 
 static TX: OnceCell<Sender<Location>> = OnceCell::new();
-//static RX: OnceCell<Receiver<Location>> = OnceCell::new();
 
 struct Location {
     item_id: u64,
@@ -41,75 +40,53 @@ impl Display for Location {
     }
 }
 
-// #[no_mangle]
-// pub unsafe extern "system" fn check_off_location() {
-//     let item_id: u64;
-//     asm!(
-//     "sub rsp, 16", // Align stack to 16 bytes
-//     "push rax",
-//     "push rcx",
-//     "push rdx",
-//     "push r8",
-//     "push r9",
-//     "push r10",
-//     "push r11",
-//     "mov {}, rdx",
-//     lateout(reg) item_id
-//     );
-//     if let Some(tx) = TX.get() {
-//         tx.send(Location {
-//             item_id,
-//             room: read_int_from_address(0xC8F258),
-//         })
-//         .expect("Failed to send Location!");
-//     }
-//
-//     asm!(
-//         "pop r11",
-//         "pop r10",
-//         "pop r9",
-//         "pop r8",
-//         "pop rdx",
-//         "pop rcx",
-//         "pop rax",
-//         "add rsp, 16", // Restore original stack alignment
-//         "movzx r9d, byte ptr [rcx+0x60]"
-//     );
-// }
-
 #[no_mangle]
-pub unsafe extern "system" fn check_off_location() {
-    let item_id: u64;
-    asm!(
-    "sub rsp, 16", // Align stack to 16 bytes
-    //"push rax",
-    "push rcx",
-    "push rdx",
-    "push r8",
-    "push r9",
-    "push r10",
-    "push r11",
-    "mov {}, rdx",
-    lateout(reg) item_id
-    );
-    // if let Some(tx) = TX.get() {
-    //     tx.send(Location {
-    //         item_id,
-    //         room: read_int_from_address(0xC8F258),
-    //     })
-    //     .expect("Failed to send Location!");
-    // }
+pub unsafe extern "system" fn check_off_location() { //noinspection RsBorrowChecker // To make RustRover quiet down
+    // This does not work for event weapons...
+    unsafe extern "system" fn send_off() {
+        let item_id: u64;
+        asm!(
+            "movzx r9d, byte ptr [rcx+0x60]", // To capture item_id
+            out("r9d") item_id,
+            clobber_abi("win64")
+        );
+        if let Some(tx) = TX.get() {
+            tx.send(Location {
+                item_id, // This is fine
+                room: read_int_from_address(0xC8F258),
+            })
+            .expect("Failed to send Location!");
+        }
+    }
 
     asm!(
-        "pop r11",
-        "pop r10",
-        "pop r9",
+        "sub rsp, 8",
+        "push rcx",
+        "push rdx",
+        "push rbx",
+        "push r11",
+        "push r10",
+        "push r9",
+        "push r8",
+        "call {}",
         "pop r8",
+        "pop r9",
+        "pop r10",
+        "pop r11",
+        "pop rbx",
         "pop rdx",
         "pop rcx",
-        //"pop rax",
-        "add rsp, 16", // Restore original stack alignment
-        "movzx r9d, byte ptr [rcx+0x60]"
+        "add rsp, 8",
+        "movzx r9d, byte ptr [rcx+0x60]", // Original code
+        sym send_off,
+        clobber_abi("win64"),
+        out("rax") _,
+        out("rsi") _,
+        out("rdi") _,
+        out("r12") _,
+        out("r13") _,
+        out("r14") _,
+        out("r15") _,
     );
 }
 
@@ -117,11 +94,11 @@ pub unsafe extern "system" fn check_off_location() {
 #[allow(dead_code)]
 fn get_item(item_id: u64) -> &'static str {
     match item_id {
-        0x00 => "Red Orb Smol",
-        0x01 => "Gold Orb",
-        0x02 => "Auto2 Orb",
+        0x00 => "Red Orb - 1",
+        0x01 => "Red Orb - 5",
+        0x02 => "Red Orb - 20",
         0x03 => "Red Orb - 100",
-        0x04 => "1k Red Orb",
+        0x04 => "Red Orb - 1000",
         0x05 => "Gold Orb",
         0x06 => "Yellow Orb",
         0x07 => "Blue Orb (No Work)",
@@ -198,10 +175,13 @@ pub unsafe extern "system" fn get_dmc3_base_address() -> usize {
         }
     }
 }
-fn install_jump_for_location(custom_function: usize) {
+
+/// This is for in world pickups only, i.e orbs, key items (Astro board), items on the ground (M2 Vital Star)
+fn install_jump_rax_for_in_world(custom_function: usize) {
     // This is for Location checking
     unsafe {
         modify_call_offset(0x1b7143usize + get_dmc3_base_address(), 11); //sub
+        modify_jmp_offset(0x1b5ADDusize + get_dmc3_base_address(), 11); //sub fixes key items as well...
         let target_address = get_dmc3_base_address() + TARGET_FUNCTION;
         // Step 1: Modify memory protection to allow writing
         let mut old_protect = 0;
@@ -221,10 +201,10 @@ fn install_jump_for_location(custom_function: usize) {
         target_code[2] = 0xB8; // MOV RAX, imm64
         target_code[3..11].copy_from_slice(&custom_function.to_le_bytes());
 
-        // JMP RAX
+        // JMP (Call) RAX
         target_code[11] = 0xFF; // JMP opcode
         target_code[12] = 0xD0; // JMP RAX
-                                target_code[13] = 0x58; // POP Rax
+        target_code[13] = 0x58; // POP Rax
         for i in 14..16 {
             target_code[i] = 0x90; // NOP
         }
@@ -239,6 +219,7 @@ fn install_jump_for_location(custom_function: usize) {
     }
 }
 
+/// Modifies a CALL instructions offset, subtracting it by the given value
 fn modify_call_offset(call_address: usize, modify: i32) {
     unsafe {
         // Step 1: Modify memory protection to allow writing
@@ -280,6 +261,48 @@ fn modify_call_offset(call_address: usize, modify: i32) {
     }
 }
 
+/// Modifies a JMP instructions offset, subtracting it by the given value
+fn modify_jmp_offset(call_address: usize, modify: i32) {
+    unsafe {
+        // Step 1: Modify memory protection to allow writing
+        let mut old_protect = 0;
+        VirtualProtect(
+            call_address as *mut _,
+            5, // CALL opcode + 4-byte offset = 5 bytes
+            PAGE_EXECUTE_READWRITE,
+            &mut old_protect,
+        );
+
+        // Step 2: Read the existing offset
+        let call_code = slice::from_raw_parts_mut(call_address as *mut u8, 5);
+
+        // Check if is JMP, otherwise panic
+        if call_code[0] != 0xE9 {
+            panic!(
+                "Instruction at 0x{:x} is not a JMP instruction. Opcode: 0x{:x}",
+                call_address, call_code[0]
+            );
+        }
+
+        // Extract the existing 4-byte relative offset
+        let existing_offset = i32::from_le_bytes(call_code[1..5].try_into().unwrap());
+
+        // Step 3: Calculate the new offset
+        let new_offset = existing_offset.wrapping_sub(modify);
+
+        // Step 4: Write the new offset
+        call_code[1..5].copy_from_slice(&new_offset.to_le_bytes());
+
+        // Step 5: Restore the original memory protection
+        VirtualProtect(call_address as *mut _, 5, old_protect, &mut old_protect);
+
+        println!(
+            "Modified JMP instruction at 0x{:x}: Old Offset = 0x{:x}, Modify = {}, New Offset = 0x{:x}",
+            call_address, existing_offset, modify, new_offset
+        );
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "system" fn create_console() {
     unsafe {
@@ -303,30 +326,11 @@ pub unsafe extern "system" fn free_self() -> bool {
     }
 }
 
-// fn input(text: &str) -> String {
-//     println!("{}", text);
-//
-//     match io::stdin().lock().lines().next() {
-//         Some(x) => x.unwrap_or_else(|_| String::from("")),
-//         None => String::from(""),
-//     }
-// }
-
 fn input(text: &str) -> Result<String, anyhow::Error> {
     println!("{}", text);
 
     Ok(io::stdin().lock().lines().next().unwrap()?)
 }
-
-// fn input<T: FromStr>() -> Result<T, <T as FromStr>::Err> {
-//     let mut input: String = String::with_capacity(64);
-//
-//     std::io::stdin()
-//         .read_line(&mut input)
-//         .expect("Input could not be read");
-//
-//     input.parse()
-// }
 
 fn setup_channel() -> Arc<Mutex<Receiver<Location>>> {
     let (tx, rx) = mpsc::channel();
@@ -348,27 +352,15 @@ pub extern "system" fn DllMain(
     match fdw_reason {
         DLL_PROCESS_ATTACH => unsafe {
             let rx = setup_channel();
-            //create_console();
-            // thread::Builder::new()
-            //     .name("Archipelago Client".to_string())
-            //     .spawn(async {
-            //         create_console();
-            //         println!("Spawn thread...");
-            //         spawn_arch_thread(rx).await
-            //     })
-            //     .expect("Failed to spawn arch thread");
             thread::Builder::new()
                 .name("Archipelago Client".to_string())
                 .spawn(move || {
                     create_console();
-                    //let runtime = Runtime::new().expect("Failed to create Tokio runtime");
-                    //runtime.spawn(async {
                     spawn_arch_thread(rx);
-                    //});
                     println!("Spawn thread...");
                 })
                 .expect("Failed to spawn arch thread");
-            install_jump_for_location(check_off_location as usize);
+            install_jump_rax_for_in_world(check_off_location as usize);
         },
         DLL_PROCESS_DETACH => {
             // For cleanup
@@ -394,7 +386,6 @@ async unsafe fn spawn_arch_thread(rx: Arc<Mutex<Receiver<Location>>>) {
             match &client {
                 Ok(cl) => {
                     println!("Room Info: {:?}", cl.room_info());
-                    //println!("Slot Info: {:?}", cl.());
                     connected = true
                 }
                 Err(..) => println!("Failed to connect"),
@@ -403,7 +394,9 @@ async unsafe fn spawn_arch_thread(rx: Arc<Mutex<Receiver<Location>>>) {
         match client {
             Ok(ref mut cl) => {
                 if setup == false {
-                    cl.status_update(ClientStatus::ClientConnected).await.expect("Status update failed?");
+                    cl.status_update(ClientStatus::ClientConnected)
+                        .await
+                        .expect("Status update failed?");
                     run_setup(&cl);
                     setup = true;
                 }
@@ -440,13 +433,17 @@ async fn handle_things(cl: &mut ArchipelagoClient, rx: &Arc<Mutex<Receiver<Locat
     }
     println!("Ready for receiving");
     match cl.recv().await {
-        Ok(opt_msg) => {
-            match opt_msg {
-                None => {println!("Received None for msg");}
-                Some(msg) => { println!("Received message: {:?}", msg); }
+        Ok(opt_msg) => match opt_msg {
+            None => {
+                println!("Received None for msg");
             }
+            Some(msg) => {
+                println!("Received message: {:?}", msg);
+            }
+        },
+        Err(err) => {
+            println!("Failed to receive data: {}", err)
         }
-        Err(err) => {println!("Failed to receive data: {}", err)}
     }
 }
 // async fn disconnect_archipelago() {
@@ -464,27 +461,28 @@ async fn connect_archipelago() -> Result<ArchipelagoClient, anyhow::Error> {
     let url = input("Archipelago URL: ")?;
     println!("url: {}", url);
 
-    let mut client: Result<ArchipelagoClient, ArchipelagoError> = Err(ArchipelagoError::ConnectionClosed);
+    let mut client: Result<ArchipelagoClient, ArchipelagoError> =
+        Err(ArchipelagoError::ConnectionClosed);
     if !check_for_cache_file() {
-        client = ArchipelagoClient::with_data_package(&url, Some(vec!["Devil May Cry 3".parse()?])).await; //perform_connection(url).await;
+        client = ArchipelagoClient::with_data_package(&url, Some(vec!["Devil May Cry 3".parse()?])).await;
         match &client {
-            Ok(cl) => {
-                match &cl.data_package() {
-                    None => return Err(anyhow!("Data package does not exist")),
-                    Some(ref dp) => {
-                        let mut clone_data = HashMap::new();
-                        let _ = &dp.games.iter().for_each(|g| {
-                            let dat = CoolGameData {
-                                item_name_to_id: g.1.item_name_to_id.clone(),
-                                location_name_to_id: g.1.location_name_to_id.clone(),
-                            };
-                            clone_data.insert(g.0.clone(), dat);
-                        });
-                        write_cache(clone_data, cl.room_info()).await.expect("Shit fucked up!");
-                    },
+            Ok(cl) => match &cl.data_package() {
+                None => return Err(anyhow!("Data package does not exist")),
+                Some(ref dp) => {
+                    let mut clone_data = HashMap::new();
+                    let _ = &dp.games.iter().for_each(|g| {
+                        let dat = CoolGameData {
+                            item_name_to_id: g.1.item_name_to_id.clone(),
+                            location_name_to_id: g.1.location_name_to_id.clone(),
+                        };
+                        clone_data.insert(g.0.clone(), dat);
+                    });
+                    write_cache(clone_data, cl.room_info())
+                        .await
+                        .expect("Shit fucked up!");
                 }
             },
-            Err(er) => return Err(anyhow!("Failed to connect to (Data) Archipelago: {}", er))
+            Err(er) => return Err(anyhow!("Failed to connect to (Data) Archipelago: {}", er)),
         }
     } else {
         client = ArchipelagoClient::new(&url).await;
@@ -498,25 +496,9 @@ async fn connect_archipelago() -> Result<ArchipelagoClient, anyhow::Error> {
                         remove_file("cache.json")?;
                         client = Err(ArchipelagoError::ConnectionClosed);
                         return Err(anyhow!("Reconnecting to grab cache!"));
-                        // // Re-acquire the data package to write the new data
-                        // client = ArchipelagoClient::with_data_package(&url, Some(vec!["Devil May Cry 3".parse()?])).await;
-                        // match &cl.data_package() {
-                        //     None => return Err(anyhow!("Data package does not exist")),
-                        //     Some(ref dp) => {
-                        //         let mut clone_data = HashMap::new();
-                        //         let _ = &dp.games.iter().for_each(|g| {
-                        //             let dat = CoolGameData {
-                        //                 item_name_to_id: g.1.item_name_to_id.clone(),
-                        //                 location_name_to_id: g.1.location_name_to_id.clone(),
-                        //             };
-                        //             clone_data.insert(g.0.clone(), dat);
-                        //         });
-                        //         write_cache(clone_data, cl.room_info()).await.expect("Shit fucked up!");
-                        //     },
-                        // }
                     }
                 }
-            },
+            }
             Err(er) => return Err(anyhow!("Failed to connect to Archipelago: {}", er)),
         }
     }
@@ -571,19 +553,8 @@ fn check_for_cache_file() -> bool {
 #[derive(Deserialize, Serialize)]
 struct Cache {
     checksums: HashMap<String, String>,
-    data_package: HashMap<String, CoolGameData>
+    data_package: HashMap<String, CoolGameData>,
 }
-
-// impl Serialize for Cache {
-//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-//     where
-//         S: Serializer
-//     {
-//         self.checksums.serialize(&serializer)?;
-//         self.data_package.serialize(&serializer)?;
-//         serializer.end();
-//     }
-// }
 
 /// Check the cached checksums with the stored file. Return any that do not match
 async fn check_checksums(room_info: &RoomInfo) -> Option<Vec<String>> {
@@ -597,7 +568,9 @@ async fn check_checksums(room_info: &RoomInfo) -> Option<Vec<String>> {
                 Ok(cac) => {
                     let mut failed_checks = vec![];
                     for key in cac.checksums.keys() {
-                        if room_info.datapackage_checksums.get(key) != cac.checksums.get(key.as_str()) {
+                        if room_info.datapackage_checksums.get(key)
+                            != cac.checksums.get(key.as_str())
+                        {
                             failed_checks.push(key.clone());
                         }
                     }
@@ -607,22 +580,15 @@ async fn check_checksums(room_info: &RoomInfo) -> Option<Vec<String>> {
                         Some(failed_checks)
                     }
                 }
-                _err => None // TODO ?
+                _err => None, // TODO ?
             }
         }
-        Err(_) => None
+        Err(_) => None,
     }
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct CloneableData(GameData);
-
-// Provide your own implementations
-impl Clone for CloneableData {
-    fn clone(&self) -> Self {
-        todo!()
-    }
-}
 
 #[derive(Deserialize, Serialize)]
 pub struct CoolGameData {
@@ -630,9 +596,11 @@ pub struct CoolGameData {
     pub location_name_to_id: HashMap<String, i32>,
 }
 
-
 /// Write the DataPackage to a JSON file
-async fn write_cache(data: HashMap<String, CoolGameData>, room_info: &RoomInfo) -> Result<(), anyhow::Error> {
+async fn write_cache(
+    data: HashMap<String, CoolGameData>,
+    room_info: &RoomInfo,
+) -> Result<(), anyhow::Error> {
     let mut file = File::create("cache.json")?;
     // let mut game_data = HashMap::new();
     // game_data.clone_from(&mut data);
