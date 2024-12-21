@@ -1,19 +1,13 @@
-use anyhow::anyhow;
-use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
-use archipelago_rs::protocol::{ClientStatus, GameData, RoomInfo};
+use archipelago_rs::protocol::ClientStatus;
 use once_cell::sync::OnceCell;
-use serde::{Deserialize, Serialize};
 use std::arch::asm;
-use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt::{Display, Formatter};
-use std::fs::{remove_file, File};
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::os::windows::ffi::OsStrExt;
-use std::path::Path;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
-use std::{io, thread};
+use std::thread;
 use std::{ptr, slice};
 use winapi::shared::minwindef::{HINSTANCE, LPVOID};
 use winapi::um::libloaderapi::{FreeLibrary, GetModuleHandleW};
@@ -22,7 +16,6 @@ use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
 use windows::Win32::Foundation::BOOL;
 use windows::Win32::System::Console::{AllocConsole, FreeConsole};
 use crate::{archipelago, cache};
-use crate::cache::CustomGameData;
 
 const TARGET_FUNCTION: usize = 0x1b4595;
 
