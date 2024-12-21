@@ -21,14 +21,16 @@ use winapi::um::memoryapi::VirtualProtect;
 use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
 use windows::Win32::Foundation::BOOL;
 use windows::Win32::System::Console::{AllocConsole, FreeConsole};
+use crate::{archipelago, cache};
+use crate::cache::CustomGameData;
 
 const TARGET_FUNCTION: usize = 0x1b4595;
 
 static TX: OnceCell<Sender<Location>> = OnceCell::new();
 
-struct Location {
+pub(crate) struct Location {
     item_id: u64,
-    room: i32,
+    pub(crate) room: i32,
 }
 
 impl Display for Location {
@@ -326,12 +328,6 @@ pub unsafe extern "system" fn free_self() -> bool {
     }
 }
 
-fn input(text: &str) -> Result<String, anyhow::Error> {
-    println!("{}", text);
-
-    Ok(io::stdin().lock().lines().next().unwrap()?)
-}
-
 fn setup_channel() -> Arc<Mutex<Receiver<Location>>> {
     let (tx, rx) = mpsc::channel();
     TX.set(tx).expect("TX already initialized");
@@ -382,7 +378,7 @@ async unsafe fn spawn_arch_thread(rx: Arc<Mutex<Receiver<Location>>>) {
     loop {
         if connected == false {
             println!("Going for connection");
-            client = connect_archipelago().await;
+            client = archipelago::connect_archipelago().await;
             match &client {
                 Ok(cl) => {
                     println!("Room Info: {:?}", cl.room_info());
@@ -397,229 +393,40 @@ async unsafe fn spawn_arch_thread(rx: Arc<Mutex<Receiver<Location>>>) {
                     cl.status_update(ClientStatus::ClientConnected)
                         .await
                         .expect("Status update failed?");
-                    run_setup(&cl);
+                    archipelago::run_setup(&cl, cache::get_dmc3_data());
                     setup = true;
                 }
-                handle_things(cl, &rx).await;
+                archipelago::handle_things(cl, &rx).await;
             }
             Err(..) => println!("Not connected?"),
         }
     }
 }
 
-fn run_setup(cl: &ArchipelagoClient) {
-    println!("Running setup");
-    match cl.data_package() {
-        Some(dat) => {
-            println!(
-                "Item to ID: {:#?}",
-                &dat.games["Devil May Cry 3"].item_name_to_id
-            );
-            println!(
-                "Loc to ID: {:#?}",
-                &dat.games["Devil May Cry 3"].location_name_to_id
-            );
-        }
-        None => {}
-    }
+/// Modify the game's code so the "pickup mode" table is correct
+// start at 1B3944 -> 1B395A
+// Set these from 01 to 02
+pub(crate) unsafe fn rewrite_mode_table() {
+    let table_address =0x1B3944usize + get_dmc3_base_address();
+    let mut old_protect = 0;
+    VirtualProtect(
+        table_address as *mut _,
+        16, // Length of table I need to modify
+        PAGE_EXECUTE_READWRITE,
+        &mut old_protect,
+    );
+
+    let table = slice::from_raw_parts_mut(table_address as *mut u8, 16);
+    table.iter().for_each(move |mut val| val = &0x02);
+
+    // Step 4: Write the new offset
+    table[1..16].copy_from_slice(&table_address.to_le_bytes());
+
+    VirtualProtect(table_address as *mut _, 16, old_protect, &mut old_protect);
 }
 
-async fn handle_things(cl: &mut ArchipelagoClient, rx: &Arc<Mutex<Receiver<Location>>>) {
-    if let Ok(rec) = rx.lock() {
-        while let Ok(item) = rec.recv() {
-            println!("Processing item: {}", item);
-            //&cl.location_checks(vec![]).await;
-        }
-    }
-    println!("Ready for receiving");
-    match cl.recv().await {
-        Ok(opt_msg) => match opt_msg {
-            None => {
-                println!("Received None for msg");
-            }
-            Some(msg) => {
-                println!("Received message: {:?}", msg);
-            }
-        },
-        Err(err) => {
-            println!("Failed to receive data: {}", err)
-        }
-    }
+/// Modifying ITM files?
+// Would need to edit the file as well as the relevant line in the exe...
+unsafe fn modify_itm() {
+    todo!()
 }
-// async fn disconnect_archipelago() {
-//     match CLIENT {
-//         Some(_client) => {
-//             println!("Disconnecting from Archipelago server...");
-//         }
-//         None => {
-//             println!("Not connected")
-//         }
-//     }
-// }
-
-async fn connect_archipelago() -> Result<ArchipelagoClient, anyhow::Error> {
-    let url = input("Archipelago URL: ")?;
-    println!("url: {}", url);
-
-    let mut client: Result<ArchipelagoClient, ArchipelagoError> =
-        Err(ArchipelagoError::ConnectionClosed);
-    if !check_for_cache_file() {
-        client = ArchipelagoClient::with_data_package(&url, Some(vec!["Devil May Cry 3".parse()?])).await;
-        match &client {
-            Ok(cl) => match &cl.data_package() {
-                None => return Err(anyhow!("Data package does not exist")),
-                Some(ref dp) => {
-                    let mut clone_data = HashMap::new();
-                    let _ = &dp.games.iter().for_each(|g| {
-                        let dat = CoolGameData {
-                            item_name_to_id: g.1.item_name_to_id.clone(),
-                            location_name_to_id: g.1.location_name_to_id.clone(),
-                        };
-                        clone_data.insert(g.0.clone(), dat);
-                    });
-                    write_cache(clone_data, cl.room_info())
-                        .await
-                        .expect("Shit fucked up!");
-                }
-            },
-            Err(er) => return Err(anyhow!("Failed to connect to (Data) Archipelago: {}", er)),
-        }
-    } else {
-        client = ArchipelagoClient::new(&url).await;
-        match client {
-            Ok(ref mut cl) => {
-                let option = check_checksums(cl.room_info()).await;
-                match option {
-                    None => println!("Checksums check out!"),
-                    Some(failures) => {
-                        println!("Checksums check failures: {:?}", failures);
-                        remove_file("cache.json")?;
-                        client = Err(ArchipelagoError::ConnectionClosed);
-                        return Err(anyhow!("Reconnecting to grab cache!"));
-                    }
-                }
-            }
-            Err(er) => return Err(anyhow!("Failed to connect to Archipelago: {}", er)),
-        }
-    }
-    let name = input("Name: ")?;
-    let password = input("Password (Leave blank if unneeded): ")?;
-    println!("Connecting to url");
-    match client {
-        // Whether we have a client
-        Ok(mut cl) => {
-            println!("Attempting room connection");
-            let res = cl.connect(
-                "Devil May Cry 3",
-                &name,
-                Some(&password),
-                Option::from(0b101),
-                vec!["AP".to_string()],
-                true,
-            );
-            match res.await {
-                Ok(stat) => {
-                    println!("Connected info: {:?}", stat);
-                    Ok(cl)
-                }
-                _err => Err(anyhow!("Failed to connect to room")),
-            }
-        }
-
-        _ => Err(anyhow!("Failed to connect to server")),
-    }
-}
-
-/// Checks for the Archipelago RoomInfo cache file
-/// If file exists then check the checksums in it
-/// Returns false if file doesn't exist (or if it cant be checked for)
-fn check_for_cache_file() -> bool {
-    match Path::new("cache.json").try_exists() {
-        Ok(res) => {
-            if res == true {
-                println!("Cache file Exists!");
-                true
-            } else {
-                false
-            }
-        }
-        Err(_) => {
-            println!("Failed to check for cache file!");
-            false
-        }
-    }
-}
-
-#[derive(Deserialize, Serialize)]
-struct Cache {
-    checksums: HashMap<String, String>,
-    data_package: HashMap<String, CoolGameData>,
-}
-
-/// Check the cached checksums with the stored file. Return any that do not match
-async fn check_checksums(room_info: &RoomInfo) -> Option<Vec<String>> {
-    let file = File::open("cache.json");
-    match file {
-        Ok(cache) => {
-            let reader = BufReader::new(cache);
-            let mut json_reader = serde_json::Deserializer::from_reader(reader);
-            let json = Cache::deserialize(&mut json_reader);
-            match json {
-                Ok(cac) => {
-                    let mut failed_checks = vec![];
-                    for key in cac.checksums.keys() {
-                        if room_info.datapackage_checksums.get(key)
-                            != cac.checksums.get(key.as_str())
-                        {
-                            failed_checks.push(key.clone());
-                        }
-                    }
-                    if failed_checks.is_empty() {
-                        None
-                    } else {
-                        Some(failed_checks)
-                    }
-                }
-                _err => None, // TODO ?
-            }
-        }
-        Err(_) => None,
-    }
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct CloneableData(GameData);
-
-#[derive(Deserialize, Serialize)]
-pub struct CoolGameData {
-    pub item_name_to_id: HashMap<String, i32>,
-    pub location_name_to_id: HashMap<String, i32>,
-}
-
-/// Write the DataPackage to a JSON file
-async fn write_cache(
-    data: HashMap<String, CoolGameData>,
-    room_info: &RoomInfo,
-) -> Result<(), anyhow::Error> {
-    let mut file = File::create("cache.json")?;
-    // let mut game_data = HashMap::new();
-    // game_data.clone_from(&mut data);
-    let cache: Cache = Cache {
-        checksums: room_info.datapackage_checksums.clone(),
-        data_package: data,
-    };
-    // let string = serde_json::to_string(&cache)?;
-    file.write_all(serde_json::to_string_pretty(&cache)?.as_bytes())?;
-    file.flush()?;
-    println!("Writing cache");
-    Ok(())
-}
-
-// async fn perform_connection(url: String) -> Result<ArchipelagoClient, ArchipelagoError> {
-//     let result = ArchipelagoClient::new(&url).await;
-//     result
-//     // match result {
-//     //     Ok(res) => Some(res),
-//     //     Err(err) => { println!("{}", err); None },
-//     // }
-// }

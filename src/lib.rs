@@ -3,6 +3,8 @@
 // mod inject;
 // mod detour;
 mod hook;
+mod cache;
+mod archipelago;
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right
