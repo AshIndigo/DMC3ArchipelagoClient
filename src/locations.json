@@ -1,0 +1,634 @@
+{
+  "Mission #2 - Vital Star S": {
+    "mission_number": 2,
+    "room_number": 2,
+    "secret": false,
+    "default_item": 17,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #3 - Shotgun": {
+    "mission_number": 3,
+    "room_number": 3,
+    "secret": false,
+    "default_item": 29,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #3 - Blue Orb Fragment #1": {
+    "mission_number": 3,
+    "room_number": 5,
+    "secret": false,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #3 - Cerberus": {
+    "mission_number": 3,
+    "room_number": 6,
+    "secret": false,
+    "default_item": 23,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #4 - Blue Orb Fragment #2": {
+    "mission_number": 4,
+    "room_number": 110,
+    "secret": false,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #4 - Astronomical Board": {
+    "mission_number": 4,
+    "room_number": 110,
+    "secret": false,
+    "default_item": 36,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #5 - Vajura": {
+    "mission_number": 5,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 37,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #5 - Soul of Steel": {
+    "mission_number": 5,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 39,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #5 - Agni and Rudra": {
+    "mission_number": 5,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 24,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #6 - Essence of Technique": {
+    "mission_number": 6,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 41,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #6 - Essence of Intelligence": {
+    "mission_number": 6,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 42,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #6 - Essence of Fighting": {
+    "mission_number": 6,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 40,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #6 - Artemis": {
+    "mission_number": 6,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 30,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #7 - Orichalcum Fragment": {
+    "mission_number": 7,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 43,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #7 - Holy Water": {
+    "mission_number": 7,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 19,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #7 - Blue Orb Fragment #3": {
+    "mission_number": 7,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #7 - Vital Star S": {
+    "mission_number": 7,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 17,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #7 - Siren's Shriek": {
+    "mission_number": 7,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 14,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #7 - Crystal Skull": {
+    "mission_number": 7,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 15,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #8 - Blue Orb Fragment #4": {
+    "mission_number": 8,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #8 - Ignis Fatuus": {
+    "mission_number": 8,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 14,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #9 - Blue Orb Fragment #5": {
+    "mission_number": 9,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #9 - Spiral": {
+    "mission_number": 9,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 31,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #9 - Ambrosia": {
+    "mission_number": 9,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 13,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #9 - Devil Star": {
+    "mission_number": 9,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 18,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #9 - Nevan": {
+    "mission_number": 9,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 26,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #10 - Stone Mask": {
+    "mission_number": 10,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 48,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #10 - Neo Generator": {
+    "mission_number": 10,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 49,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #11 - Devil Star": {
+    "mission_number": 11,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 18,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #11 - Blue Orb Fragment #6": {
+    "mission_number": 11,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #11 - Holy Water": {
+    "mission_number": 11,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 19,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #12 - Haywire Neo Generator": {
+    "mission_number": 12,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 50,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #12 - Vital Star L": {
+    "mission_number": 12,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 16,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #12 - Quicksilver": {
+    "mission_number": 12,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 34,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #13 - Devil Star": {
+    "mission_number": 13,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 18,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #13 - Orihalcon": {
+    "mission_number": 13,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 51,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #14 - Beowulf": {
+    "mission_number": 14,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 27,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #14 - Vital Star S": {
+    "mission_number": 14,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 17,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #14 - Blue Orb Fragment #7": {
+    "mission_number": 14,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #14 - Devil Star": {
+    "mission_number": 14,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 18,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #14 - Holy Water": {
+    "mission_number": 14,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 19,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #15 - Orihalcon Fragment #1": {
+    "mission_number": 15,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 52,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #15 - Orihalcon Fragment #2": {
+    "mission_number": 15,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 53,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #15 - Orihalcon Fragment #3": {
+    "mission_number": 15,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 54,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #15 - Blue Orb Fragment #8": {
+    "mission_number": 15,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #16 - Devil Star": {
+    "mission_number": 16,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 18,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #16 - Onyx Moonshard": {
+    "mission_number": 16,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 56,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #16 - Golden Sun": {
+    "mission_number": 16,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 55,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #16 - Vital Star S": {
+    "mission_number": 16,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 17,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #16 - Blue Orb Fragment #9": {
+    "mission_number": 16,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #16 - Kalina Ann": {
+    "mission_number": 16,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 33,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #17 - Vital Star S": {
+    "mission_number": 17,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 17,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #17 - Blue Orb Fragment #10": {
+    "mission_number": 17,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #17 - Doppelganger": {
+    "mission_number": 17,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 35,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #18 - Blue Orb Fragment #11": {
+    "mission_number": 18,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #19 - Vital Star L": {
+    "mission_number": 19,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 16,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #19 - Samsara": {
+    "mission_number": 19,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 57,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Mission #3 - Combat Adjudicator #1": {
+    "mission_number": 3,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": true
+  },
+  "Mission #5 - Combat Adjudicator #2": {
+    "mission_number": 5,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": true
+  },
+  "Mission #6 - Combat Adjudicator #3": {
+    "mission_number": 6,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": true
+  },
+  "Mission #7 - Combat Adjudicator #4": {
+    "mission_number": 7,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": true
+  },
+  "Mission #8 - Combat Adjudicator #5": {
+    "mission_number": 8,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": true
+  },
+  "Mission #9 - Combat Adjudicator #6": {
+    "mission_number": 9,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": true
+  },
+  "Mission #11 - Combat Adjudicator #7": {
+    "mission_number": 11,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": true
+  },
+  "Mission #13 - Combat Adjudicator #8": {
+    "mission_number": 13,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": true
+  },
+  "Mission #14 - Combat Adjudicator #9": {
+    "mission_number": 14,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": true
+  },
+  "Mission #17 - Combat Adjudicator #10": {
+    "mission_number": 17,
+    "room_number": 0,
+    "secret": false,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": true
+  },
+  "Secret Mission #1": {
+    "mission_number": 21,
+    "room_number": 0,
+    "secret": true,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Secret Mission #2": {
+    "mission_number": 22,
+    "room_number": 0,
+    "secret": true,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Secret Mission #3": {
+    "mission_number": 23,
+    "room_number": 0,
+    "secret": true,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Secret Mission #4": {
+    "mission_number": 24,
+    "room_number": 0,
+    "secret": true,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Secret Mission #5": {
+    "mission_number": 25,
+    "room_number": 0,
+    "secret": true,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Secret Mission #6": {
+    "mission_number": 26,
+    "room_number": 0,
+    "secret": true,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Secret Mission #7": {
+    "mission_number": 27,
+    "room_number": 0,
+    "secret": true,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Secret Mission #8": {
+    "mission_number": 28,
+    "room_number": 0,
+    "secret": true,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Secret Mission #9": {
+    "mission_number": 29,
+    "room_number": 0,
+    "secret": true,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Secret Mission #10": {
+    "mission_number": 31,
+    "room_number": 0,
+    "secret": true,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Secret Mission #11": {
+    "mission_number": 32,
+    "room_number": 0,
+    "secret": true,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": false
+  },
+  "Secret Mission #12": {
+    "mission_number": 33,
+    "room_number": 0,
+    "secret": true,
+    "default_item": 9,
+    "offset": 0,
+    "adjudicator": false
+  }
+}

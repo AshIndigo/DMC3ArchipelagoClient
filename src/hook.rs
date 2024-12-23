@@ -1,3 +1,5 @@
+use crate::archipelago::Mapping;
+use crate::{archipelago, cache, constants};
 use archipelago_rs::protocol::ClientStatus;
 use once_cell::sync::OnceCell;
 use std::arch::asm;
@@ -15,7 +17,6 @@ use winapi::um::memoryapi::VirtualProtect;
 use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
 use windows::Win32::Foundation::BOOL;
 use windows::Win32::System::Console::{AllocConsole, FreeConsole};
-use crate::{archipelago, cache};
 
 const TARGET_FUNCTION: usize = 0x1b4595;
 
@@ -36,7 +37,8 @@ impl Display for Location {
 }
 
 #[no_mangle]
-pub unsafe extern "system" fn check_off_location() { //noinspection RsBorrowChecker // To make RustRover quiet down
+pub unsafe extern "system" fn check_off_location() {
+    //noinspection RsBorrowChecker // To make RustRover quiet down
     // This does not work for event weapons...
     unsafe extern "system" fn send_off() {
         let item_id: u64;
@@ -85,9 +87,67 @@ pub unsafe extern "system" fn check_off_location() { //noinspection RsBorrowChec
     );
 }
 
+#[allow(dead_code)]
+pub fn get_item_id(item_name: &str) -> Option<u8> {
+    match item_name {
+        "Red Orb - 1" => Some(0x00),
+        "Red Orb - 5" => Some(0x01),
+        "Red Orb - 20" => Some(0x02),
+        "Red Orb - 100" => Some(0x03),
+        "Red Orb - 1000" => Some(0x04),
+        "Gold Orb" => Some(0x05),
+        "Yellow Orb" => Some(0x06),
+        "Blue Orb (No Work)" => Some(0x07),
+        "Purple Orb (No Work)" => Some(0x08),
+        "Blue Orb Frag" => Some(0x09),
+        "Green Orb" => Some(0x0A),
+        "Grorb" => Some(0x0B),
+        "Big Green Orb" => Some(0x0C),
+        "TODO" => Some(0x0D), // Applies to multiple TODO cases
+        "Vital Star L" => Some(0x10),
+        "Vital Star S" => Some(0x11),
+        "Devil Star" => Some(0x12),
+        "Holy Water" => Some(0x13),
+        "Reb Orb (Fear Test Test)" => Some(0x14),
+        "Amulet (Casino Coins)" => Some(0x15),
+        "Rebellion (Normal)" => Some(0x16),
+        "Cerberus" => Some(0x17),
+        "Agni?" => Some(0x18),
+        "Rebellion Awakened" => Some(0x19),
+        "Nevan" => Some(0x1A),
+        "Beowulf" => Some(0x1B),
+        "E&I" => Some(0x1C),
+        "Shotgun" => Some(0x1D),
+        "Artemis(?)" => Some(0x1E),
+        "Spiral(?)" => Some(0x1F),
+        "Red Orb...? (Bomb!)" => Some(0x20),
+        "Kalina Ann" => Some(0x21),
+        "Quicksilver" => Some(0x22),
+        "Dopl Style" => Some(0x23),
+        "Astro Board" => Some(0x24),
+        "Vajura" => Some(0x25),
+        "High Roller Card" => Some(0x26),
+        "Soul of Steel" => Some(0x27),
+        "Essence of Fighting" => Some(0x28),
+        "Essence of Technique" => Some(0x29),
+        "Essence of Intelligence" => Some(0x2A),
+        "Orichalcum Frag" => Some(0x2B),
+        "Stone Mask" => Some(0x30),
+        "Neo Gen" => Some(0x31),
+        "Haywire Neo" => Some(0x32),
+        "Full Orichalcum" => Some(0x33),
+        "Orichalcum Frag (Right)" => Some(0x34),
+        "Orichalcum Frag (Bottom)" => Some(0x35),
+        "Orichalcum Frag (Left)" => Some(0x36),
+        "Golden Sun" => Some(0x37),
+        "Onyx Moonshard" => Some(0x38),
+        "Samsara" => Some(0x39),
+        _ => None, // Handle undefined items
+    }
+}
 
 #[allow(dead_code)]
-fn get_item(item_id: u64) -> &'static str {
+pub fn get_item(item_id: u64) -> &'static str {
     match item_id {
         0x00 => "Red Orb - 1",
         0x01 => "Red Orb - 5",
@@ -243,7 +303,6 @@ fn modify_call_offset(call_address: usize, modify: i32) {
         // Step 3: Calculate the new offset
         let new_offset = existing_offset.wrapping_sub(modify);
 
-        // Step 4: Write the new offset
         call_code[1..5].copy_from_slice(&new_offset.to_le_bytes());
 
         // Step 5: Restore the original memory protection
@@ -285,7 +344,6 @@ fn modify_jmp_offset(call_address: usize, modify: i32) {
         // Step 3: Calculate the new offset
         let new_offset = existing_offset.wrapping_sub(modify);
 
-        // Step 4: Write the new offset
         call_code[1..5].copy_from_slice(&new_offset.to_le_bytes());
 
         // Step 5: Restore the original memory protection
@@ -386,7 +444,7 @@ async unsafe fn spawn_arch_thread(rx: Arc<Mutex<Receiver<Location>>>) {
                     cl.status_update(ClientStatus::ClientConnected)
                         .await
                         .expect("Status update failed?");
-                    archipelago::run_setup(&cl, cache::get_dmc3_data());
+                    archipelago::run_setup(cl, cache::get_dmc3_data()).await;
                     setup = true;
                 }
                 archipelago::handle_things(cl, &rx).await;
@@ -400,7 +458,7 @@ async unsafe fn spawn_arch_thread(rx: Arc<Mutex<Receiver<Location>>>) {
 // start at 1B3944 -> 1B395A
 // Set these from 01 to 02
 pub(crate) unsafe fn rewrite_mode_table() {
-    let table_address =0x1B3944usize + get_dmc3_base_address();
+    let table_address = 0x1B3944usize + get_dmc3_base_address();
     let mut old_protect = 0;
     VirtualProtect(
         table_address as *mut _,
@@ -409,10 +467,12 @@ pub(crate) unsafe fn rewrite_mode_table() {
         &mut old_protect,
     );
 
-    let table = slice::from_raw_parts_mut(table_address as *mut u8, 16);
-    table.iter().for_each(move |mut val| val = &0x02);
+    let mut table = slice::from_raw_parts_mut(table_address as *mut u8, 16);
+    table.fill(0x02u8);
+    // for mut val in table {
+    //     val = &mut 0x02u8 // Doesnt
+    // }
 
-    // Step 4: Write the new offset
     table[1..16].copy_from_slice(&table_address.to_le_bytes());
 
     VirtualProtect(table_address as *mut _, 16, old_protect, &mut old_protect);
@@ -422,4 +482,24 @@ pub(crate) unsafe fn rewrite_mode_table() {
 // Would need to edit the file as well as the relevant line in the exe...
 unsafe fn modify_itm() {
     todo!()
+}
+
+pub unsafe fn modify_itm_table(offset: usize, id: u8) {
+    let start_addr = 0x5C4C20usize;
+    let end_addr = 0x5C4C20 + 0xC8; // 0x5C4CE8
+    let mut old_protect = 0;
+    VirtualProtect(
+        offset as *mut _,
+        4, // Length of table I need to modify
+        PAGE_EXECUTE_READWRITE,
+        &mut old_protect,
+    );
+
+    let mut table = slice::from_raw_parts_mut(offset as *mut u8, 4);
+
+    table[4] = id;
+    table[1..4].copy_from_slice(&offset.to_le_bytes());
+
+    VirtualProtect(offset as *mut _, 4, old_protect, &mut old_protect);
+    println!("Modified item table: Offset: {}, id: {}", offset, id);
 }

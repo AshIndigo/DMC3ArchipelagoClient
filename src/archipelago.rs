@@ -1,14 +1,16 @@
-use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
-use anyhow::anyhow;
-use std::collections::HashMap;
-use std::fs::remove_file;
-use std::io;
-use std::io::BufRead;
-use std::sync::{Arc, Mutex};
-use std::sync::mpsc::Receiver;
-use crate::{cache, hook};
 use crate::cache::CustomGameData;
-use crate::hook::Location;
+use crate::hook::{modify_itm_table, Location};
+use crate::{cache, constants, hook};
+use anyhow::anyhow;
+use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fs::{remove_file, File};
+use std::io;
+use std::io::{BufRead, BufReader};
+use std::path::Path;
+use std::sync::mpsc::Receiver;
+use std::sync::{Arc, Mutex};
 
 // An ungodly mess
 pub async fn connect_archipelago() -> Result<ArchipelagoClient, anyhow::Error> {
@@ -17,10 +19,13 @@ pub async fn connect_archipelago() -> Result<ArchipelagoClient, anyhow::Error> {
 
     let mut client: Result<ArchipelagoClient, ArchipelagoError> =
         Err(ArchipelagoError::ConnectionClosed);
-    if !cache::check_for_cache_file() { // If the cache file does not exist, then it needs to be acquired
-        client = ArchipelagoClient::with_data_package(&url, Some(vec!["Devil May Cry 3".parse()?])).await;
+    if !cache::check_for_cache_file() {
+        // If the cache file does not exist, then it needs to be acquired
+        client = ArchipelagoClient::with_data_package(&url, Some(vec!["Devil May Cry 3".parse()?]))
+            .await;
         match &client {
-            Ok(cl) => match &cl.data_package() { // Write the data package to a local cache file
+            Ok(cl) => match &cl.data_package() {
+                // Write the data package to a local cache file
                 None => return Err(anyhow!("Data package does not exist")),
                 Some(ref dp) => {
                     let mut clone_data = HashMap::new();
@@ -38,14 +43,16 @@ pub async fn connect_archipelago() -> Result<ArchipelagoClient, anyhow::Error> {
             },
             Err(er) => return Err(anyhow!("Failed to connect to (Data) Archipelago: {}", er)),
         }
-    } else { // If the cache exists, then connect normally and verify the cache file
+    } else {
+        // If the cache exists, then connect normally and verify the cache file
         client = ArchipelagoClient::new(&url).await;
         match client {
             Ok(ref mut cl) => {
                 let option = cache::check_checksums(cl.room_info()).await;
                 match option {
                     None => println!("Checksums check out!"),
-                    Some(failures) => { // If there are checksums that don't match, obliterate the cache file and reconnect to obtain the data package
+                    Some(failures) => {
+                        // If there are checksums that don't match, obliterate the cache file and reconnect to obtain the data package
                         println!("Checksums check failures: {:?}", failures);
                         remove_file("cache.json")?;
                         client = Err(ArchipelagoError::ConnectionClosed); // TODO Figure out a better way to do this
@@ -84,7 +91,7 @@ pub async fn connect_archipelago() -> Result<ArchipelagoClient, anyhow::Error> {
     }
 }
 
-pub unsafe fn run_setup(cl: &ArchipelagoClient, data: CustomGameData) {
+pub async unsafe fn run_setup(cl: &mut ArchipelagoClient, data: CustomGameData) {
     println!("Running setup");
     hook::rewrite_mode_table();
     match cl.data_package() {
@@ -101,23 +108,82 @@ pub unsafe fn run_setup(cl: &ArchipelagoClient, data: CustomGameData) {
         }
         None => {
             println!("No data package found, using cached data");
+        }
+    }
+    load_location_map();
+}
 
+#[derive(Deserialize, Serialize)]
+pub struct Mapping {
+    // For mapping JSON
+    pub seed: String,
+    pub slot: String,
+    pub items: HashMap<String, String>,
+    pub starter_items: Vec<String>,
+}
+
+pub struct ItemEntry {
+    // Represents an item on the ground
+    pub offset: usize,    // Offset for the item table
+    pub room_number: u16, // Room number
+    pub item_id: u8,      // Default Item ID
+    pub mission: u8       // Mission Number
+    // TODO Secret and adjudicator
+}
+
+fn load_location_map() {
+    match Path::new("mappings.json").try_exists() {
+        Ok(res) => {
+            if res == true {
+                println!("Mapping file Exists!");
+                let file = File::open("mappings.json");
+                match file {
+                    Ok(mapping) => {
+                        let reader = BufReader::new(mapping);
+                        let mut json_reader = serde_json::Deserializer::from_reader(reader);
+                        let json = Mapping::deserialize(&mut json_reader);
+                        match json {
+                            Ok(data) => unsafe {
+                                for (k, v) in data.items.iter() {
+                                    modify_itm_table(constants::get_locations().get(k as &str).unwrap().offset, hook::get_item_id(v).unwrap())
+                                }
+                            },
+                            Err(err) => {
+                                println!("Error parsing mapping: {}", err)
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        println!("Mapping file doesn't exist: {:?}", err);
+                    }
+                }
+            } else {
+            }
+        }
+        Err(_) => {
+            println!("Failed to check for cache file!");
         }
     }
 }
 
 pub async fn handle_things(cl: &mut ArchipelagoClient, rx: &Arc<Mutex<Receiver<Location>>>) {
     if let Ok(rec) = rx.lock() {
-        while let Ok(item) = rec.try_recv() { // See if there's an item!
+        while let Ok(item) = rec.try_recv() {
+            // See if there's an item!
             println!("Processing item: {}", item); // TODO Need to handle offline storage... if the item cant be sent it needs to be buffered
             match cl.location_checks(vec![item.room]).await {
-                Ok(_) => { println!("Location checks successful"); },
-                Err(err) => { println!("Failed to check location: {}", err); }
+                Ok(_) => {
+                    println!("Location checks successful");
+                }
+                Err(err) => {
+                    println!("Failed to check location: {}", err);
+                }
             }
         }
     }
     println!("Ready for receiving");
-        match cl.recv().await { // TODO I don't think I've seen this go off...
+    match cl.recv().await {
+        // TODO I don't think I've seen this go off...
         Ok(opt_msg) => match opt_msg {
             None => {
                 println!("Received None for msg");
