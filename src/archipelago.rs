@@ -1,6 +1,6 @@
 use crate::cache::CustomGameData;
 use crate::hook::{modify_itm_table, Location};
-use crate::{cache, constants, hook};
+use crate::{cache, constants, hook, tables};
 use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
 use serde::{Deserialize, Serialize};
@@ -11,6 +11,9 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
+use once_cell::sync::OnceCell;
+
+pub static MAPPING: OnceCell<Mapping> = OnceCell::new();
 
 // An ungodly mess
 pub async fn connect_archipelago() -> Result<ArchipelagoClient, anyhow::Error> {
@@ -110,8 +113,19 @@ pub async unsafe fn run_setup(cl: &mut ArchipelagoClient, data: CustomGameData) 
             println!("No data package found, using cached data");
         }
     }
-    load_location_map();
+    match load_location_map() {
+        None => {}
+        Some(mappings) => {
+            match MAPPING.set(mappings) {
+                Ok(_) => {}
+                Err(_) => {println!("Failed to set cell!");}
+            }
+        }
+    }
+    use_mappings();
 }
+
+
 
 #[derive(Deserialize, Serialize)]
 pub struct Mapping {
@@ -127,11 +141,32 @@ pub struct ItemEntry {
     pub offset: usize,    // Offset for the item table
     pub room_number: u16, // Room number
     pub item_id: u8,      // Default Item ID
-    pub mission: u8       // Mission Number
-    // TODO Secret and adjudicator
+    pub mission: u8,      // Mission Number
+                          // TODO Secret and adjudicator
 }
 
-fn load_location_map() {
+fn use_mappings() {
+    match MAPPING.get() {
+        Some(data) => {
+            for (k, v) in data.items.iter() {
+                match constants::get_locations().get(k as &str) {
+                    Some(entry) => match tables::get_item_id(v) {
+                        Some(id) => unsafe { modify_itm_table(entry.offset, id) },
+                        None => {
+                            println!("Item not found: {}", v);
+                        }
+                    },
+                    None => {
+                        println!("Location not found: {}", k);
+                    }
+                }
+            }
+        }
+        None => {println!("No mapping found");}
+    }
+}
+
+pub(crate) fn load_location_map() -> Option<Mapping> {
     match Path::new("mappings.json").try_exists() {
         Ok(res) => {
             if res == true {
@@ -143,25 +178,26 @@ fn load_location_map() {
                         let mut json_reader = serde_json::Deserializer::from_reader(reader);
                         let json = Mapping::deserialize(&mut json_reader);
                         match json {
-                            Ok(data) => unsafe {
-                                for (k, v) in data.items.iter() {
-                                    modify_itm_table(constants::get_locations().get(k as &str).unwrap().offset, hook::get_item_id(v).unwrap())
-                                }
-                            },
-                            Err(err) => {
-                                println!("Error parsing mapping: {}", err)
+                            Ok(map) => {
+                                println!("Mapping location mapped successfully!");
+                                Some(map)
                             }
+                            Err(_) => None,
                         }
                     }
                     Err(err) => {
-                        println!("Mapping file doesn't exist: {:?}", err);
+                        println!("Mapping file doesn't exist?: {:?}", err);
+                        None
                     }
                 }
             } else {
+                println!("Mapping file doesn't exist");
+                None
             }
         }
         Err(_) => {
             println!("Failed to check for cache file!");
+            None
         }
     }
 }
@@ -181,12 +217,10 @@ pub async fn handle_things(cl: &mut ArchipelagoClient, rx: &Arc<Mutex<Receiver<L
             }
         }
     }
-    println!("Ready for receiving");
     match cl.recv().await {
-        // TODO I don't think I've seen this go off...
         Ok(opt_msg) => match opt_msg {
             None => {
-                println!("Received None for msg");
+                //println!("Received None for msg");
             }
             Some(msg) => {
                 println!("Received message: {:?}", msg);

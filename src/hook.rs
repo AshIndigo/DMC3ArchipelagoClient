@@ -1,16 +1,16 @@
-use crate::archipelago::Mapping;
-use crate::{archipelago, cache, constants};
+use crate::archipelago::MAPPING;
+use crate::{archipelago, cache, constants, tables};
 use archipelago_rs::protocol::ClientStatus;
 use once_cell::sync::OnceCell;
 use std::arch::asm;
 use std::ffi::OsStr;
 use std::fmt::{Display, Formatter};
-use std::io::Write;
 use std::os::windows::ffi::OsStrExt;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::{ptr, slice};
+use simple_logger::SimpleLogger;
 use winapi::shared::minwindef::{HINSTANCE, LPVOID};
 use winapi::um::libloaderapi::{FreeLibrary, GetModuleHandleW};
 use winapi::um::memoryapi::VirtualProtect;
@@ -87,130 +87,6 @@ pub unsafe extern "system" fn check_off_location() {
     );
 }
 
-#[allow(dead_code)]
-pub fn get_item_id(item_name: &str) -> Option<u8> {
-    match item_name {
-        "Red Orb - 1" => Some(0x00),
-        "Red Orb - 5" => Some(0x01),
-        "Red Orb - 20" => Some(0x02),
-        "Red Orb - 100" => Some(0x03),
-        "Red Orb - 1000" => Some(0x04),
-        "Gold Orb" => Some(0x05),
-        "Yellow Orb" => Some(0x06),
-        "Blue Orb (No Work)" => Some(0x07),
-        "Purple Orb (No Work)" => Some(0x08),
-        "Blue Orb Frag" => Some(0x09),
-        "Green Orb" => Some(0x0A),
-        "Grorb" => Some(0x0B),
-        "Big Green Orb" => Some(0x0C),
-        "TODO" => Some(0x0D), // Applies to multiple TODO cases
-        "Vital Star L" => Some(0x10),
-        "Vital Star S" => Some(0x11),
-        "Devil Star" => Some(0x12),
-        "Holy Water" => Some(0x13),
-        "Reb Orb (Fear Test Test)" => Some(0x14),
-        "Amulet (Casino Coins)" => Some(0x15),
-        "Rebellion (Normal)" => Some(0x16),
-        "Cerberus" => Some(0x17),
-        "Agni?" => Some(0x18),
-        "Rebellion Awakened" => Some(0x19),
-        "Nevan" => Some(0x1A),
-        "Beowulf" => Some(0x1B),
-        "E&I" => Some(0x1C),
-        "Shotgun" => Some(0x1D),
-        "Artemis(?)" => Some(0x1E),
-        "Spiral(?)" => Some(0x1F),
-        "Red Orb...? (Bomb!)" => Some(0x20),
-        "Kalina Ann" => Some(0x21),
-        "Quicksilver" => Some(0x22),
-        "Dopl Style" => Some(0x23),
-        "Astro Board" => Some(0x24),
-        "Vajura" => Some(0x25),
-        "High Roller Card" => Some(0x26),
-        "Soul of Steel" => Some(0x27),
-        "Essence of Fighting" => Some(0x28),
-        "Essence of Technique" => Some(0x29),
-        "Essence of Intelligence" => Some(0x2A),
-        "Orichalcum Frag" => Some(0x2B),
-        "Stone Mask" => Some(0x30),
-        "Neo Gen" => Some(0x31),
-        "Haywire Neo" => Some(0x32),
-        "Full Orichalcum" => Some(0x33),
-        "Orichalcum Frag (Right)" => Some(0x34),
-        "Orichalcum Frag (Bottom)" => Some(0x35),
-        "Orichalcum Frag (Left)" => Some(0x36),
-        "Golden Sun" => Some(0x37),
-        "Onyx Moonshard" => Some(0x38),
-        "Samsara" => Some(0x39),
-        _ => None, // Handle undefined items
-    }
-}
-
-#[allow(dead_code)]
-pub fn get_item(item_id: u64) -> &'static str {
-    match item_id {
-        0x00 => "Red Orb - 1",
-        0x01 => "Red Orb - 5",
-        0x02 => "Red Orb - 20",
-        0x03 => "Red Orb - 100",
-        0x04 => "Red Orb - 1000",
-        0x05 => "Gold Orb",
-        0x06 => "Yellow Orb",
-        0x07 => "Blue Orb (No Work)",
-        0x08 => "Purple Orb (No Work)",
-        0x09 => "Blue Orb Frag",
-        0x0A => "Green Orb",
-        0x0B => "Grorb",
-        0x0C => "Big Green Orb",
-        0x0D => "TODO",
-        0x0E => "TODO",
-        0x0F => "TODO",
-        0x10 => "Vital Star L",
-        0x11 => "Vital Star S",
-        0x12 => "Devil Star",
-        0x13 => "Holy Water",
-        0x14 => "Reb Orb (Fear Test Test)",
-        0x15 => "Amulet (Casino Coins)",
-        0x16 => "Rebellion (Normal)",
-        0x17 => "Cerberus",
-        0x18 => "Agni?",
-        0x19 => "Rebellion Awakened",
-        0x1A => "Nevan",
-        0x1B => "Beowulf",
-        0x1C => "E&I",
-        0x1D => "Shotgun",
-        0x1E => "Artemis(?)",
-        0x1F => "Spiral(?)",
-        0x20 => "Red Orb...? (Bomb!)",
-        0x21 => "Kalina Ann",
-        0x22 => "Quicksilver",
-        0x23 => "Dopl Style",
-        0x24 => "Astro Board",
-        0x25 => "Vajura",
-        0x26 => "High Roller Card",
-        0x27 => "Soul of Steel",
-        0x28 => "Essence of Fighting",
-        0x29 => "Essence of Technique",
-        0x2A => "Essence of Intelligence",
-        0x2B => "Orichalcum Frag",
-        0x2C => "TODO",
-        0x2D => "TODO",
-        0x2E => "TODO",
-        0x2F => "TODO",
-        0x30 => "Stone Mask",
-        0x31 => "Neo Gen",
-        0x32 => "Haywire Neo",
-        0x33 => "Full Orichalcum",
-        0x34 => "Orichalcum Frag (Right)",
-        0x35 => "Orichalcum Frag (Bottom)",
-        0x36 => "Orichalcum Frag (Left)",
-        0x37 => "Golden Sun",
-        0x38 => "Onyx Moonshard",
-        0x39 => "Samsara",
-        _ => "Undefined Item",
-    }
-}
-
 fn read_int_from_address(address: usize) -> i32 {
     unsafe { *((address + get_dmc3_base_address()) as *const i32) }
 }
@@ -228,6 +104,48 @@ pub unsafe extern "system" fn get_dmc3_base_address() -> usize {
         } else {
             0
         }
+    }
+}
+
+fn install_jump_rax_for_itm_file(custom_function: usize) {
+    // This is for Location checking
+    unsafe {
+        modify_call_offset(0x23ba41usize + get_dmc3_base_address(), 13); //sub
+        modify_call_offset(0x23ce70usize + get_dmc3_base_address(), 13); //sub fixes key items as well...
+        let target_address = get_dmc3_base_address() + 0x1B4433usize;
+        // Step 1: Modify memory protection to allow writing
+        let mut old_protect = 0;
+        VirtualProtect(
+            target_address as *mut _,
+            13, // MOV + JMP = 12 bytes
+            PAGE_EXECUTE_READWRITE,
+            &mut old_protect,
+        );
+
+        // Step 2: Write the absolute jump (MOV RAX + JMP RAX)
+        let target_code = slice::from_raw_parts_mut(target_address as *mut u8, 16);
+
+        // MOV RAX, custom_function
+        target_code[0] = 0x50; // Push RAX
+        target_code[1] = 0x48; // REX.W
+        target_code[2] = 0xB8; // MOV RAX, imm64
+        target_code[3..11].copy_from_slice(&custom_function.to_le_bytes());
+
+        // JMP (Call) RAX
+        target_code[11] = 0xFF; // JMP opcode
+        target_code[12] = 0xD0; // JMP RAX
+        target_code[13] = 0x58; // POP Rax
+                                // for i in 14..13 {
+                                //     target_code[i] = 0x90; // NOP
+                                // }
+
+        // Step 3: Restore the original memory protection
+        VirtualProtect(target_address as *mut _, 13, old_protect, &mut old_protect);
+
+        println!(
+            "Installed absolute jump: Target Address = 0x{:x}, Custom Function = 0x{:x}",
+            target_address, custom_function
+        );
     }
 }
 
@@ -403,11 +321,13 @@ pub extern "system" fn DllMain(
                 .name("Archipelago Client".to_string())
                 .spawn(move || {
                     create_console();
+                    SimpleLogger::new().init().unwrap();
                     spawn_arch_thread(rx);
                     println!("Spawn thread...");
                 })
                 .expect("Failed to spawn arch thread");
             install_jump_rax_for_in_world(check_off_location as usize);
+            install_jump_rax_for_itm_file(modify_itm as usize);
         },
         DLL_PROCESS_DETACH => {
             // For cleanup
@@ -467,39 +387,91 @@ pub(crate) unsafe fn rewrite_mode_table() {
         &mut old_protect,
     );
 
-    let mut table = slice::from_raw_parts_mut(table_address as *mut u8, 16);
+    let table = slice::from_raw_parts_mut(table_address as *mut u8, 16);
     table.fill(0x02u8);
-    // for mut val in table {
-    //     val = &mut 0x02u8 // Doesnt
-    // }
-
-    table[1..16].copy_from_slice(&table_address.to_le_bytes());
 
     VirtualProtect(table_address as *mut _, 16, old_protect, &mut old_protect);
 }
 
+//noinspection RsBorrowChecker
 /// Modifying ITM files?
 // Would need to edit the file as well as the relevant line in the exe...
+// Using this to edit the item file as we go into a room
 unsafe fn modify_itm() {
-    todo!()
+    unsafe fn modify_itm_memory() {
+        let itm_addr: *mut i32;
+        let item_id : u32;
+        asm!(
+            "lea edx, [rcx+0x10]",
+            "mov eax, [edx]",
+            out("edx") itm_addr,
+            out("eax") item_id,
+            clobber_abi("win64")
+        );
+        match MAPPING.get() {
+            Some(mapping) => {
+                let room_num: u16 = read_int_from_address(0xC8F258usize) as u16; // TODO Maybe a helper method for getting current room?
+                for (k, x) in constants::get_locations() {
+                    if x.room_number == room_num && x.item_id as u32 == item_id {
+                        let ins_val = tables::get_item_id(mapping.items.get(k).unwrap()); // Scary
+                        *itm_addr = ins_val.unwrap() as i32;
+                        asm!("nop");
+                    }
+                }
+            }
+            None => {}
+        }
+    }
+
+    asm!(
+        "sub rsp, 8",
+        "push rcx",
+        "push rdx",
+        "push rbx",
+        "push r11",
+        "push r10",
+        "push r9",
+        "push r8",
+        "call {}",
+        "pop r8",
+        "pop r9",
+        "pop r10",
+        "pop r11",
+        "pop rbx",
+        "pop rdx",
+        "pop rcx",
+        "add rsp, 8",
+        sym modify_itm_memory,
+        clobber_abi("win64"),
+        out("rax") _,
+        out("rsi") _,
+        out("rdi") _,
+        out("r12") _,
+        out("r13") _,
+        out("r14") _,
+        out("r15") _,
+    );
 }
 
 pub unsafe fn modify_itm_table(offset: usize, id: u8) {
-    let start_addr = 0x5C4C20usize;
-    let end_addr = 0x5C4C20 + 0xC8; // 0x5C4CE8
+    // let start_addr = 0x5C4C20usize; dmc3.exe+5c4c20+1A00
+    // let end_addr = 0x5C4C20 + 0xC8; // 0x5C4CE8
+    let true_offset = offset + get_dmc3_base_address() + 0x1A00usize; // MFW I can't do my offsets correctly
+    if offset == 0x0 {
+        return; // Undecided/ignorable
+    }
     let mut old_protect = 0;
     VirtualProtect(
-        offset as *mut _,
+        true_offset as *mut _,
         4, // Length of table I need to modify
         PAGE_EXECUTE_READWRITE,
         &mut old_protect,
     );
 
-    let mut table = slice::from_raw_parts_mut(offset as *mut u8, 4);
+    let table = slice::from_raw_parts_mut(true_offset as *mut u8, 4);
 
-    table[4] = id;
-    table[1..4].copy_from_slice(&offset.to_le_bytes());
+    table[3] = id;
 
-    VirtualProtect(offset as *mut _, 4, old_protect, &mut old_protect);
-    println!("Modified item table: Offset: {}, id: {}", offset, id);
+    VirtualProtect(true_offset as *mut _, 4, old_protect, &mut old_protect);
+    println!("Modified item table: Offset: {:x}, id: {}", true_offset, id);
 }

@@ -7,7 +7,11 @@ use std::io::{BufReader, Write};
 
 /// Creates a CustomGameData either based on DataPackage or Cache
 pub fn get_dmc3_data() -> CustomGameData {
-    todo!()
+    CustomGameData {
+        item_name_to_id: Default::default(),
+        location_name_to_id: Default::default(),
+    }
+    // TODO!
 }
 
 /// Checks for the Archipelago RoomInfo cache file
