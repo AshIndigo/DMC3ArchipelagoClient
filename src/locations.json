@@ -1,7 +1,7 @@
 {
   "Mission #2 - Vital Star S": {
     "mission_number": 2,
-    "room_number": 2,
+    "room_number": 1,
     "secret": false,
     "default_item": 17,
     "offset": 6048848,
@@ -103,7 +103,7 @@
     "offset": 0,
     "adjudicator": false
   },
-  "Mission #7 - Orichalcum Fragment": {
+  "Mission #7 - Orihalcon Fragment": {
     "mission_number": 7,
     "room_number": 0,
     "secret": false,
@@ -324,7 +324,7 @@
     "room_number": 8,
     "secret": false,
     "default_item": 19,
-    "offset": 6048836,
+    "offset": 6048932,
     "adjudicator": false
   },
   "Mission #15 - Orihalcon Fragment #1": {
@@ -452,7 +452,7 @@
     "room_number": 0,
     "secret": false,
     "default_item": 9,
-    "offset": 0,
+    "offset": 6048876,
     "adjudicator": true
   },
   "Mission #5 - Combat Adjudicator #2": {
@@ -460,7 +460,7 @@
     "room_number": 0,
     "secret": false,
     "default_item": 9,
-    "offset": 0,
+    "offset": 6048880,
     "adjudicator": true
   },
   "Mission #6 - Combat Adjudicator #3": {
@@ -468,7 +468,7 @@
     "room_number": 0,
     "secret": false,
     "default_item": 9,
-    "offset": 0,
+    "offset": 6048884,
     "adjudicator": true
   },
   "Mission #7 - Combat Adjudicator #4": {
@@ -476,7 +476,7 @@
     "room_number": 0,
     "secret": false,
     "default_item": 9,
-    "offset": 0,
+    "offset": 6048888,
     "adjudicator": true
   },
   "Mission #8 - Combat Adjudicator #5": {
@@ -484,7 +484,7 @@
     "room_number": 0,
     "secret": false,
     "default_item": 9,
-    "offset": 0,
+    "offset": 6048892,
     "adjudicator": true
   },
   "Mission #9 - Combat Adjudicator #6": {
@@ -492,7 +492,7 @@
     "room_number": 0,
     "secret": false,
     "default_item": 9,
-    "offset": 0,
+    "offset": 6048896,
     "adjudicator": true
   },
   "Mission #11 - Combat Adjudicator #7": {
@@ -500,7 +500,7 @@
     "room_number": 0,
     "secret": false,
     "default_item": 9,
-    "offset": 0,
+    "offset": 6048900,
     "adjudicator": true
   },
   "Mission #13 - Combat Adjudicator #8": {
@@ -508,7 +508,7 @@
     "room_number": 0,
     "secret": false,
     "default_item": 9,
-    "offset": 0,
+    "offset": 6048904,
     "adjudicator": true
   },
   "Mission #14 - Combat Adjudicator #9": {
@@ -516,7 +516,7 @@
     "room_number": 0,
     "secret": false,
     "default_item": 9,
-    "offset": 0,
+    "offset": 6048908,
     "adjudicator": true
   },
   "Mission #17 - Combat Adjudicator #10": {
@@ -524,7 +524,7 @@
     "room_number": 0,
     "secret": false,
     "default_item": 9,
-    "offset": 0,
+    "offset": 6048912,
     "adjudicator": true
   },
   "Secret Mission #1": {

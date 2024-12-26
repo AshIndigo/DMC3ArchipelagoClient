@@ -23,10 +23,11 @@ fn main() {
         let mission_number = value["mission_number"].as_u64().unwrap();
         let room = value["room_number"].as_u64().unwrap();
         let item_id = value["default_item"].as_u64().unwrap();
+        let adjudicator = value["adjudicator"].as_bool().unwrap();
 
         output.push_str(&format!(
-            r#"    map.insert("{}", ItemEntry {{ offset: {}, mission: {}, room_number: {}, item_id: {} }});"#,
-            key, offset, mission_number, room, item_id
+            r#"    map.insert("{}", ItemEntry {{ offset: {}, mission: {}, room_number: {}, item_id: {}, adjudicator: {} }});"#,
+            key, offset, mission_number, room, item_id, adjudicator
         ));
         output.push('\n');
     }

@@ -1,4 +1,4 @@
-#[allow(dead_code)]
+
 pub fn get_item_id(item_name: &str) -> Option<u8> {
     match item_name {
         "Red Orb - 1" => Some(0x00),
@@ -61,8 +61,7 @@ pub fn get_item_id(item_name: &str) -> Option<u8> {
     }
 }
 
-#[allow(dead_code)]
-pub fn get_item(item_id: u64) -> &'static str {
+pub fn get_item(item_id: u64) -> &'static str { // TODO Update the strings in this
     match item_id {
         0x00 => "Red Orb - 1",
         0x01 => "Red Orb - 5",
@@ -107,7 +106,7 @@ pub fn get_item(item_id: u64) -> &'static str {
         0x28 => "Essence of Fighting",
         0x29 => "Essence of Technique",
         0x2A => "Essence of Intelligence",
-        0x2B => "Orichalcum Frag",
+        0x2B => "Orihalcon Frag",
         0x2C => "TODO",
         0x2D => "TODO",
         0x2E => "TODO",
@@ -115,10 +114,10 @@ pub fn get_item(item_id: u64) -> &'static str {
         0x30 => "Stone Mask",
         0x31 => "Neo Gen",
         0x32 => "Haywire Neo",
-        0x33 => "Full Orichalcum",
-        0x34 => "Orichalcum Frag (Right)",
-        0x35 => "Orichalcum Frag (Bottom)",
-        0x36 => "Orichalcum Frag (Left)",
+        0x33 => "Full Orihalcon",
+        0x34 => "Orihalcon Fragment (Right)",
+        0x35 => "Orihalcon Fragment (Bottom)",
+        0x36 => "Orihalcon Fragment (Left)",
         0x37 => "Golden Sun",
         0x38 => "Onyx Moonshard",
         0x39 => "Samsara",
