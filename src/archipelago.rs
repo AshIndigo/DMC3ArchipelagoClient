@@ -1,4 +1,4 @@
-use crate::cache::{CustomGameData};
+use crate::cache::{read_cache, CustomGameData};
 use crate::hook::{modify_itm_table, Location};
 use crate::{cache, constants, hook, tables};
 use anyhow::{anyhow};
@@ -16,6 +16,7 @@ use crate::constants::get_locations;
 
 pub static MAPPING: OnceCell<Mapping> = OnceCell::new();
 pub static DATA_PACKAGE: OnceCell<CustomGameData> = OnceCell::new();
+pub static mut CHECKED_LOCATIONS: OnceCell<Vec<String>> = OnceCell::new();
 
 // An ungodly mess
 pub async fn connect_archipelago() -> Result<ArchipelagoClient, anyhow::Error> {
@@ -41,9 +42,7 @@ pub async fn connect_archipelago() -> Result<ArchipelagoClient, anyhow::Error> {
                         };
                         clone_data.insert(g.0.clone(), dat);
                     });
-                    cache::write_cache(clone_data, cl.room_info())
-                        .await
-                        .expect("Failed to write cache file"); // TODO Probably shouldn't expect, and instead handle properly
+                    cache::write_cache(clone_data, cl.room_info()).await?
                 }
             },
             Err(er) => return Err(anyhow!("Failed to connect to (Data) Archipelago: {}", er)),
@@ -84,9 +83,21 @@ pub async fn connect_archipelago() -> Result<ArchipelagoClient, anyhow::Error> {
                 true,
             );
             match res.await {
-                Ok(stat) => {
-                    log::info!("Connected info: {:?}", stat);
-                    Ok(cl)
+                Ok(mut stat) => {
+                    unsafe {
+                        CHECKED_LOCATIONS.set(vec![]).unwrap();
+                        let reversed_loc_id: HashMap<i32, String> = HashMap::from_iter(read_cache().unwrap().location_name_to_id.iter().map(|(k, v)| (*v, k.clone())));
+                        stat.checked_locations.iter_mut().for_each(|val| {
+                            match CHECKED_LOCATIONS.get_mut() {
+                                None => {}
+                                Some(locs_chk) => {
+                                    locs_chk.push(reversed_loc_id.get(val).unwrap().clone());
+                                }
+                            }
+                        });
+                        log::info!("Connected info: {:?}", stat);
+                        Ok(cl)
+                    }
                 }
                 _err => Err(anyhow!("Failed to connect to room")),
             }

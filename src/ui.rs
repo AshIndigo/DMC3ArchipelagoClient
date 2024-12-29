@@ -1,5 +1,5 @@
 use eframe::{egui, EventLoopBuilderHook, Frame};
-use egui::{Context, Theme, Visuals};
+use egui::{Context, Theme};
 use winit::platform::windows::EventLoopBuilderExtWindows;
 
 #[derive(Default)]

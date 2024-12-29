@@ -1,3 +1,5 @@
+use once_cell::sync::OnceCell;
+use std::collections::HashMap;
 
 pub fn get_item_id(item_name: &str) -> Option<u8> {
     match item_name {
@@ -30,7 +32,7 @@ pub fn get_item_id(item_name: &str) -> Option<u8> {
         "Ebony & Ivory" => Some(0x1C),
         "Shotgun" => Some(0x1D),
         "Artemis" => Some(0x1E), //?
-        "Spiral" => Some(0x1F), // ?
+        "Spiral" => Some(0x1F),  // ?
         "Red Orb...? (Bomb!)" => Some(0x20),
         "Kalina Ann" => Some(0x21),
         "Quicksilver" => Some(0x22),
@@ -60,8 +62,8 @@ pub fn get_item_id(item_name: &str) -> Option<u8> {
         _ => None, // Handle undefined items
     }
 }
-
-pub fn get_item(item_id: u64) -> &'static str { // TODO Update the strings in this
+pub fn get_item(item_id: u64) -> &'static str {
+    // TODO Update the strings in this
     match item_id {
         0x00 => "Red Orb - 1",
         0x01 => "Red Orb - 5",
@@ -123,4 +125,74 @@ pub fn get_item(item_id: u64) -> &'static str { // TODO Update the strings in th
         0x39 => "Samsara",
         _ => "Undefined Item",
     }
+}
+
+pub static EVENT_TABLES: OnceCell<HashMap<i32, Vec<EventTable>>> = OnceCell::new();
+
+pub fn set_event_tables() -> HashMap<i32, Vec<EventTable>> {
+    let mut tables = HashMap::new();
+    tables.insert(
+        3,
+        vec![EventTable {
+            mission: 3,
+            location: "Mission #3 - Shotgun".to_string(),
+            events: vec![
+                Event {
+                    event_type: EventCode::CHECK,
+                    offset: 0x450,
+                },
+                Event {
+                    event_type: EventCode::CHECK,
+                    offset: 0x6A4,
+                },
+                Event {
+                    event_type: EventCode::GIVE,
+                    offset: 0x6DC,
+                },
+                Event {
+                    event_type: EventCode::CHECK,
+                    offset: 0x72C,
+                },
+                Event {
+                    event_type: EventCode::GIVE,
+                    offset: 0x77C,
+                },
+            ],
+        },
+        EventTable {
+            mission: 3,
+            location: "Mission #3 - Cerberus".to_string(),
+            events: vec![
+                Event {
+                    event_type: EventCode::CHECK,
+                    offset: 0xEE4,
+                },
+                Event {
+                    event_type: EventCode::GIVE,
+                    offset: 0xEFC,
+                }
+            ],
+        }],
+    );
+    tables
+}
+
+struct MissionEventLocations {}
+
+#[derive(PartialEq)]
+pub enum EventCode {
+    GIVE,
+    CHECK,
+    END,
+}
+
+pub struct Event {
+    pub event_type: EventCode,
+    pub offset: usize,
+}
+
+pub(crate) struct EventTable {
+    pub mission: i32,
+    pub location: String,
+    pub events: Vec<Event>,
 }
