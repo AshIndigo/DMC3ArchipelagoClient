@@ -2,3 +2,4 @@
 .idea
 .git
 src/constants.rs
+experiments/

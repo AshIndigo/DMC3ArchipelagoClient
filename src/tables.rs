@@ -177,8 +177,6 @@ pub fn set_event_tables() -> HashMap<i32, Vec<EventTable>> {
     tables
 }
 
-struct MissionEventLocations {}
-
 #[derive(PartialEq)]
 pub enum EventCode {
     GIVE,

@@ -1,9 +1,12 @@
+#![recursion_limit = "512"]
 mod hook;
 mod cache;
 mod archipelago;
 mod constants;
 mod tables;
 mod ui;
+mod config;
+mod ddmk_hook;
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right

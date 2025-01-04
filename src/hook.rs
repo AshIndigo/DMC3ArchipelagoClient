@@ -1,5 +1,5 @@
 use crate::archipelago::{Mapping, CHECKED_LOCATIONS, MAPPING};
-use crate::{archipelago, constants, tables};
+use crate::{archipelago, constants, tables, ui};
 use archipelago_rs::protocol::ClientStatus;
 use once_cell::sync::OnceCell;
 use std::arch::asm;
@@ -13,6 +13,7 @@ use std::{ptr, slice};
 use std::cmp::PartialEq;
 use std::collections::HashMap;
 use archipelago_rs::client::ArchipelagoClient;
+use hudhook::hudhook;
 use log::{LevelFilter, SetLoggerError};
 use simple_logger::SimpleLogger;
 use winapi::shared::minwindef::{HINSTANCE, LPVOID};
@@ -22,7 +23,6 @@ use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
 use windows::Win32::Foundation::BOOL;
 use windows::Win32::System::Console::{AllocConsole, FreeConsole};
 use crate::tables::{set_event_tables, EventCode, EventTable};
-use crate::ui::start_ui;
 
 const TARGET_FUNCTION: usize = 0x1b4595;
 
@@ -115,6 +115,7 @@ pub unsafe extern "system" fn get_dmc3_base_address() -> usize {
     }
 }
 
+// Due to the function I'm tacking this onto, need a double trampoline
 fn install_super_jmp_for_events(custom_function: usize) {
     // This is for Location checking
     unsafe {
@@ -122,7 +123,7 @@ fn install_super_jmp_for_events(custom_function: usize) {
         let first_target_address = get_dmc3_base_address() + 0x1A9BBAusize; // This is for the 6 bytes above 1a9bc0
         let mut old_protect = 0;
         let length_first = 6;
-        VirtualProtect(
+        VirtualProtect( // TODO Make a generic protection handler! remove duped code
             first_target_address as *mut _,
             length_first, // MOV + JMP = 12 bytes
             PAGE_EXECUTE_READWRITE,
@@ -341,7 +342,7 @@ fn modify_jmp_offset(call_address: usize, modify: i32) {
 #[no_mangle]
 pub unsafe extern "system" fn create_console() {
     unsafe {
-        if AllocConsole().is_ok() {
+        if AllocConsole().as_bool() {
             log::info!("Console created successfully!");
         } else {
             log::info!("Failed to allocate console!");
@@ -369,7 +370,7 @@ fn setup_channel() -> Arc<Mutex<Receiver<Location>>> {
 
 #[no_mangle]
 pub extern "system" fn DllMain(
-    _hinst_dll: HINSTANCE,
+    hinst_dll: hudhook::windows::Win32::Foundation::HINSTANCE,
     fdw_reason: u32,
     _lpv_reserved: LPVOID,
 ) -> BOOL {
@@ -377,41 +378,25 @@ pub extern "system" fn DllMain(
     const DLL_PROCESS_DETACH: u32 = 0;
     const DLL_THREAD_ATTACH: u32 = 2;
     const DLL_THREAD_DETACH: u32 = 3;
-    
-    const USE_GUI: bool = false;
 
 
     match fdw_reason {
         DLL_PROCESS_ATTACH => unsafe {
-            if USE_GUI {
-                match egui_logger::builder().init() {
-                    Ok(_) => {log::info!("Logger initialized")}
-                    Err(err) => {log::error!("Failed to setup logger: {}", err);}
-                }
-            } else {
-                SimpleLogger::new().with_module_level("tokio", LevelFilter::Warn).with_module_level("tungstenite::protocol", LevelFilter::Warn).with_threads(true).init().unwrap();
-                create_console();
-            }
+            SimpleLogger::new().with_module_level("tokio", LevelFilter::Warn).with_module_level("tungstenite::protocol", LevelFilter::Warn).with_module_level("hudhook::hooks::dx11", LevelFilter::Warn).with_threads(true).init().unwrap();
+            hudhook::alloc_console().expect("Console was not allocated");
+            hudhook::enable_console_colors();
             let rx = setup_channel();
+            thread::Builder::new()
+                .name("Archipelago HUD".to_string())
+                .spawn(move || {
+                    ui::start_imgui_hudhook(hinst_dll); // HudHook wants to be in its own thread
+                }).expect("Failed to spawn ui thread");
             thread::Builder::new()
                 .name("Archipelago Client".to_string())
                 .spawn(move || {
-                    if USE_GUI {
-                        start_ui();
-                    }
                     spawn_arch_thread(rx);
-                })
-                .expect("Failed to spawn arch thread");
-            log::info!("Installing trampoline for in-world items");
-            install_jump_rax_for_in_world(check_off_location as usize);
-            log::info!("Installing trampoline for modifying itm files");
-            install_jump_rax_for_itm_file(modify_itm as usize);
-            log::info!("Installing the super trampoline for event tables");
-            install_super_jmp_for_events(edit_event_wrapper as usize);
-            match tables::EVENT_TABLES.set(set_event_tables()) {
-                Ok(_) => {log::info!("EVENT_TABLES was set successfully")}
-                Err(_) => {}
-            }
+                }).expect("Failed to spawn arch thread");
+            install_initial_functions();
         },
         DLL_PROCESS_DETACH => {
             // For cleanup
@@ -424,6 +409,20 @@ pub extern "system" fn DllMain(
 
     BOOL(1)
 }
+
+fn install_initial_functions() {
+    log::info!("Installing trampoline for in-world items");
+    install_jump_rax_for_in_world(check_off_location as usize);
+    log::info!("Installing trampoline for modifying itm files");
+    install_jump_rax_for_itm_file(modify_itm as usize);
+    log::info!("Installing the super trampoline for event tables");
+    install_super_jmp_for_events(edit_event_wrapper as usize);
+    match tables::EVENT_TABLES.set(set_event_tables()) {
+        Ok(_) => {log::info!("EVENT_TABLES was set successfully")}
+        Err(_) => {}
+    }
+}
+
 #[tokio::main(flavor = "current_thread")]
 async unsafe fn spawn_arch_thread(rx: Arc<Mutex<Receiver<Location>>>) {
     let mut connected = false;
@@ -483,14 +482,14 @@ pub unsafe fn edit_event_wrapper() {
                                         match CHECKED_LOCATIONS.get() {
                                             None => {}
                                             Some(chk_locs) => {
-                                                if chk_locs.contains(&tbl.location) { // If the location has been checked, disable it by making the game check for an itme the player already has
+                                                if chk_locs.contains(&tbl.location) { // If the location has been checked, disable it by making the game check for an item the player already has
                                                     if event.event_type == EventCode::CHECK {
                                                         replace_single_byte_no_offset(base_table + event.offset, 0x16) // TODO Default starting weapon
                                                     }
                                                     // if (event.event_type == EventCode::GIVE) {
                                                     //     replace_single_byte_no_offset(base_table + event.offset, tables::get_item_id(mapping.items.get(&tbl.location).unwrap()).unwrap())
                                                     // }
-                                                } else { // Location has not been checked off!
+                                                } else { // Location has not been checked off! TODO Make the "check" event, a dummied item
                                                     replace_single_byte_no_offset(base_table + event.offset, tables::get_item_id(mapping.items.get(&tbl.location).unwrap()).unwrap())
                                                 }
                                             }
