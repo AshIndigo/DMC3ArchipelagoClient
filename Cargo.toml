@@ -31,8 +31,9 @@ log = { version = "0.4.22" }
 #egui = "0.30.0" # 0.29.1 works with egui_logger 0.6.1
 #egui_logger = "0.6.2"
 #eframe = "0.30.0"
-imgui = { version = "0.12.0", features = ["docking"] }
-hudhook = "0.8.0"
+#imgui = { version = "0.9.0" }
+imgui = { version = "0.12.0" }
+#hudhook = "0.8.0"
 minhook = "0.6.0"
 #winit = "0.30.7"
 #imgui = "0.11.0"

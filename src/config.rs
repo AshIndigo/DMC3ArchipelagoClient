@@ -1,5 +1,4 @@
 use imgui::Key;
-use serde::Deserialize;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Settings {

@@ -1,9 +1,9 @@
 use crate::archipelago::{Mapping, CHECKED_LOCATIONS, MAPPING};
-use crate::{archipelago, constants, tables, ui};
+use crate::{archipelago, constants, tables, hudhook_hook};
 use archipelago_rs::protocol::ClientStatus;
 use once_cell::sync::OnceCell;
 use std::arch::asm;
-use std::ffi::OsStr;
+use std::ffi::{CString, OsStr};
 use std::fmt::{Display, Formatter};
 use std::os::windows::ffi::OsStrExt;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -13,7 +13,6 @@ use std::{ptr, slice};
 use std::cmp::PartialEq;
 use std::collections::HashMap;
 use archipelago_rs::client::ArchipelagoClient;
-use hudhook::hudhook;
 use log::{LevelFilter, SetLoggerError};
 use simple_logger::SimpleLogger;
 use winapi::shared::minwindef::{HINSTANCE, LPVOID};
@@ -22,6 +21,8 @@ use winapi::um::memoryapi::VirtualProtect;
 use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
 use windows::Win32::Foundation::BOOL;
 use windows::Win32::System::Console::{AllocConsole, FreeConsole};
+use windows::Win32::System::LibraryLoader::GetModuleHandleA;
+use crate::ddmk_hook::setup_ddmk_hook;
 use crate::tables::{set_event_tables, EventCode, EventTable};
 
 const TARGET_FUNCTION: usize = 0x1b4595;
@@ -368,9 +369,20 @@ fn setup_channel() -> Arc<Mutex<Receiver<Location>>> {
     Arc::new(Mutex::new(rx))
 }
 
+fn is_ddmk_loaded() -> bool {
+    let wide_name: Vec<u16> = OsStr::new("Mary.dll")
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    unsafe {
+        let module_handle: HINSTANCE = GetModuleHandleW(wide_name.as_ptr());
+        !module_handle.is_null()
+    }
+}
+
 #[no_mangle]
 pub extern "system" fn DllMain(
-    hinst_dll: hudhook::windows::Win32::Foundation::HINSTANCE,
+    hinst_dll: HINSTANCE,//hudhook::windows::Win32::Foundation::HINSTANCE,
     fdw_reason: u32,
     _lpv_reserved: LPVOID,
 ) -> BOOL {
@@ -383,14 +395,21 @@ pub extern "system" fn DllMain(
     match fdw_reason {
         DLL_PROCESS_ATTACH => unsafe {
             SimpleLogger::new().with_module_level("tokio", LevelFilter::Warn).with_module_level("tungstenite::protocol", LevelFilter::Warn).with_module_level("hudhook::hooks::dx11", LevelFilter::Warn).with_threads(true).init().unwrap();
-            hudhook::alloc_console().expect("Console was not allocated");
-            hudhook::enable_console_colors();
+    /*        hudhook::alloc_console().expect("Console was not allocated");
+            hudhook::enable_console_colors();*/
+            create_console();
             let rx = setup_channel();
-            thread::Builder::new()
-                .name("Archipelago HUD".to_string())
-                .spawn(move || {
-                    ui::start_imgui_hudhook(hinst_dll); // HudHook wants to be in its own thread
-                }).expect("Failed to spawn ui thread");
+            if is_ddmk_loaded() {
+                log::info!("DDMK is loaded!");
+                setup_ddmk_hook();
+            } else {
+                /*log::info!("DDMK is not loaded!");
+                thread::Builder::new()
+                    .name("Archipelago HUD".to_string())
+                    .spawn(move || {
+                        hudhook_hook::start_imgui_hudhook(hinst_dll); // HudHook wants to be in its own thread
+                    }).expect("Failed to spawn ui thread");*/
+            }
             thread::Builder::new()
                 .name("Archipelago Client".to_string())
                 .spawn(move || {
@@ -461,6 +480,7 @@ async unsafe fn spawn_arch_thread(rx: Arc<Mutex<Receiver<Location>>>) {
 pub unsafe fn set_starting_weapons(melee_id: u8, gun_id: u8) {
     replace_single_byte(0x000, melee_id); // Melee weapon
     replace_single_byte(0x000, gun_id); // Gun
+    todo!()
 
 }
 
