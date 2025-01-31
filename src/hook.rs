@@ -451,7 +451,7 @@ async unsafe fn spawn_arch_thread(rx: Arc<Mutex<Receiver<Location>>>) {
     loop {
         if connected == false {
             log::info!("Going for connection");
-            client = archipelago::connect_archipelago().await;
+            client = archipelago::connect_archipelago_get_url().await;
             match &client {
                 Ok(cl) => {
                     log::debug!("Room Info: {:?}", cl.room_info());

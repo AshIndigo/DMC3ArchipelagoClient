@@ -19,12 +19,16 @@ pub static DATA_PACKAGE: OnceCell<CustomGameData> = OnceCell::new();
 pub static mut CHECKED_LOCATIONS: OnceCell<Vec<String>> = OnceCell::new();
 
 // An ungodly mess
-pub async fn connect_archipelago() -> Result<ArchipelagoClient, anyhow::Error> {
+pub async fn connect_archipelago_get_url() -> Result<ArchipelagoClient, anyhow::Error> {
     let url = input("Archipelago URL: ")?;
+    let name = input("Name: ")?;
+    let password = input("Password (Leave blank if unneeded): ")?;
     log::info!("url: {}", url);
+    connect_archipelago(url, name, password).await
+}
 
-    let mut client: Result<ArchipelagoClient, ArchipelagoError> =
-        Err(ArchipelagoError::ConnectionClosed);
+pub async fn connect_archipelago(url: String, name: String, password: String) -> Result<ArchipelagoClient, anyhow::Error> {
+    let mut client: Result<ArchipelagoClient, ArchipelagoError> = Err(ArchipelagoError::ConnectionClosed);
     if !cache::check_for_cache_file() {
         // If the cache file does not exist, then it needs to be acquired
         client = ArchipelagoClient::with_data_package(&url, Some(vec!["Devil May Cry 3".parse()?]))
@@ -67,8 +71,8 @@ pub async fn connect_archipelago() -> Result<ArchipelagoClient, anyhow::Error> {
             Err(er) => return Err(anyhow!("Failed to connect to Archipelago: {}", er)),
         }
     }
-    let name = input("Name: ")?;
-    let password = input("Password (Leave blank if unneeded): ")?;
+    // let name = input("Name: ")?;
+    // let password = input("Password (Leave blank if unneeded): ")?;
     log::info!("Connecting to url");
     match client {
         // Whether we have a client
@@ -285,7 +289,7 @@ pub async fn handle_things(cl: &mut ArchipelagoClient, rx: &Arc<Mutex<Receiver<L
         },
         Err(ArchipelagoError::NetworkError(err)) => {
             log::info!("Failed to receive data, reconnecting: {}", err);
-            match connect_archipelago().await {
+            match connect_archipelago_get_url().await {
                 Ok(client) => {
                     *cl = client;
                 }

@@ -8,6 +8,7 @@ mod hudhook_hook;
 mod config;
 mod ddmk_hook;
 mod ui;
+mod imgui_bindings;
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right

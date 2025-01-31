@@ -6,7 +6,9 @@ use crate::config::Settings;
 pub struct ArchipelagoHud {
     open: bool,
     settings: Settings,
-    arch_url: String,
+    pub(crate) arch_url: String,
+    pub(crate) username: String,
+    pub(crate) password: String,
     input_handler: InputHandler,
 }
 
@@ -16,6 +18,8 @@ impl ArchipelagoHud {
             open: false,
             settings: Settings::default(),
             arch_url: String::with_capacity(256),
+            username: String::with_capacity(256),
+            password: String::with_capacity(256),
             input_handler: InputHandler::new(),
         }
     }

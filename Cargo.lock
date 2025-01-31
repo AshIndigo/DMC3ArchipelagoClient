@@ -201,6 +201,7 @@ dependencies = [
  "anyhow",
  "archipelago_rs",
  "imgui",
+ "imgui-sys",
  "log",
  "minhook",
  "once_cell",
