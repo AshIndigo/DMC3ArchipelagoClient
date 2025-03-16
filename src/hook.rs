@@ -1,19 +1,19 @@
-use crate::archipelago::{Mapping, CHECKED_LOCATIONS, MAPPING};
+use crate::archipelago::{connect_archipelago, ArchipelagoData, CHECKED_LOCATIONS, CONNECT_CHANNEL_SETUP, MAPPING};
 use crate::{archipelago, constants, tables, hudhook_hook};
 use archipelago_rs::protocol::ClientStatus;
 use once_cell::sync::OnceCell;
 use std::arch::asm;
-use std::ffi::{CString, OsStr};
+use std::ffi::OsStr;
 use std::fmt::{Display, Formatter};
 use std::os::windows::ffi::OsStrExt;
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::thread;
 use std::{ptr, slice};
-use std::cmp::PartialEq;
-use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use anyhow::Error;
 use archipelago_rs::client::ArchipelagoClient;
-use log::{LevelFilter, SetLoggerError};
+use log::LevelFilter;
 use simple_logger::SimpleLogger;
 use winapi::shared::minwindef::{HINSTANCE, LPVOID};
 use winapi::um::libloaderapi::{FreeLibrary, GetModuleHandleW};
@@ -21,9 +21,8 @@ use winapi::um::memoryapi::VirtualProtect;
 use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
 use windows::Win32::Foundation::BOOL;
 use windows::Win32::System::Console::{AllocConsole, FreeConsole};
-use windows::Win32::System::LibraryLoader::GetModuleHandleA;
 use crate::ddmk_hook::setup_ddmk_hook;
-use crate::tables::{set_event_tables, EventCode, EventTable};
+use crate::tables::{set_event_tables, EventCode};
 
 const TARGET_FUNCTION: usize = 0x1b4595;
 
@@ -100,9 +99,8 @@ fn read_int_from_address(address: usize) -> i32 {
     unsafe { *((address + get_dmc3_base_address()) as *const i32) }
 }
 
-#[no_mangle]
-pub unsafe extern "system" fn get_dmc3_base_address() -> usize {
-    let wide_name: Vec<u16> = OsStr::new("dmc3.exe")
+pub unsafe extern "system" fn get_base_address(module_name: &str) -> usize {
+    let wide_name: Vec<u16> = OsStr::new(&module_name)
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
@@ -116,12 +114,17 @@ pub unsafe extern "system" fn get_dmc3_base_address() -> usize {
     }
 }
 
+#[no_mangle]
+pub unsafe extern "system" fn get_dmc3_base_address() -> usize {
+    get_base_address("dmc3.exe")
+}
+
 // Due to the function I'm tacking this onto, need a double trampoline
 fn install_super_jmp_for_events(custom_function: usize) {
     // This is for Location checking
     unsafe {
-        modify_call_offset(0x1af0f8usize + get_dmc3_base_address(), 6); //sub
-        let first_target_address = get_dmc3_base_address() + 0x1A9BBAusize; // This is for the 6 bytes above 1a9bc0
+        modify_call_offset(0x1af0f8usize + get_dmc3_base_address(), 5); //sub, orig 6   // TODO FIxing for crash from CC
+        let first_target_address = get_dmc3_base_address() + 0x1A9BBBusize; // This is for the 6 bytes above 1a9bc0 - Need to scoot this a little... Was originally 1A9BBA
         let mut old_protect = 0;
         let length_first = 6;
         VirtualProtect( // TODO Make a generic protection handler! remove duped code
@@ -363,7 +366,7 @@ pub unsafe extern "system" fn free_self() -> bool {
     }
 }
 
-fn setup_channel() -> Arc<Mutex<Receiver<Location>>> {
+fn setup_items_channel() -> Arc<Mutex<Receiver<Location>>> {
     let (tx, rx) = mpsc::channel();
     TX.set(tx).expect("TX already initialized");
     Arc::new(Mutex::new(rx))
@@ -382,7 +385,7 @@ fn is_ddmk_loaded() -> bool {
 
 #[no_mangle]
 pub extern "system" fn DllMain(
-    hinst_dll: HINSTANCE,//hudhook::windows::Win32::Foundation::HINSTANCE,
+    _hinst_dll: HINSTANCE,//hudhook::windows::Win32::Foundation::HINSTANCE,
     fdw_reason: u32,
     _lpv_reserved: LPVOID,
 ) -> BOOL {
@@ -398,7 +401,7 @@ pub extern "system" fn DllMain(
     /*        hudhook::alloc_console().expect("Console was not allocated");
             hudhook::enable_console_colors();*/
             create_console();
-            let rx = setup_channel();
+            let rx = setup_items_channel();
             if is_ddmk_loaded() {
                 log::info!("DDMK is loaded!");
                 setup_ddmk_hook();
@@ -442,26 +445,54 @@ fn install_initial_functions() {
     }
 }
 
+pub(crate) static CLIENT: LazyLock<Mutex<Option<ArchipelagoClient>>> = LazyLock::new(|| Mutex::new(None));
+pub(crate) static CONNECTED: AtomicBool = AtomicBool::new(false);
+
 #[tokio::main(flavor = "current_thread")]
 async unsafe fn spawn_arch_thread(rx: Arc<Mutex<Receiver<Location>>>) {
-    let mut connected = false;
-    let mut setup = false;
-    let mut client = Err(anyhow::anyhow!("Archipelago Client not initialized"));
+   // let mut connected = false;
+    let mut setup = false; // ??
+    //let mut client = Err(anyhow::anyhow!("Archipelago Client not initialized"));
     log::info!("In thread");
+    // For handling connection requests from the UI
+    let rx_connect = archipelago::setup_connect_channel();
+    CONNECT_CHANNEL_SETUP.store(true, Ordering::SeqCst); // Unneeded?
+
     loop {
-        if connected == false {
-            log::info!("Going for connection");
-            client = archipelago::connect_archipelago_get_url().await;
-            match &client {
-                Ok(cl) => {
-                    log::debug!("Room Info: {:?}", cl.room_info());
-                    connected = true
+        if CONNECT_CHANNEL_SETUP.load(Ordering::SeqCst) {
+                    if let Ok(rec) = rx_connect.lock() {
+                        while let Ok(item) = rec.try_recv() {
+                            log::info!("Processing data: {}", item);
+                            match connect_archipelago(item.url, item.name, item.password).await { // worked
+                                Ok(cl) => {
+                                    CLIENT.lock().unwrap().replace(cl);
+                                    CONNECTED.store(true, Ordering::SeqCst);
+                                }
+                                Err(err) => {
+                                    log::error!("Failed to connect to archipelago: {}", err);
+                                    CLIENT.lock().unwrap().take(); // Clear out the CLIENT field
+                                    CONNECTED.store(false, Ordering::SeqCst);
+                                }
+                            }
+                        }
+
                 }
-                Err(..) => log::warn!("Failed to connect"),
-            }
+            //}
         }
-        match client {
-            Ok(ref mut cl) => {
+        // if CONNECTED.load(Ordering::SeqCst) == false {
+        //     //log::info!("Going for connection");
+        //     //client = archipelago::connect_archipelago_get_url().await;
+        //     match CLIENT.lock().unwrap().as_mut() {
+        //         Some(cl) => {
+        //             log::debug!("Room Info: {:?}", cl.room_info());
+        //             CONNECTED.store(true, Ordering::SeqCst);
+        //         }
+        //         // None => ;//log::warn!("Not connected"),
+        //         _ => {}
+        //     }
+        // }
+        match CLIENT.lock().unwrap().as_mut() { /// If the client exists and is usable, then try to initially set things up and then handle messages
+            Some(ref mut cl) => {
                 if setup == false {
                     cl.status_update(ClientStatus::ClientConnected)
                         .await
@@ -471,7 +502,9 @@ async unsafe fn spawn_arch_thread(rx: Arc<Mutex<Receiver<Location>>>) {
                 }
                 archipelago::handle_things(cl, &rx).await;
             }
-            Err(..) => log::info!("Not connected?"),
+            None => {
+                CONNECTED.store(false, Ordering::SeqCst);
+            },
         }
     }
 }

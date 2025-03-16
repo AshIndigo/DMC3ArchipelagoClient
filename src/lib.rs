@@ -1,3 +1,4 @@
+#![feature(lock_value_accessors)]
 #![recursion_limit = "512"]
 mod hook;
 mod cache;
@@ -9,6 +10,7 @@ mod config;
 mod ddmk_hook;
 mod ui;
 mod imgui_bindings;
+mod inputs;
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right

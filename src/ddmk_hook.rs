@@ -1,25 +1,19 @@
-use imgui::sys::{cty, ImGuiContext, ImGuiWindowFlags};
-use imgui::{sys, Context, FontSource};
+use imgui::Context;
 use minhook::MinHook;
-use std::cell::{Cell, RefCell, UnsafeCell};
+use std::cell::{Cell, RefCell};
 use std::ffi::OsStr;
-use std::fs::File;
-use std::io::Read;
-use std::ops::{Add, Deref, DerefMut};
+use std::ops::{Deref, DerefMut};
 use std::os::raw::c_char;
 use std::os::windows::ffi::OsStrExt;
-use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Sender;
 use std::thread;
-use std::time::{Duration, Instant};
-use anyhow::Error;
-use archipelago_rs::client::ArchipelagoClient;
 use imgui_sys::ImVec2;
 use winapi::shared::minwindef::HINSTANCE;
 use winapi::um::libloaderapi::GetModuleHandleW;
-use crate::archipelago::connect_archipelago;
-use crate::hook::get_dmc3_base_address;
-use crate::imgui_bindings;
+use hook::CONNECTED;
+use crate::{archipelago, hook};
+use crate::archipelago::{ArchipelagoData, CONNECT_CHANNEL_SETUP};
 use crate::imgui_bindings::{*};
 use crate::ui::ArchipelagoHud;
 
@@ -44,9 +38,8 @@ unsafe extern "C" fn hooked_timestep() {
         None => {
             panic!("ORIG_TIMESTEP_FUNC not initialized in hooked render");
         }
-        Some(fnc) => {
-            fnc();
-            //log::info!("Ran orig timestep function");
+        Some(timestep_func) => {
+            timestep_func();
         }
     }
 }
@@ -61,31 +54,28 @@ unsafe extern "C" fn hooked_render() {
     }
     HUD_INSTANCE.with(|instance| {
         let mut instance = instance.borrow_mut();
-        let mut flag = &mut true;
+        let flag = &mut true;
         if !read_bool_from_address(0x12c73a) {
             return;
         }
-        std::mem::transmute::<_, ImGuiBegin>(get_mary_base_address() + BEGIN_FUNC_ADDR)("Archipelago".as_ptr() as *const c_char, flag as *mut bool, 0);
-        text("Connection:");
-        input_text("Archipelago URL", &mut instance.deref_mut().arch_url); // TODO: Slight issue where some letters arent being cleared properly?
-        input_text("Archipelago Username", &mut instance.deref_mut().username);
-        input_text("Archipelago Password", &mut instance.deref_mut().password);
+        std::mem::transmute::<_, ImGuiBegin>(get_mary_base_address() + BEGIN_FUNC_ADDR)("Archipelago\0".as_ptr() as *const c_char, flag as *mut bool, 0);
+        text(format!("Status: {:#}\0", CONNECTED.load(Ordering::SeqCst)));
+        text("Connection:\0");
+        input_rs("URL\0", &mut instance.deref_mut().arch_url, false); // TODO: Slight issue where some letters arent being cleared properly?
+        input_rs("Username\0", &mut instance.deref_mut().username, false);
+        input_rs("Password\0", &mut instance.deref_mut().password, true);
         if std::mem::transmute::<_, ImGuiButton>(get_mary_base_address() + BUTTON_ADDR)("Connect".as_ptr() as *const c_char, &ImVec2 {
             x: 0.0,
             y: 0.0,
         }) {
-            log::debug!("Given URL: {}", &mut instance.deref_mut().arch_url);
-            let url = instance.deref().arch_url.clone();
-            let name = instance.deref().username.clone();
-            let password = instance.deref().password.clone();
-            thread::spawn(async || {
-                match connect_archipelago(url, name, password).await {
-                    Ok(_) => {
-                        log::info!("Archipelago Connected")
-                    }
-                    Err(err) => { log::error!("Failed to connect to archipelago: {}", err); }
-                }
+            log::debug!("Given URL: {}", &mut instance.deref_mut().arch_url.trim().to_string());
+            let url = instance.deref().arch_url.clone().trim().to_string();
+            let name = instance.deref().username.clone().trim().to_string();
+            let password = instance.deref().password.clone().trim().to_string();
+            thread::spawn(move || {
+                connect_button_pressed(url, name, password);
             });
+
         }
         std::mem::transmute::<_, BasicNothingFunc>(get_mary_base_address() + END_FUNC_ADDR)();
         match ORIG_RENDER_FUNC.get() {
@@ -97,28 +87,25 @@ unsafe extern "C" fn hooked_render() {
     })
 }
 
+#[tokio::main(flavor = "current_thread")]
+async fn connect_button_pressed(url: String, name: String, password: String) {
+    match archipelago::TX_ARCH.get() {
+        None => log::error!("Connect TX doesn't exist"),
+        Some(tx) => {
+            tx.send(ArchipelagoData { url, name, password, }).expect("Failed to send data");
+        }
+    }
+}
+
 type BasicNothingFunc = unsafe extern "system" fn(); // No args no returns
 
 pub unsafe extern "system" fn get_mary_base_address() -> usize {
-    let wide_name: Vec<u16> = OsStr::new("Mary.dll")
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
-    unsafe {
-        let module_handle: HINSTANCE = GetModuleHandleW(wide_name.as_ptr());
-        if !module_handle.is_null() {
-            module_handle as *mut _ as usize
-        } else {
-            0
-        }
-    }
+    crate::hook::get_base_address("Mary.dll")
 }
 
 pub unsafe fn setup_ddmk_hook() {
     log::info!("Starting up hook");
     let orig_main = get_mary_base_address() + MAIN_FUNC_ADDR;
-    let mary_begin = get_mary_base_address() + BEGIN_FUNC_ADDR;
-    let mary_end = get_mary_base_address() + END_FUNC_ADDR;
     //let orig_main = get_mary_base_address() + 0xC17B0; // I think this is main() in DDMK? For 2022 DDMK
     let orig_timestep = get_mary_base_address() + TIMESTEP_FUNC_ADDR;
     // ORIG_FUNC.set(Some(std::mem::transmute::<_, DdmkMainType>(orig_main)));

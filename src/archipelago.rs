@@ -1,22 +1,49 @@
+use std::cell::LazyCell;
 use crate::cache::{read_cache, CustomGameData};
 use crate::hook::{modify_itm_table, Location};
-use crate::{cache, constants, hook, tables};
+use crate::{cache, hook, tables};
 use anyhow::{anyhow};
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use std::fs::{remove_file, File};
 use std::io;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::sync::mpsc::Receiver;
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{mpsc, Arc, Mutex};
+use std::sync::atomic::AtomicBool;
 use once_cell::sync::OnceCell;
 use crate::constants::get_locations;
 
 pub static MAPPING: OnceCell<Mapping> = OnceCell::new();
 pub static DATA_PACKAGE: OnceCell<CustomGameData> = OnceCell::new();
 pub static mut CHECKED_LOCATIONS: OnceCell<Vec<String>> = OnceCell::new();
+
+pub static TX_ARCH: OnceCell<Sender<ArchipelagoData>> = OnceCell::new();
+//pub static RX_ARCH: LazyCell<Receiver<ArchipelagoData>> = LazyCell::new(());
+
+pub static CONNECT_CHANNEL_SETUP: AtomicBool = AtomicBool::new(false);
+
+pub struct ArchipelagoData {
+    pub url: String,
+    pub name: String,
+    pub password: String
+}
+
+impl Display for ArchipelagoData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Ok(write!(f, "URL: {:#} Name: {:#} Password: {:#}", self.url, self.name, self.password).expect("Failed to print connection data"))
+    }
+}
+
+pub fn setup_connect_channel() -> Arc<Mutex<Receiver<ArchipelagoData>>> {
+    let (tx, rx) = mpsc::channel();
+    TX_ARCH.set(tx).expect("TX already initialized");
+    Arc::new(Mutex::new(rx))
+    //RX_ARCH = Some(rx);
+}
 
 // An ungodly mess
 pub async fn connect_archipelago_get_url() -> Result<ArchipelagoClient, anyhow::Error> {
@@ -27,12 +54,21 @@ pub async fn connect_archipelago_get_url() -> Result<ArchipelagoClient, anyhow::
     connect_archipelago(url, name, password).await
 }
 
+trait RemoveLast {
+    fn remove_last(&self) -> &Self;
+}
+
+impl RemoveLast for str {
+    fn remove_last(&self) -> &Self {
+        self.strip_suffix(|_: char| true).unwrap_or(self)
+    }
+}
+
 pub async fn connect_archipelago(url: String, name: String, password: String) -> Result<ArchipelagoClient, anyhow::Error> {
     let mut client: Result<ArchipelagoClient, ArchipelagoError> = Err(ArchipelagoError::ConnectionClosed);
     if !cache::check_for_cache_file() {
         // If the cache file does not exist, then it needs to be acquired
-        client = ArchipelagoClient::with_data_package(&url, Some(vec!["Devil May Cry 3".parse()?]))
-            .await;
+        client = ArchipelagoClient::with_data_package(&url, Some(vec!["Devil May Cry 3".parse()?])).await;
         match &client {
             Ok(cl) => match &cl.data_package() {
                 // Write the data package to a local cache file
@@ -71,8 +107,6 @@ pub async fn connect_archipelago(url: String, name: String, password: String) ->
             Err(er) => return Err(anyhow!("Failed to connect to Archipelago: {}", er)),
         }
     }
-    // let name = input("Name: ")?;
-    // let password = input("Password (Leave blank if unneeded): ")?;
     log::info!("Connecting to url");
     match client {
         // Whether we have a client
@@ -152,8 +186,6 @@ pub async unsafe fn run_setup(cl: &mut ArchipelagoClient) {
     }
     use_mappings();
 }
-
-
 
 #[derive(Deserialize, Serialize)]
 pub struct Mapping {
