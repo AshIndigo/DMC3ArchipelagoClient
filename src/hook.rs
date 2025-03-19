@@ -123,8 +123,8 @@ pub unsafe extern "system" fn get_dmc3_base_address() -> usize {
 fn install_super_jmp_for_events(custom_function: usize) {
     // This is for Location checking
     unsafe {
-        modify_call_offset(0x1af0f8usize + get_dmc3_base_address(), 5); //sub, orig 6   // TODO FIxing for crash from CC
-        let first_target_address = get_dmc3_base_address() + 0x1A9BBBusize; // This is for the 6 bytes above 1a9bc0 - Need to scoot this a little... Was originally 1A9BBA
+        modify_call_offset(0x1af0f8usize + get_dmc3_base_address(), 6); //sub, orig 6
+        let first_target_address = get_dmc3_base_address() + 0x1A9BBAusize; // This is for the 6 bytes above 1a9bc0
         let mut old_protect = 0;
         let length_first = 6;
         VirtualProtect( // TODO Make a generic protection handler! remove duped code
@@ -141,6 +141,7 @@ fn install_super_jmp_for_events(custom_function: usize) {
         target_code[2] = 0xFE;
         target_code[3] = 0xFF;
         target_code[4] = 0xFF;
+        target_code[5] = 0x90;
 
         // Restore the original memory protection
         VirtualProtect(first_target_address as *mut _, length_first, old_protect, &mut old_protect);
@@ -463,7 +464,7 @@ async unsafe fn spawn_arch_thread(rx: Arc<Mutex<Receiver<Location>>>) {
                     if let Ok(rec) = rx_connect.lock() {
                         while let Ok(item) = rec.try_recv() {
                             log::info!("Processing data: {}", item);
-                            match connect_archipelago(item.url, item.name, item.password).await { // worked
+                            match connect_archipelago(item).await { // worked
                                 Ok(cl) => {
                                     CLIENT.lock().unwrap().replace(cl);
                                     CONNECTED.store(true, Ordering::SeqCst);

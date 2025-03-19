@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::fs::{remove_file, File};
 use std::io;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{mpsc, Arc, Mutex};
@@ -26,9 +26,11 @@ pub static TX_ARCH: OnceCell<Sender<ArchipelagoData>> = OnceCell::new();
 
 pub static CONNECT_CHANNEL_SETUP: AtomicBool = AtomicBool::new(false);
 
+#[derive(Serialize, Deserialize)]
 pub struct ArchipelagoData {
     pub url: String,
     pub name: String,
+    #[serde(skip)]
     pub password: String
 }
 
@@ -51,7 +53,8 @@ pub async fn connect_archipelago_get_url() -> Result<ArchipelagoClient, anyhow::
     let name = input("Name: ")?;
     let password = input("Password (Leave blank if unneeded): ")?;
     log::info!("url: {}", url);
-    connect_archipelago(url, name, password).await
+
+    connect_archipelago(ArchipelagoData { url, name, password }).await
 }
 
 trait RemoveLast {
@@ -64,11 +67,11 @@ impl RemoveLast for str {
     }
 }
 
-pub async fn connect_archipelago(url: String, name: String, password: String) -> Result<ArchipelagoClient, anyhow::Error> {
+pub async fn connect_archipelago(login_data: ArchipelagoData) -> Result<ArchipelagoClient, anyhow::Error> {
     let mut client: Result<ArchipelagoClient, ArchipelagoError> = Err(ArchipelagoError::ConnectionClosed);
     if !cache::check_for_cache_file() {
         // If the cache file does not exist, then it needs to be acquired
-        client = ArchipelagoClient::with_data_package(&url, Some(vec!["Devil May Cry 3".parse()?])).await;
+        client = ArchipelagoClient::with_data_package(&login_data.url, Some(vec!["Devil May Cry 3".parse()?])).await;
         match &client {
             Ok(cl) => match &cl.data_package() {
                 // Write the data package to a local cache file
@@ -89,7 +92,7 @@ pub async fn connect_archipelago(url: String, name: String, password: String) ->
         }
     } else {
         // If the cache exists, then connect normally and verify the cache file
-        client = ArchipelagoClient::new(&url).await;
+        client = ArchipelagoClient::new(&login_data.url).await;
         match client {
             Ok(ref mut cl) => {
                 let option = cache::check_checksums(cl.room_info()).await;
@@ -99,8 +102,8 @@ pub async fn connect_archipelago(url: String, name: String, password: String) ->
                         // If there are checksums that don't match, obliterate the cache file and reconnect to obtain the data package
                         log::info!("Checksums check failures: {:?}", failures);
                         remove_file("cache.json")?;
-                        client = Err(ArchipelagoError::ConnectionClosed); // TODO Figure out a better way to do this
-                        return Err(anyhow!("Reconnecting to grab cache!"));
+                        client = Err(ArchipelagoError::ConnectionClosed); // TODO Figure out a better way to do this - Good now?
+                        return Box::pin(connect_archipelago(login_data)).await; //Err(anyhow!("Reconnecting to grab cache!"));
                     }
                 }
             }
@@ -114,8 +117,8 @@ pub async fn connect_archipelago(url: String, name: String, password: String) ->
             log::info!("Attempting room connection");
             let res = cl.connect(
                 "Devil May Cry 3",
-                &name,
-                Some(&password),
+                &login_data.name,
+                Some(&login_data.password),
                 Option::from(0b101),
                 vec!["AP".to_string()],
                 true,
@@ -134,6 +137,7 @@ pub async fn connect_archipelago(url: String, name: String, password: String) ->
                             }
                         });
                         log::info!("Connected info: {:?}", stat);
+                        save_connection_info(login_data);
                         Ok(cl)
                     }
                 }
@@ -142,6 +146,18 @@ pub async fn connect_archipelago(url: String, name: String, password: String) ->
         }
 
         _ => Err(anyhow!("Failed to connect to server")),
+    }
+}
+
+fn save_connection_info(login_data: ArchipelagoData) {
+    match serde_json::to_string(&login_data) {
+        Ok(res) => {
+            log::info!("Info: {}", res);
+            let mut file = File::create("login_data.json").expect("Could not create file!");
+
+            file.write_all(res.as_bytes()).expect("Cannot write to the file!");
+        }
+        Err(err) => {log::error!("Failed to serialize login_data: {}", err);}
     }
 }
 

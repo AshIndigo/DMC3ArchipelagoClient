@@ -1,4 +1,4 @@
-use imgui::Context;
+use imgui::{sys, Context};
 use minhook::MinHook;
 use std::cell::{Cell, RefCell};
 use std::ffi::OsStr;
@@ -7,8 +7,11 @@ use std::os::raw::c_char;
 use std::os::windows::ffi::OsStrExt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
-use std::thread;
-use imgui_sys::ImVec2;
+use std::{fs, path, thread};
+use std::io::BufReader;
+use imgui::Condition::{FirstUseEver, Once};
+use imgui_sys::{ImGuiCond, ImGuiCond_Appearing, ImGuiCond_FirstUseEver, ImGuiCond_Once, ImGuiWindowFlags, ImVec2};
+use serde::Deserialize;
 use winapi::shared::minwindef::HINSTANCE;
 use winapi::um::libloaderapi::GetModuleHandleW;
 use hook::CONNECTED;
@@ -33,6 +36,28 @@ unsafe extern "C" fn hooked_timestep() {
     if !SETUP.load(Ordering::SeqCst) {
         MinHook::enable_hook((get_mary_base_address() + MAIN_FUNC_ADDR) as _).expect("Failed to enable hook");
         SETUP.store(true, Ordering::SeqCst);
+        if path::Path::new("login_data.json").exists() {
+            match fs::File::open("login_data.json") {
+                Ok(login_data_file) => {
+                    let reader = BufReader::new(login_data_file);
+                    let mut json_reader = serde_json::Deserializer::from_reader(reader);
+                    match ArchipelagoData::deserialize(&mut json_reader) {
+                        Ok(data) => {
+                            HUD_INSTANCE.with(|instance| {
+                                let mut instance = instance.borrow_mut();
+                                instance.deref_mut().arch_url = data.url.to_string();
+                                instance.deref_mut().username = data.name.to_string();
+                            });
+                        },
+                        Err(err) => {
+                            log::error!("{}", err);
+                        }
+                    }
+                }
+                Err(err) => { log::error!("Failed to open login_data.json: {}", err);}
+            }
+        }
+
     }
     match ORIG_TIMESTEP_FUNC.get() {
         None => {
@@ -58,8 +83,15 @@ unsafe extern "C" fn hooked_render() {
         if !read_bool_from_address(0x12c73a) {
             return;
         }
-        std::mem::transmute::<_, ImGuiBegin>(get_mary_base_address() + BEGIN_FUNC_ADDR)("Archipelago\0".as_ptr() as *const c_char, flag as *mut bool, 0);
-        text(format!("Status: {:#}\0", CONNECTED.load(Ordering::SeqCst)));
+        std::mem::transmute::<_, ImGuiNextWindowPos>(get_mary_base_address() + POS_FUNC_ADDR)(&ImVec2 {
+            x: 800.0,
+            y: 100.0
+        }, ImGuiCond_Appearing as ImGuiCond, &ImVec2 {
+            x: 0.0,
+            y: 0.0
+        });
+        std::mem::transmute::<_, ImGuiBegin>(get_mary_base_address() + BEGIN_FUNC_ADDR)("Archipelago\0".as_ptr() as *const c_char, flag as *mut bool, imgui_sys::ImGuiWindowFlags_AlwaysAutoResize as ImGuiWindowFlags);
+        text(format!("Status: {:#}\0", if CONNECTED.load(Ordering::SeqCst) { "Connected" } else { "Disconnected" }));
         text("Connection:\0");
         input_rs("URL\0", &mut instance.deref_mut().arch_url, false); // TODO: Slight issue where some letters arent being cleared properly?
         input_rs("Username\0", &mut instance.deref_mut().username, false);
@@ -100,7 +132,7 @@ async fn connect_button_pressed(url: String, name: String, password: String) {
 type BasicNothingFunc = unsafe extern "system" fn(); // No args no returns
 
 pub unsafe extern "system" fn get_mary_base_address() -> usize {
-    crate::hook::get_base_address("Mary.dll")
+    hook::get_base_address("Mary.dll")
 }
 
 pub unsafe fn setup_ddmk_hook() {
@@ -125,3 +157,5 @@ pub unsafe fn setup_ddmk_hook() {
     MinHook::enable_hook(orig_timestep as _).expect("Failed to enable timestep hook");
     log::info!("DDMK hook initialized");
 }
+
+type GenericFn = unsafe extern "C" fn(...);

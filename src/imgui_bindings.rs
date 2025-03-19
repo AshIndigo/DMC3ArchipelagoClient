@@ -1,5 +1,5 @@
 use crate::ddmk_hook::get_mary_base_address;
-use imgui_sys::{cty, ImGuiInputTextCallback, ImGuiInputTextFlags, ImGuiWindowFlags, ImVec2};
+use imgui_sys::{cty, ImGuiCond, ImGuiInputTextCallback, ImGuiInputTextFlags, ImGuiWindowFlags, ImVec2};
 use std::os::raw::c_char;
 
 pub type ImGuiBegin =
@@ -14,6 +14,8 @@ pub type ImGuiTextInput = extern "C" fn(
     callback: ImGuiInputTextCallback,
     user_data: *mut cty::c_void,
 ) -> bool;
+//pub type ImGuiWindowPos = extern "C" fn(pos: &ImVec2, cond: ImGuiCond);
+pub type ImGuiNextWindowPos = extern "C" fn (pos: &ImVec2, cond: ImGuiCond, pivot: &ImVec2);
 
 pub const BEGIN_FUNC_ADDR: usize = 0x1F8B0;
 pub const END_FUNC_ADDR: usize = 0x257B0;
@@ -21,6 +23,8 @@ pub const BUTTON_ADDR: usize = 0x59f20;
 // 5cd0
 pub const TEXT_ADDR: usize = 0x69d50;
 pub const INPUT_ADDR: usize = 0x60c80;
+
+pub const POS_FUNC_ADDR: usize = 0x374a0;
 
 pub fn text<T: AsRef<str>>(text: T) {
     let s = text.as_ref();
