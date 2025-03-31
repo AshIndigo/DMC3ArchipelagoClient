@@ -1,4 +1,3 @@
-use std::cell::LazyCell;
 use crate::cache::{read_cache, CustomGameData};
 use crate::hook::{modify_itm_table, Location};
 use crate::{cache, hook, tables};
@@ -55,16 +54,6 @@ pub async fn connect_archipelago_get_url() -> Result<ArchipelagoClient, anyhow::
     log::info!("url: {}", url);
 
     connect_archipelago(ArchipelagoData { url, name, password }).await
-}
-
-trait RemoveLast {
-    fn remove_last(&self) -> &Self;
-}
-
-impl RemoveLast for str {
-    fn remove_last(&self) -> &Self {
-        self.strip_suffix(|_: char| true).unwrap_or(self)
-    }
 }
 
 pub async fn connect_archipelago(login_data: ArchipelagoData) -> Result<ArchipelagoClient, anyhow::Error> {
@@ -126,7 +115,7 @@ pub async fn connect_archipelago(login_data: ArchipelagoData) -> Result<Archipel
             match res.await {
                 Ok(mut stat) => {
                     unsafe {
-                        CHECKED_LOCATIONS.set(vec![]).unwrap();
+                        CHECKED_LOCATIONS.set(vec![]).unwrap(); // TODO Something weird happened here when reconnecting
                         let reversed_loc_id: HashMap<i32, String> = HashMap::from_iter(read_cache().unwrap().location_name_to_id.iter().map(|(k, v)| (*v, k.clone())));
                         stat.checked_locations.iter_mut().for_each(|val| {
                             match CHECKED_LOCATIONS.get_mut() {
@@ -286,7 +275,7 @@ pub async fn handle_things(cl: &mut ArchipelagoClient, rx: &Arc<Mutex<Receiver<L
             log::info!("Processing item: {}", item); // TODO Need to handle offline storage... if the item cant be sent it needs to be buffered
             match MAPPING.get() {
                 Some(mapping_data) => {
-                    /*
+                    /* TODO
                     Need to somehow map the data I have back to the right room
                     I cant do just by item id+room+mission because room's may have multiple items that are the same.
                     I.e. M3 R5 has two items in it, that are the same in vanilla (0x09)

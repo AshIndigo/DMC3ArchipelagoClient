@@ -1,6 +1,7 @@
-use crate::ddmk_hook::get_mary_base_address;
+use crate::utilities::get_mary_base_address;
 use imgui_sys::{cty, ImGuiCond, ImGuiInputTextCallback, ImGuiInputTextFlags, ImGuiWindowFlags, ImVec2};
 use std::os::raw::c_char;
+use std::sync::OnceLock;
 
 pub type ImGuiBegin =
     extern "C" fn(name: *const cty::c_char, p_open: *mut bool, flags: ImGuiWindowFlags) -> bool;
@@ -37,4 +38,36 @@ pub fn text<T: AsRef<str>>(text: T) {
 
 pub fn input_rs<T: AsRef<str>>(label: T, buf: &mut String, password: bool) {
     crate::inputs::InputText::new(label, buf).password(password).build();
+}
+
+pub type BasicNothingFunc = unsafe extern "system" fn(); // No args no returns
+
+static IMGUI_END: OnceLock<BasicNothingFunc> = OnceLock::new();
+static IMGUI_BEGIN: OnceLock<ImGuiBegin> = OnceLock::new();
+static IMGUI_BUTTON: OnceLock<ImGuiButton> = OnceLock::new();
+static IMGUI_POS: OnceLock<ImGuiNextWindowPos> = OnceLock::new();
+
+// Helpers to retrieve values
+pub fn get_imgui_end() -> &'static BasicNothingFunc {
+    IMGUI_END.get_or_init(|| unsafe {
+        std::mem::transmute::<_, BasicNothingFunc>(get_mary_base_address() + END_FUNC_ADDR)
+    })
+}
+
+pub fn get_imgui_begin() -> &'static ImGuiBegin {
+    IMGUI_BEGIN.get_or_init(|| unsafe {
+        std::mem::transmute::<_, ImGuiBegin>(get_mary_base_address() + BEGIN_FUNC_ADDR)
+    })
+}
+
+pub fn get_imgui_button() -> &'static ImGuiButton {
+    IMGUI_BUTTON.get_or_init(|| unsafe {
+        std::mem::transmute::<_, ImGuiButton>(get_mary_base_address() + BUTTON_ADDR)
+    })
+}
+
+pub fn get_imgui_pos() -> &'static ImGuiNextWindowPos {
+    IMGUI_POS.get_or_init(|| unsafe {
+        std::mem::transmute::<_, ImGuiNextWindowPos>(get_mary_base_address() + POS_FUNC_ADDR)
+    })
 }

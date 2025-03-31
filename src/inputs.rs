@@ -1,5 +1,5 @@
 use std::ops::Range;
-use crate::ddmk_hook::get_mary_base_address;
+use crate::utilities::get_mary_base_address;
 use crate::imgui_bindings::{ImGuiTextInput, INPUT_ADDR};
 use std::os::raw::{c_char, c_int, c_void};
 use imgui::{sys, HistoryDirection, InputTextCallback, InputTextFlags};
@@ -8,6 +8,7 @@ use imgui::{sys, HistoryDirection, InputTextCallback, InputTextFlags};
 #[must_use]
 pub struct InputText<'p, L, H = &'static str, T = PassthroughCallback> {
     label: L,
+    #[allow(dead_code)]
     hint: Option<H>,
     buf: &'p mut String,
     callback_handler: T,
@@ -44,54 +45,63 @@ impl<'p, L: AsRef<str>> InputText<'p, L> {
 macro_rules! impl_text_flags {
     ($InputType:ident) => {
         #[inline]
+        #[allow(dead_code)]
         pub fn flags(mut self, flags: InputTextFlags) -> Self {
             self.flags = flags;
             self
         }
 
         #[inline]
+        #[allow(dead_code)]
         pub fn chars_decimal(mut self, value: bool) -> Self {
             self.flags.set(InputTextFlags::CHARS_DECIMAL, value);
             self
         }
 
         #[inline]
+        #[allow(dead_code)]
         pub fn chars_hexadecimal(mut self, value: bool) -> Self {
             self.flags.set(InputTextFlags::CHARS_HEXADECIMAL, value);
             self
         }
 
         #[inline]
+        #[allow(dead_code)]
         pub fn chars_uppercase(mut self, value: bool) -> Self {
             self.flags.set(InputTextFlags::CHARS_UPPERCASE, value);
             self
         }
 
         #[inline]
+        #[allow(dead_code)]
         pub fn chars_noblank(mut self, value: bool) -> Self {
             self.flags.set(InputTextFlags::CHARS_NO_BLANK, value);
             self
         }
 
         #[inline]
+        #[allow(dead_code)]
         pub fn auto_select_all(mut self, value: bool) -> Self {
             self.flags.set(InputTextFlags::AUTO_SELECT_ALL, value);
             self
         }
 
         #[inline]
+        #[allow(dead_code)]
         pub fn enter_returns_true(mut self, value: bool) -> Self {
             self.flags.set(InputTextFlags::ENTER_RETURNS_TRUE, value);
             self
         }
 
         #[inline]
+        #[allow(dead_code)]
         pub fn allow_tab_input(mut self, value: bool) -> Self {
             self.flags.set(InputTextFlags::ALLOW_TAB_INPUT, value);
             self
         }
 
         #[inline]
+        #[allow(dead_code)]
         pub fn no_horizontal_scroll(mut self, value: bool) -> Self {
             self.flags.set(InputTextFlags::NO_HORIZONTAL_SCROLL, value);
             self
@@ -99,30 +109,35 @@ macro_rules! impl_text_flags {
 
         /// Note: this is equivalent to `always_overwrite`
         #[inline]
+        #[allow(dead_code)]
         pub fn always_insert_mode(self, value: bool) -> Self {
             self.always_overwrite(value)
         }
 
         #[inline]
         #[allow(deprecated)]
+        #[allow(dead_code)]
         pub fn always_overwrite(mut self, value: bool) -> Self {
             self.flags.set(InputTextFlags::ALWAYS_OVERWRITE, value);
             self
         }
 
         #[inline]
+        #[allow(dead_code)]
         pub fn read_only(mut self, value: bool) -> Self {
             self.flags.set(InputTextFlags::READ_ONLY, value);
             self
         }
 
         #[inline]
+        #[allow(dead_code)]
         pub fn password(mut self, value: bool) -> Self {
             self.flags.set(InputTextFlags::PASSWORD, value);
             self
         }
 
         #[inline]
+        #[allow(dead_code)]
         pub fn no_undo_redo(mut self, value: bool) -> Self {
             self.flags.set(InputTextFlags::NO_UNDO_REDO, value);
             self
@@ -139,6 +154,7 @@ where
     impl_text_flags!(InputText);
 
     #[inline]
+    #[allow(dead_code)]
     pub fn callback<T2: InputTextCallbackHandler>(
         mut self,
         callbacks: InputTextCallback,
@@ -236,6 +252,7 @@ impl InputTextCallbackHandler for PassthroughCallback {}
 
 pub struct TextCallbackData(*mut sys::ImGuiInputTextCallbackData);
 
+#[allow(dead_code)] // TODO Marker
 impl TextCallbackData {
     /// Creates the buffer.
     unsafe fn new(data: *mut sys::ImGuiInputTextCallbackData) -> Self {

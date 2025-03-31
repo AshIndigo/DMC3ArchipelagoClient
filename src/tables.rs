@@ -130,7 +130,7 @@ pub fn get_item(item_id: u64) -> &'static str {
 pub static EVENT_TABLES: OnceCell<HashMap<i32, Vec<EventTable>>> = OnceCell::new();
 
 pub fn set_event_tables() -> HashMap<i32, Vec<EventTable>> {
-    let mut tables = HashMap::new();
+    let mut tables = HashMap::new(); // TODO FILL OUT
     tables.insert(
         3,
         vec![EventTable {
@@ -179,8 +179,11 @@ pub fn set_event_tables() -> HashMap<i32, Vec<EventTable>> {
 
 #[derive(PartialEq)]
 pub enum EventCode {
+    /// Give the provided item (5c 02)
     GIVE,
+    /// Check to see if the player has the specified item in inventory (14 01)
     CHECK,
+    /// End mission if player has item in inventory - TODO Check again
     END,
 }
 

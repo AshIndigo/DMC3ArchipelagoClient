@@ -11,6 +11,8 @@ mod ddmk_hook;
 mod ui;
 mod imgui_bindings;
 mod inputs;
+mod asm_hook;
+mod utilities;
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right
