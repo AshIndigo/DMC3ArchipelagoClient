@@ -4,23 +4,22 @@ use std::ops::{Deref, DerefMut};
 use std::os::raw::c_char;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{fs, path, thread};
+use std::collections::HashMap;
 use std::io::BufReader;
-use std::sync::OnceLock;
+use std::sync::{OnceLock, RwLock};
 use imgui_sys::{ImGuiCond, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
 use serde::Deserialize;
-use hook::CONNECTED;
-use crate::{archipelago, hook, utilities};
+use hook::CONNECTION_STATUS;
+use crate::{archipelago, hook, tables, utilities};
 use crate::archipelago::ArchipelagoData;
+use crate::hook::Status;
 use crate::imgui_bindings::*;
 use crate::ui::ArchipelagoHud;
 use crate::utilities::get_mary_base_address;
 
 thread_local! {
     static HUD_INSTANCE: RefCell<ArchipelagoHud> = RefCell::new(ArchipelagoHud::new());
-    //static ORIG_FUNC: Cell<Option<DdmkMainType >> = Cell::new(None);
 }
-// static mut ORIG_RENDER_FUNC: Cell<Option<BasicNothingFunc>> = Cell::new(None);
-// static mut ORIG_TIMESTEP_FUNC: Cell<Option<BasicNothingFunc>> = Cell::new(None);
 static SETUP: AtomicBool = AtomicBool::new(false);
 
 const MAIN_FUNC_ADDR: usize = 0xC65E0; // 0xC17B0 (For 2022 ddmk)
@@ -86,17 +85,30 @@ unsafe fn tracking_window() {
     let flag = &mut true;
     get_imgui_pos()(&ImVec2 {
         x: 800.0,
-        y: 100.0
+        y: 300.0
     }, ImGuiCond_Appearing as ImGuiCond, &ImVec2 {
         x: 0.0,
         y: 0.0
     });
     get_imgui_begin()("Tracker\0".as_ptr() as *const c_char, flag as *mut bool, imgui_sys::ImGuiWindowFlags_AlwaysAutoResize as ImGuiWindowFlags);
-    text("Connection:\0");
+    for chunk in tables::KEY_ITEMS.chunks(3) {
+        let row_text = chunk.iter().map(|&item| checkbox_text(item)).collect::<Vec<String>>().join("  "); // TODO Pretty this up later
+        text(format!("{}\0", row_text));
+    }
     get_imgui_end()();
 }
 
-unsafe fn archipelago_window(instance_cell: &RefCell<ArchipelagoHud>) {
+fn checkbox_text(item: &str) -> String {
+    let state = CHECKLIST
+        .get()
+        .and_then(|lock| lock.read().ok())
+        .and_then(|map| map.get(item).copied())
+        .unwrap_or(false);
+    format!("{} [{}]", item, if state { "X" } else { " " })
+}
+
+pub static CHECKLIST: OnceLock<RwLock<HashMap<String, bool>>> = OnceLock::new();
+pub unsafe fn archipelago_window(instance_cell: &RefCell<ArchipelagoHud>) {
     let flag = &mut true;
     let mut instance = instance_cell.borrow_mut();
     get_imgui_pos()(&ImVec2 {
@@ -107,16 +119,16 @@ unsafe fn archipelago_window(instance_cell: &RefCell<ArchipelagoHud>) {
         y: 0.0
     });
     get_imgui_begin()("Archipelago\0".as_ptr() as *const c_char, flag as *mut bool, imgui_sys::ImGuiWindowFlags_AlwaysAutoResize as ImGuiWindowFlags);
-    text(format!("Status: {:#}\0", if CONNECTED.load(Ordering::SeqCst) { "Connected" } else { "Disconnected" }));
+    set_status_text();
     text("Connection:\0");
     input_rs("URL\0", &mut instance.deref_mut().arch_url, false); // TODO: Slight issue where some letters arent being cleared properly?
     input_rs("Username\0", &mut instance.deref_mut().username, false);
     input_rs("Password\0", &mut instance.deref_mut().password, true);
-    if get_imgui_button()("Connect".as_ptr() as *const c_char, &ImVec2 {
+    if get_imgui_button()("Connect\0".as_ptr() as *const c_char, &ImVec2 {
         x: 0.0,
         y: 0.0,
     }) {
-        log::debug!("Given URL: {}", &mut instance.deref_mut().arch_url.trim().to_string());
+        log::debug!("Given URL: {}\0", &mut instance.deref_mut().arch_url.trim().to_string());
         let url = instance.deref().arch_url.clone().trim().to_string();
         let name = instance.deref().username.clone().trim().to_string();
         let password = instance.deref().password.clone().trim().to_string();
@@ -125,6 +137,21 @@ unsafe fn archipelago_window(instance_cell: &RefCell<ArchipelagoHud>) {
         });
     }
     get_imgui_end()();
+}
+
+fn set_status_text() {
+    text("Status: ");
+    text(match CONNECTION_STATUS.load(Ordering::SeqCst).into() {
+        Status::Connected => {"Connected"}
+        Status::Disconnected => {"Disconnected"}
+        Status::InvalidSlot => {"Invalid slot (Check name)"}
+        Status::InvalidGame => {"Invalid game (Wrong url/port or name?)"}
+        Status::IncompatibleVersion => {"Incompatible Version, post on GitHub or Discord"}
+        Status::InvalidPassword => {"Invalid password"}
+        Status::InvalidItemHandling => {"Invalid item handling, post on Github or Discord"}
+    });
+    text("\0");
+    //text(format!("Status: {:#}\0", if CONNECTION_STATUS.load(Ordering::SeqCst) { "Connected" } else { "Disconnected" }));
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -137,17 +164,18 @@ async fn connect_button_pressed(url: String, name: String, password: String) {
     }
 }
 
-pub unsafe fn setup_ddmk_hook() {
+pub fn setup_ddmk_hook() {
     log::info!("Starting up DDMK hook");
     // let orig_main = get_mary_base_address() + MAIN_FUNC_ADDR;
     //let orig_main = get_mary_base_address() + 0xC17B0; // I think this is main() in DDMK? For 2022 DDMK
     //let orig_timestep = get_mary_base_address() + TIMESTEP_FUNC_ADDR;
-    log::info!("Mary base ADDR: {}", get_mary_base_address());
+    CHECKLIST.set(RwLock::new(HashMap::new())).expect("To be create the Checklist HashMap");
+    log::info!("Mary base ADDR: {:x}", get_mary_base_address());
     init_render_func();
     init_timestep_func();
     //ORIG_RENDER_FUNC.set(Some(std::mem::transmute::<_, BasicNothingFunc>(MinHook::create_hook(orig_main as _, hooked_render as _).expect("Failed to create hook"))));
     //ORIG_TIMESTEP_FUNC.set(Some(std::mem::transmute::<_, BasicNothingFunc>(MinHook::create_hook(orig_timestep as _, hooked_timestep as _).expect("Failed to create timestep hook"))));
-    MinHook::enable_hook((get_mary_base_address() + TIMESTEP_FUNC_ADDR) as _).expect("Failed to enable timestep hook");
+    unsafe { MinHook::enable_hook((get_mary_base_address() + TIMESTEP_FUNC_ADDR) as _).expect("Failed to enable timestep hook"); }
     log::info!("DDMK hook initialized");
 }
 

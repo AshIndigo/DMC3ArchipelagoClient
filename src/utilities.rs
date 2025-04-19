@@ -1,15 +1,35 @@
-use std::ffi::OsStr;
+use std::ffi::{CString, OsStr};
 use winapi::shared::minwindef::HINSTANCE;
 use winapi::um::libloaderapi::GetModuleHandleW;
 use winapi::um::memoryapi::VirtualProtect;
-use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
-use std::slice;
+use winapi::um::winnt::{PAGE_EXECUTE_READWRITE};
+use std::{slice, thread};
 use std::os::windows::ffi::OsStrExt;
+use std::time::Duration;
+use windows::Win32::Foundation::HWND;
+use windows::Win32::UI::WindowsAndMessaging::FindWindowA;
 
+const TEXT_DISPLAYED_ADDRESS: usize = 0xCB89A0; // 0x01 if text is being displayed
+const TEXT_LENGTH_ADDRESS: usize = 0xCB89E0; // X + 30 apparently?
+const TEXT_ADDRESS: usize = 0xCB8A1E; // Text string
+
+pub unsafe fn display_message(string: &str) {
+    let bytes = string.as_bytes();
+    let ptr = TEXT_LENGTH_ADDRESS as *mut u8;
+
+    std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, bytes.len());
+    *ptr.add(bytes.len()) = 0x00; // Null terminator
+    std::ptr::write(TEXT_LENGTH_ADDRESS as *mut u8, (bytes.len() + 1) as u8);
+    std::ptr::write(TEXT_DISPLAYED_ADDRESS as *mut u8, 0x01); // TODO Verify
+}
 
 /// Read an int from DMC3
-fn read_int_from_address(address: usize) -> i32 {
+pub fn read_int_from_address(address: usize) -> i32 {
     unsafe { *((address + get_dmc3_base_address()) as *const i32) }
+}
+
+pub fn read_usize_from_address(address: usize) -> usize {
+    unsafe { *((address + get_dmc3_base_address()) as *const usize) }
 }
 
 /// Generic method to get the base address for the specified module, returns 0 if it doesn't exist
@@ -109,4 +129,25 @@ pub fn read_bool_from_address_ddmk(address: usize) -> bool {
 // TODO Add check to make sure DDMK is loaded first?
 pub extern "system" fn get_mary_base_address() -> usize {
     get_base_address("Mary.dll")
+}
+
+/// TODO May not be needed
+/// Finds the HWND for DMC3 though
+pub fn find_window_after_delay() -> Option<HWND> {
+    let window_name = CString::new("Devil May Cry HD Collection").expect("CString creation failed");
+    let window_name_pcstr = windows::core::PCSTR(window_name.as_ptr() as _);
+
+    loop {
+        unsafe {
+            let hwnd = FindWindowA(None, window_name_pcstr);
+
+            if let Ok(hwnd) = hwnd {
+                // Window found
+                return Some(hwnd);
+            }
+        }
+
+        // Wait for 1 second before retrying
+        thread::sleep(Duration::from_secs(1));
+    }
 }

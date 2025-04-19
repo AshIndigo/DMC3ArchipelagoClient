@@ -26,14 +26,14 @@ unsafe fn modify_itm() {
         match MAPPING.get() {
             Some(mapping) => {
                 let room_num: u16 = crate::utilities::get_room() as u16; // read_int_from_address(0xC8F258usize) as u16;
-                for (location_name, entry) in constants::get_locations() {
+                for (location_name, entry) in constants::ITEM_MISSION_MAP.iter() {
                     if entry.room_number == 0 {
                         // Skipping if location file has room as 0, that means its either event or not done
                         continue;
                     }
                     //log::debug!("Room number X: {} Room number memory: {}, Item ID X: 0x{:x}, Item ID Memory: 0x{:x}", entry.room_number, room_num, entry.item_id, item_id);
                     if entry.room_number == room_num && entry.item_id as u32 == item_id {
-                        let ins_val = tables::get_item_id(mapping.items.get(location_name).unwrap()); // Scary
+                        let ins_val = tables::get_item_id(mapping.items.get(*location_name).unwrap()); // Scary
                         *itm_addr = ins_val.unwrap() as i32;
                         log::info!(
                             "Replaced item in room {} ({}) with 0x{:x}",
@@ -85,14 +85,16 @@ pub unsafe extern "system" fn check_off_location() {
             out("r9d") item_id,
             clobber_abi("win64")
         );
-        if let Some(tx) = TX.get() {
-            tx.send(Location {
-                item_id, // This is fine
-                room: utilities::get_room(),
-                mission: utilities::get_mission(),
-                room_5: false, // TODO
-            })
-            .expect("Failed to send Location!");
+        if item_id > 0x02u64 {
+            if let Some(tx) = TX.get() {
+                tx.send(Location {
+                    item_id, // This is fine
+                    room: utilities::get_room(),
+                    mission: utilities::get_mission(),
+                    room_5: false, // TODO
+                })
+                    .expect("Failed to send Location!");
+            }
         }
     }
 

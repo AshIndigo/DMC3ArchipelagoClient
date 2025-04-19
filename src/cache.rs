@@ -69,19 +69,19 @@ pub struct CustomGameData {
 }
 
 /// Write the DataPackage to a JSON file
+// TODO Maybe don't let this panic if it fails to make the file?
 pub async fn write_cache(
     data: HashMap<String, CustomGameData>,
     room_info: &RoomInfo,
-) -> Result<(), anyhow::Error> {
-    let mut file = File::create("cache.json")?;
+) {
+    let mut file = File::create("cache.json").expect("Failed to create cache file");
     let cache: Cache = Cache {
         checksums: room_info.datapackage_checksums.clone(),
         data_package: data,
     };
-    file.write_all(serde_json::to_string_pretty(&cache)?.as_bytes())?;
-    file.flush()?;
+    file.write_all(serde_json::to_string_pretty(&cache).expect("Failed to convert cache struct to string").as_bytes()).expect("Failed to convert to bytes");
+    file.flush().expect("Failed to flush cache file");
     log::info!("Writing cache");
-    Ok(())
 }
 
 pub(crate) fn read_cache() -> Option<CustomGameData> {

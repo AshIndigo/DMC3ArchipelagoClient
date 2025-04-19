@@ -4,12 +4,12 @@ use windows::Win32::UI::WindowsAndMessaging::ShowCursor;
 use crate::config::Settings;
 
 pub struct ArchipelagoHud {
-    open: bool,
-    settings: Settings,
+    pub(crate) open: bool,
+    pub(crate) settings: Settings,
     pub(crate) arch_url: String,
     pub(crate) username: String,
     pub(crate) password: String,
-    input_handler: InputHandler,
+    pub input_handler: InputHandler,
 }
 
 impl ArchipelagoHud {
@@ -25,7 +25,7 @@ impl ArchipelagoHud {
     }
 }
 
-struct InputHandler {
+pub struct InputHandler {
     last_key_time: Instant,
     delay: Duration,
 }

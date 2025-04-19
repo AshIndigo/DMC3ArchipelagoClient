@@ -1,5 +1,90 @@
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
+use std::sync::LazyLock;
+
+pub(crate) const KEY_ITEMS: [&str; 21] = [
+    "Astronomical Board",          // 0
+    "Vajura",                      // 1
+    "Essence of Intelligence",     // 2
+    "Essence of Technique",        // 3
+    "Essence of Warrior",          // 4
+    "Soul of Steel",               // 5
+    "Full Orihalcon",              // 6
+    "Orihalcon Fragment",          // 7
+    "Orihalcon Fragment (Right)",  // 8
+    "Orihalcon Fragment (Bottom)", // 9
+    "Orihalcon Fragment (Left)",   //10
+    "Siren's Shriek",              //11
+    "Crystal Skull",               //12
+    "Ignis Fatuus",                //13
+    "Ambrosia",                    //14
+    "Stone Mask",                  //15
+    "Neo Generator",               //16
+    "Haywire Neo Generator",       //17
+    "Golden Sun",                  //18
+    "Onyx Moonshard",              //19
+    "Samsara",                     //20
+];
+
+// What item is used in what mission
+pub static ITEM_MISSION_MAP: LazyLock<HashMap<&'static str, i32>> = LazyLock::new(|| {
+    HashMap::from([
+        (KEY_ITEMS[0], 5),   // Astronomical Board, obtained at the end of M4, used in M5
+        (KEY_ITEMS[1], 5),   // Vajura
+        (KEY_ITEMS[2], 6),   // Essence of Intelligence
+        (KEY_ITEMS[3], 6),   // Essence of Technique
+        (KEY_ITEMS[4], 6),   // Essence of Warrior
+        (KEY_ITEMS[5], 5),   // Soul of Steel
+        (KEY_ITEMS[6], 13),  // Full Orihalcon
+        (KEY_ITEMS[7], 7),   // Orihalcon Fragment
+        (KEY_ITEMS[8], 15),  // Orihalcon Fragment (Right)
+        (KEY_ITEMS[9], 15),  // Orihalcon Fragment (Bottom)
+        (KEY_ITEMS[10], 15), // Orihalcon Fragment (Left)
+        (KEY_ITEMS[11], 7),  // Siren's Shriek
+        (KEY_ITEMS[12], 7),  // Crystal Skull
+        (KEY_ITEMS[13], 8),  // Ignis Fatuus
+        (KEY_ITEMS[14], 9),  // Ambrosia
+        (KEY_ITEMS[15], 10), // Stone Mask
+        (KEY_ITEMS[16], 10), // Neo Generator
+        (KEY_ITEMS[17], 12), // Haywire Neo Generator
+        (KEY_ITEMS[18], 16), // Golden Sun
+        (KEY_ITEMS[19], 16), // Onyx Moonshard
+        (KEY_ITEMS[20], 19), // Samsara
+    ])
+});
+
+pub static MISSION_ITEM_MAP: LazyLock<HashMap<i32, Vec<&'static str>>> = LazyLock::new(|| {
+    let mut map: HashMap<i32, Vec<&'static str>> = HashMap::new();
+    for (&item, &mission) in ITEM_MISSION_MAP.iter() {
+        map.entry(mission).or_default().push(item);
+    }
+    map
+});
+
+pub static KEY_ITEM_OFFSETS: LazyLock<HashMap<&'static str, i32>> = LazyLock::new(|| {
+    HashMap::from([
+        (KEY_ITEMS[0], 5),   // Astronomical Board, obtained at the end of M4, used in M5
+        (KEY_ITEMS[1], 5),   // Vajura
+        (KEY_ITEMS[2], 6),   // Essence of Intelligence
+        (KEY_ITEMS[3], 6),   // Essence of Technique
+        (KEY_ITEMS[4], 6),   // Essence of Warrior
+        (KEY_ITEMS[5], 5),   // Soul of Steel
+        (KEY_ITEMS[6], 13),  // Full Orihalcon
+        (KEY_ITEMS[7], 7),   // Orihalcon Fragment
+        (KEY_ITEMS[8], 15),  // Orihalcon Fragment (Right)
+        (KEY_ITEMS[9], 15),  // Orihalcon Fragment (Bottom)
+        (KEY_ITEMS[10], 15), // Orihalcon Fragment (Left)
+        (KEY_ITEMS[11], 7),  // Siren's Shriek
+        (KEY_ITEMS[12], 7),  // Crystal Skull
+        (KEY_ITEMS[13], 8),  // Ignis Fatuus
+        (KEY_ITEMS[14], 9),  // Ambrosia
+        (KEY_ITEMS[15], 10), // Stone Mask
+        (KEY_ITEMS[16], 10), // Neo Generator
+        (KEY_ITEMS[17], 12), // Haywire Neo Generator
+        (KEY_ITEMS[18], 16), // Golden Sun
+        (KEY_ITEMS[19], 16), // Onyx Moonshard
+        (KEY_ITEMS[20], 19), // Samsara
+    ])
+});
 
 pub fn get_item_id(item_name: &str) -> Option<u8> {
     match item_name {
@@ -59,6 +144,7 @@ pub fn get_item_id(item_name: &str) -> Option<u8> {
         "Golden Sun" => Some(0x37),
         "Onyx Moonshard" => Some(0x38),
         "Samsara" => Some(0x39),
+        "Remote" => Some(0x26),
         _ => None, // Handle undefined items
     }
 }
@@ -103,7 +189,7 @@ pub fn get_item(item_id: u64) -> &'static str {
         0x23 => "Dopl Style",
         0x24 => "Astro Board",
         0x25 => "Vajura",
-        0x26 => "High Roller Card",
+        //0x26 => "High Roller Card",
         0x27 => "Soul of Steel",
         0x28 => "Essence of Fighting",
         0x29 => "Essence of Technique",
@@ -123,67 +209,173 @@ pub fn get_item(item_id: u64) -> &'static str {
         0x37 => "Golden Sun",
         0x38 => "Onyx Moonshard",
         0x39 => "Samsara",
+        0x26 => "Remote",
         _ => "Undefined Item",
     }
 }
 
-pub static EVENT_TABLES: OnceCell<HashMap<i32, Vec<EventTable>>> = OnceCell::new();
+pub static EVENT_TABLES: LazyLock<HashMap<i32, Vec<EventTable>>> = LazyLock::new(|| {
+    HashMap::from([
+        (
+            3,
+            vec![
+                EventTable {
+                    mission: 3,
+                    location: "Mission #3 - Shotgun".to_string(),
+                    events: vec![
+                        Event {
+                            event_type: EventCode::CHECK,
+                            offset: 0x450,
+                        },
+                        Event {
+                            event_type: EventCode::CHECK,
+                            offset: 0x6A4,
+                        },
+                        Event {
+                            event_type: EventCode::GIVE,
+                            offset: 0x6DC,
+                        },
+                        Event {
+                            event_type: EventCode::CHECK,
+                            offset: 0x72C,
+                        },
+                        Event {
+                            event_type: EventCode::GIVE,
+                            offset: 0x77C,
+                        },
+                    ],
+                },
+                EventTable {
+                    mission: 3,
+                    location: "Mission #3 - Cerberus".to_string(),
+                    events: vec![
+                        Event {
+                            event_type: EventCode::CHECK,
+                            offset: 0xEE4,
+                        },
+                        Event {
+                            event_type: EventCode::GIVE,
+                            offset: 0xEFC,
+                        },
+                    ],
+                },
+            ],
+        ),
+        (
+            4,
+            vec![EventTable {
+                mission: 4,
+                location: "Mission #4 - Astronomical Board".to_string(),
+                events: vec![Event {
+                    event_type: EventCode::END,
+                    offset: 0x8D4,
+                }],
+            }],
+        ),
+        (
+            5,
+            vec![
+                EventTable {
+                    mission: 5,
+                    location: "Mission #5 - Agni and Rudra".to_string(),
+                    events: vec![
+                        Event {
+                            event_type: EventCode::CHECK,
+                            offset: 0x186C,
+                        },
+                        Event {
+                            event_type: EventCode::GIVE,
+                            offset: 0x1884,
+                        },
+                    ],
+                },
+                // EventTable {
+                //     mission: 5,
+                //     location: "Mission #5 - Soul of Steel".to_string(),
+                //     events: vec![
+                //         Event { event_type: EventCode::CHECK, offset: 0x186C },
+                //         Event { event_type: EventCode::GIVE, offset: 0x1884 }
+                //     ],
+                // }
+            ],
+        ),
+        (6,
+         vec![
+             EventTable {
+                 mission: 6,
+                 location: "Mission #6 - Artemis".to_string(),
+                 events: vec![
+                     Event {
+                         event_type: EventCode::CHECK,
+                         offset: 0x13CC,
+                     },
+                     Event {
+                         event_type: EventCode::GIVE,
+                         offset: 0x13D0,
+                     },
+                 ],
+             },
+        ]),
+    ])
+});
 
-pub fn set_event_tables() -> HashMap<i32, Vec<EventTable>> {
+/*pub fn set_event_tables() -> HashMap<i32, Vec<EventTable>> {
     let mut tables = HashMap::new(); // TODO FILL OUT
     tables.insert(
         3,
-        vec![EventTable {
-            mission: 3,
-            location: "Mission #3 - Shotgun".to_string(),
-            events: vec![
-                Event {
-                    event_type: EventCode::CHECK,
-                    offset: 0x450,
-                },
-                Event {
-                    event_type: EventCode::CHECK,
-                    offset: 0x6A4,
-                },
-                Event {
-                    event_type: EventCode::GIVE,
-                    offset: 0x6DC,
-                },
-                Event {
-                    event_type: EventCode::CHECK,
-                    offset: 0x72C,
-                },
-                Event {
-                    event_type: EventCode::GIVE,
-                    offset: 0x77C,
-                },
-            ],
-        },
-        EventTable {
-            mission: 3,
-            location: "Mission #3 - Cerberus".to_string(),
-            events: vec![
-                Event {
-                    event_type: EventCode::CHECK,
-                    offset: 0xEE4,
-                },
-                Event {
-                    event_type: EventCode::GIVE,
-                    offset: 0xEFC,
-                }
-            ],
-        }],
+        vec![
+            EventTable {
+                mission: 3,
+                location: "Mission #3 - Shotgun".to_string(),
+                events: vec![
+                    Event {
+                        event_type: EventCode::CHECK,
+                        offset: 0x450,
+                    },
+                    Event {
+                        event_type: EventCode::CHECK,
+                        offset: 0x6A4,
+                    },
+                    Event {
+                        event_type: EventCode::GIVE,
+                        offset: 0x6DC,
+                    },
+                    Event {
+                        event_type: EventCode::CHECK,
+                        offset: 0x72C,
+                    },
+                    Event {
+                        event_type: EventCode::GIVE,
+                        offset: 0x77C,
+                    },
+                ],
+            },
+            EventTable {
+                mission: 3,
+                location: "Mission #3 - Cerberus".to_string(),
+                events: vec![
+                    Event {
+                        event_type: EventCode::CHECK,
+                        offset: 0xEE4,
+                    },
+                    Event {
+                        event_type: EventCode::GIVE,
+                        offset: 0xEFC,
+                    },
+                ],
+            },
+        ],
     );
     tables
 }
-
+*/
 #[derive(PartialEq)]
 pub enum EventCode {
     /// Give the provided item (5c 02)
     GIVE,
     /// Check to see if the player has the specified item in inventory (14 01)
     CHECK,
-    /// End mission if player has item in inventory - TODO Check again
+    /// End mission if player has item in inventory - TODO Check again - (15 01)
     END,
 }
 

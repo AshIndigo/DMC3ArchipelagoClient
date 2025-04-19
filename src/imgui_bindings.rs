@@ -18,6 +18,8 @@ pub type ImGuiTextInput = extern "C" fn(
 //pub type ImGuiWindowPos = extern "C" fn(pos: &ImVec2, cond: ImGuiCond);
 pub type ImGuiNextWindowPos = extern "C" fn (pos: &ImVec2, cond: ImGuiCond, pivot: &ImVec2);
 
+//pub type ImGuiCheckbox = extern "C" fn (text: *const cty::c_char, p_open: *mut bool);
+
 pub const BEGIN_FUNC_ADDR: usize = 0x1F8B0;
 pub const END_FUNC_ADDR: usize = 0x257B0;
 pub const BUTTON_ADDR: usize = 0x59f20;
@@ -26,6 +28,7 @@ pub const TEXT_ADDR: usize = 0x69d50;
 pub const INPUT_ADDR: usize = 0x60c80;
 
 pub const POS_FUNC_ADDR: usize = 0x374a0;
+//pub const CHECKBOX_FUNC_ADDR: usize = 0x5a7e0;
 
 pub fn text<T: AsRef<str>>(text: T) {
     let s = text.as_ref();
@@ -46,6 +49,7 @@ static IMGUI_END: OnceLock<BasicNothingFunc> = OnceLock::new();
 static IMGUI_BEGIN: OnceLock<ImGuiBegin> = OnceLock::new();
 static IMGUI_BUTTON: OnceLock<ImGuiButton> = OnceLock::new();
 static IMGUI_POS: OnceLock<ImGuiNextWindowPos> = OnceLock::new();
+//static IMGUI_CHECKBOX: OnceLock<ImGuiNextWindowPos> = OnceLock::new();
 
 // Helpers to retrieve values
 pub fn get_imgui_end() -> &'static BasicNothingFunc {
@@ -71,3 +75,9 @@ pub fn get_imgui_pos() -> &'static ImGuiNextWindowPos {
         std::mem::transmute::<_, ImGuiNextWindowPos>(get_mary_base_address() + POS_FUNC_ADDR)
     })
 }
+
+// pub fn get_imgui_checkbox() -> &'static ImGuiCheckbox {
+//     IMGUI_POS.get_or_init(|| unsafe {
+//         std::mem::transmute::<_, ImGuiCheckbox>(get_mary_base_address() + CHECKBOX_FUNC_ADDR)
+//     })
+// }

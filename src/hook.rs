@@ -1,28 +1,28 @@
-use crate::archipelago::{connect_archipelago, CHECKED_LOCATIONS, CONNECT_CHANNEL_SETUP, MAPPING};
-use crate::ddmk_hook::setup_ddmk_hook;
-use crate::tables::{get_item, set_event_tables, EventCode};
+use crate::archipelago::{connect_archipelago, CHECKED_LOCATIONS, CONNECT_CHANNEL_SETUP, MAPPING, SLOT_NUMBER, TEAM_NUMBER};
+use crate::ddmk_hook::{CHECKLIST};
+use crate::tables::{get_item, EventCode};
 use crate::{archipelago, constants, tables, utilities};
-use archipelago_rs::client::ArchipelagoClient;
+use archipelago_rs::client::{ArchipelagoClient};
 use archipelago_rs::protocol::ClientStatus;
-use log::LevelFilter;
 use once_cell::sync::OnceCell;
-use simple_logger::SimpleLogger;
 use std::arch::asm;
 use std::ffi::{c_int, c_longlong};
 use std::fmt::{Display, Formatter};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, LazyLock, Mutex};
-use std::thread;
+use std::sync::{Arc, LazyLock, Mutex, RwLockWriteGuard};
 use std::{ptr, slice};
+use std::collections::HashMap;
+use std::convert::Into;
 use std::os::raw::c_short;
+use anyhow::{anyhow, Error};
 use minhook::MinHook;
-use winapi::shared::minwindef::{HINSTANCE, LPVOID};
 use winapi::um::libloaderapi::{FreeLibrary, GetModuleHandleW};
 use winapi::um::memoryapi::VirtualProtect;
 use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
-use windows::Win32::Foundation::BOOL;
-use windows::Win32::System::Console::{AllocConsole, FreeConsole};
+use windows::Win32::Foundation::HANDLE;
+use windows::Win32::System::Console::{AllocConsole, FreeConsole, GetConsoleMode, GetStdHandle, SetConsoleMode, ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_OUTPUT_HANDLE};
+use crate::utilities::{get_mission};
 
 pub(crate) static TX: OnceCell<Sender<Location>> = OnceCell::new();
 
@@ -154,10 +154,28 @@ pub(crate) fn modify_call_offset(call_address: usize, modify: i32) {
     }
 }
 
-#[no_mangle]
-pub unsafe extern "system" fn create_console() {
+pub fn create_console() {
     unsafe {
-        if AllocConsole().as_bool() {
+        if AllocConsole().is_ok() {
+            pub fn enable_ansi_support() -> Result<(), Error> { // So we can have sweet sweet color
+                unsafe {
+                    let handle = GetStdHandle(STD_OUTPUT_HANDLE)?;
+                    if handle == HANDLE::default() {
+                        return Err(anyhow!(windows::core::Error::from_win32()));
+                    }
+
+                    let mut mode = std::mem::zeroed();
+                    GetConsoleMode(handle, &mut mode)?;
+                    SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING)?;
+                    Ok(())
+                }
+            }
+            match enable_ansi_support() {
+                Ok(_) => {}
+                Err(err) => {
+                    log::error!("Failed to enable ANSI support: {}", err);
+                }
+            }
             log::info!("Console created successfully!");
         } else {
             log::info!("Failed to allocate console!");
@@ -177,86 +195,70 @@ pub unsafe extern "system" fn free_self() -> bool {
     }
 }
 
-fn setup_items_channel() -> Arc<Mutex<Receiver<Location>>> {
+pub(crate) fn setup_items_channel() -> Arc<Mutex<Receiver<Location>>> {
     let (tx, rx) = mpsc::channel();
     TX.set(tx).expect("TX already initialized");
     Arc::new(Mutex::new(rx))
 }
 
-#[no_mangle]
-pub extern "system" fn DllMain(
-    _hinst_dll: HINSTANCE, //hudhook::windows::Win32::Foundation::HINSTANCE,
-    fdw_reason: u32,
-    _lpv_reserved: LPVOID,
-) -> BOOL {
-    const DLL_PROCESS_ATTACH: u32 = 1;
-    const DLL_PROCESS_DETACH: u32 = 0;
-    const DLL_THREAD_ATTACH: u32 = 2;
-    const DLL_THREAD_DETACH: u32 = 3;
-
-    match fdw_reason {
-        DLL_PROCESS_ATTACH => unsafe {
-            SimpleLogger::new()
-                .with_module_level("tokio", LevelFilter::Warn)
-                .with_module_level("tungstenite::protocol", LevelFilter::Warn)
-                .with_module_level("hudhook::hooks::dx11", LevelFilter::Warn)
-                .with_threads(true)
-                .init()
-                .unwrap();
-            /*        hudhook::alloc_console().expect("Console was not allocated");
-            hudhook::enable_console_colors();*/
-            create_console();
-            let rx = setup_items_channel();
-            if utilities::is_ddmk_loaded() {
-                log::info!("DDMK is loaded!");
-                setup_ddmk_hook();
-            } else {
-                /*log::info!("DDMK is not loaded!");
-                thread::Builder::new()
-                    .name("Archipelago HUD".to_string())
-                    .spawn(move || {
-                        hudhook_hook::start_imgui_hudhook(hinst_dll); // HudHook wants to be in its own thread
-                    }).expect("Failed to spawn ui thread");*/
-            }
-            thread::Builder::new()
-                .name("Archipelago Client".to_string())
-                .spawn(move || {
-                    spawn_arch_thread(rx);
-                })
-                .expect("Failed to spawn arch thread");
-            install_initial_functions();
-        },
-        DLL_PROCESS_DETACH => {
-            // For cleanup
-        }
-        DLL_THREAD_ATTACH | DLL_THREAD_DETACH => {
-            // Normally ignored if DisableThreadLibraryCalls is used
-        }
-        _ => {}
-    }
-
-    BOOL(1)
-}
-
-fn install_initial_functions() {
+pub(crate) fn install_initial_functions() {
     //asm_hook::install_jmps();
     log::info!("Installing the super trampoline for event tables");
     install_super_jmp_for_events(edit_event_wrapper as usize);
-    match tables::EVENT_TABLES.set(set_event_tables()) {
+/*    match tables::EVENT_TABLES.set(set_event_tables()) { // TODO Remove
         Ok(_) => {
             log::info!("EVENT_TABLES was set successfully")
         }
         Err(_) => {}
-    }
+    }*/
     setup_hooks();
 }
 
 pub(crate) static CLIENT: LazyLock<Mutex<Option<ArchipelagoClient>>> =
     LazyLock::new(|| Mutex::new(None));
-pub(crate) static CONNECTED: AtomicBool = AtomicBool::new(false);
+
+pub(crate) enum Status {
+    Disconnected = 0,
+    Connected = 1,
+    InvalidSlot = 2,
+    InvalidGame = 3,
+    IncompatibleVersion = 4,
+    InvalidPassword = 5,
+    InvalidItemHandling = 6
+}
+impl From<Status> for isize {
+    fn from(value: Status) -> Self {
+        match value {
+            Status::Disconnected => 0,
+            Status::Connected => 1,
+            Status::InvalidSlot => 2,
+            Status::InvalidGame => 3,
+            Status::IncompatibleVersion => 4,
+            Status::InvalidPassword => 5,
+            Status::InvalidItemHandling => 6
+        }
+    }
+}
+
+impl From<isize> for Status {
+    fn from(value: isize) -> Self {
+        match value {
+            0 => Status::Disconnected,
+            1 => Status::Connected,
+            2 => Status::InvalidSlot,
+            3 => Status::InvalidGame,
+            4 => Status::IncompatibleVersion,
+            5 => Status::InvalidPassword,
+            6 => Status::InvalidItemHandling,
+            _ => Status::Disconnected
+        }
+    }
+}
+
+pub(crate) static CONNECTION_STATUS: AtomicIsize = AtomicIsize::new(0); // Disconnected
 
 #[tokio::main(flavor = "current_thread")]
-async unsafe fn spawn_arch_thread(rx: Arc<Mutex<Receiver<Location>>>) {
+pub(crate) async fn spawn_arch_thread(rx: Arc<Mutex<Receiver<Location>>>) {
     // let mut connected = false;
     let mut setup = false; // ??
                            //let mut client = Err(anyhow::anyhow!("Archipelago Client not initialized"));
@@ -274,12 +276,14 @@ async unsafe fn spawn_arch_thread(rx: Arc<Mutex<Receiver<Location>>>) {
                         // worked
                         Ok(cl) => {
                             CLIENT.lock().unwrap().replace(cl);
-                            CONNECTED.store(true, Ordering::SeqCst);
+                            CONNECTION_STATUS.store(Status::Connected.into(), Ordering::SeqCst);
                         }
                         Err(err) => {
                             log::error!("Failed to connect to archipelago: {}", err);
                             CLIENT.lock().unwrap().take(); // Clear out the CLIENT field
-                            CONNECTED.store(false, Ordering::SeqCst);
+                            CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::SeqCst);
+                            SLOT_NUMBER.store(-1, Ordering::SeqCst);
+                            TEAM_NUMBER.store(-1, Ordering::SeqCst);
                         }
                     }
                 }
@@ -293,12 +297,14 @@ async unsafe fn spawn_arch_thread(rx: Arc<Mutex<Receiver<Location>>>) {
                         .await
                         .expect("Status update failed?");
                     archipelago::run_setup(cl).await;
+                    log::info!("Synchronizing items");
+                    archipelago::sync_items(cl).await;
                     setup = true;
                 }
                 archipelago::handle_things(cl, &rx).await;
             }
             None => {
-                CONNECTED.store(false, Ordering::SeqCst);
+                CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::SeqCst);
             }
         }
     }
@@ -314,15 +320,11 @@ pub unsafe fn set_starting_weapons(melee_id: u8, gun_id: u8) {
 pub unsafe fn edit_event_wrapper() {
     pub unsafe fn edit_event_drop() {
         // Basic values
-        let mission_num = utilities::get_mission();
+        let mission_num = get_mission();
         let base_table = 0x01A42680usize; // TODO is this gonna be ok?
         let Some(mapping) = MAPPING.get() else { return };
-        // All event tables
-        let Some(all_event_tables) = tables::EVENT_TABLES.get() else {
-            return;
-        };
         // Get events for the specific mission
-        let Some(mission_event_tables) = all_event_tables.get(&mission_num) else {
+        let Some(mission_event_tables) = tables::EVENT_TABLES.get(&mission_num) else {
             return;
         };
         let Some(checked_locations) = CHECKED_LOCATIONS.get() else {
@@ -333,16 +335,20 @@ pub unsafe fn edit_event_wrapper() {
         for event_table in mission_event_tables {
             for event in &event_table.events {
                 if checked_locations.contains(&event_table.location) {
+                    log::debug!("Event loc checked: {}", &event_table.location);
                     // If the location has been checked, disable it by making the game check for an item the player already has
                     if event.event_type == EventCode::CHECK {
-                        utilities::replace_single_byte_no_offset(base_table + event.offset, 0x16)
-                        // TODO Default starting weapon
+                        utilities::replace_single_byte_no_offset(base_table + event.offset, 0x00) // Use 0x00, trying to use rebellion doesn't work
                     }
                     // if (event.event_type == EventCode::GIVE) {
                     //     replace_single_byte_no_offset(base_table + event.offset, tables::get_item_id(mapping.items.get(&tbl.location).unwrap()).unwrap())
                     // }
+                    if event.event_type == EventCode::END {
+                        utilities::replace_single_byte_no_offset(base_table + event.offset, 0x00)
+                    }
                 } else {
                     // Location has not been checked off! TODO Make the "check" event, a dummied item
+                    log::debug!("Event loc not checked: {}", &event_table.location);
                     utilities::replace_single_byte_no_offset(
                         base_table + event.offset,
                         tables::get_item_id(mapping.items.get(&event_table.location).unwrap()).unwrap(),
@@ -404,15 +410,15 @@ pub(crate) unsafe fn rewrite_mode_table() {
 
 /// Modifies Adjudicator Drops
 pub(crate) unsafe fn modify_adjudicator_drop() {
-    let mission_number = utilities::get_mission();
+    let mission_number = get_mission();
     match MAPPING.get() {
         Some(mapping) => {
-            for (location_name, entry) in constants::get_locations() {
+            for (location_name, entry) in constants::ITEM_MISSION_MAP.iter() {
                 // Run through all locations
                 if entry.adjudicator && entry.mission == mission_number as u8 {
                     // If Location is adjudicator and mission numbers match
                     let item_id =
-                        tables::get_item_id(mapping.items.get(location_name).unwrap()).unwrap(); // Get the item ID and replace
+                        tables::get_item_id(mapping.items.get(*location_name).unwrap()).unwrap(); // Get the item ID and replace
                     utilities::replace_single_byte(0x250594, item_id);
                     utilities::replace_single_byte(0x25040d, item_id);
                 }
@@ -424,22 +430,24 @@ pub(crate) unsafe fn modify_adjudicator_drop() {
 
 /// Hook into item picked up method (1aa6e0)
 unsafe fn item_picked_up_hook(loc_chk_flg: i64, item_id: i16, unknown: i32) {
-    log::debug!("Loc CHK Flg is: {:x}", loc_chk_flg);
-    log::debug!("Item ID is: {} (0x{:x})", tables::get_item(item_id as u64), item_id);
-    log::debug!("Unknown is: {:x}", unknown); // Don't know what to make of this just yet
-    let mut room_5 = false;
-    if unknown == 10013 {
-        room_5 = true; // Adjudicator
-    }
+    if item_id > 0x03 {
+        log::debug!("Loc CHK Flg is: {:x}", loc_chk_flg);
+        log::debug!("Item ID is: {} (0x{:x})", tables::get_item(item_id as u64), item_id);
+        log::debug!("Unknown is: {:x}", unknown); // Don't know what to make of this just yet
+        let mut room_5 = false;
+        if unknown == 10013 {
+            room_5 = true; // Adjudicator
+        }
 
-    if let Some(tx) = TX.get() {
-        tx.send(Location {
-            item_id: item_id as u64,
-            room: utilities::get_room(),
-            mission: utilities::get_mission(), // About to add a fucking flag for room 5
-            room_5
-        })
-            .expect("Failed to send Location!");
+        if let Some(tx) = TX.get() {
+            tx.send(Location {
+                item_id: item_id as u64,
+                room: utilities::get_room(),
+                mission: get_mission(), // About to add a fucking flag for room 5
+                room_5
+            })
+                .expect("Failed to send Location!");
+        }
     }
 
 
@@ -463,20 +471,21 @@ unsafe fn item_spawns_hook(unknown: i64) {
     );
     log::debug!("Item count: {:x}", item_count);
     let room_num: u16 = utilities::get_room() as u16;
+    set_relevant_key_items();
     match MAPPING.get() {
         Some(mapping) => {
             modify_adjudicator_drop();
             for _i in 0..item_count {
                 let item_ref: &u32 = &*(item_addr as *const u32);
                 log::debug!("Item ID: {} (0x{:x})", get_item(*item_ref as u64), *item_ref);
-                for (location_name, entry) in constants::get_locations() {
+                for (location_name, entry) in constants::ITEM_MISSION_MAP.iter() {
                     if entry.room_number == 0 {
                         // Skipping if location file has room as 0, that means its either event or not done
                         continue;
                     }
                     //log::debug!("Room number X: {} Room number memory: {}, Item ID X: 0x{:x}, Item ID Memory: 0x{:x}", entry.room_number, room_num, entry.item_id, *item_ref);
                     if entry.room_number == room_num && entry.item_id as u32 == *item_ref && !entry.adjudicator {
-                        let ins_val = tables::get_item_id(mapping.items.get(location_name).unwrap()); // Scary
+                        let ins_val = tables::get_item_id(mapping.items.get(*location_name).unwrap()); // Scary
                         *item_addr = ins_val.unwrap() as i32;
                         log::info!(
                             "Replaced item in room {} ({}) with {} 0x{:x}",
@@ -496,6 +505,33 @@ unsafe fn item_spawns_hook(unknown: i64) {
     }
     if let Some(original) = ORIGINAL_ITEM_SPAWNS {
         original(unknown);
+    }
+}
+
+fn set_relevant_key_items() {
+    let checklist: RwLockWriteGuard<HashMap<String, bool>> = CHECKLIST.get().unwrap().write().unwrap();
+    let current_inv_addr = utilities::read_usize_from_address(0xC90E28 + 0x8);
+    log::debug!("Current INV Addr: 0x{:x}", current_inv_addr);
+    log::debug!("Resetting high roller card");
+   /* let item_addr = current_inv_addr + 0x60 + tables::KEY_ITEMS.iter().position(|&str| str == *item).unwrap();
+    log::debug!("Attempting to replace at address: 0x{:x} with flag 0x{:x}", item_addr, flag);
+    unsafe { utilities::replace_single_byte_no_offset(item_addr, flag) };*/
+    let mut flag: u8;
+    match tables::MISSION_ITEM_MAP.get(&get_mission()) {
+        None => {} // No items for the mission
+        Some(item_list) => {
+            for item in item_list.into_iter() {
+                if *checklist.get(*item).unwrap_or(&false) {
+                    flag = 0x01;
+                    log::debug!("Item Relevant to mission {}", *item)
+                } else {
+                    flag = 0x00;
+                }
+                let item_addr = current_inv_addr + 0x60 + tables::KEY_ITEM_OFFSETS.get(item).unwrap().clone() as usize; // TODO Need to fix, map to specific offsets
+                log::debug!("Attempting to replace at address: 0x{:x} with flag 0x{:x}", item_addr, flag);
+                unsafe { utilities::replace_single_byte_no_offset(item_addr, flag) };
+            }
+        }
     }
 }
 
@@ -534,6 +570,7 @@ fn setup_hooks() {
     }
 }
 
+/// The mapping data at dmc3.exe+5c4c20+1A00
 pub unsafe fn modify_itm_table(offset: usize, id: u8) {
     // let start_addr = 0x5C4C20usize; dmc3.exe+5c4c20+1A00
     // let end_addr = 0x5C4C20 + 0xC8; // 0x5C4CE8
