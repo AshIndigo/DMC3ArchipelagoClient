@@ -1,12 +1,32 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
+use std::ffi::{c_int, c_longlong};
+use std::os::raw::c_short;
+
+// DMC3 Offsets+Functions - Offsets are from 2022 DDMK's version
+pub type ItemPickedUpFunc = unsafe extern "C" fn(loc_chk_id: c_longlong, param_2: c_short, item_id: c_int);
+pub const ITEM_PICKED_UP_ADDR: usize = 0x1aa6e0;
+pub static mut ORIGINAL_ITEMPICKEDUP: Option<ItemPickedUpFunc> = None;
+
+pub type ItemSpawns = unsafe extern "C" fn(loc_chk_id: c_longlong);
+pub const ITEM_SPAWNS_ADDR: usize = 0x1b4440;  // 0x1b4480
+pub static mut ORIGINAL_ITEM_SPAWNS: Option<ItemSpawns> = None;
+pub const INVENTORY_PTR: usize = 0xC90E28 + 0x8;
+
+pub const ADJUDICATOR_ITEM_ID_1: usize = 0x250594;
+pub const ADJUDICATOR_ITEM_ID_2: usize = 0x25040d;
+pub const ITEM_MODE_TABLE: usize = 0x1B4534;
+pub const EVENT_TABLE_ADDR: usize = 0x01A42680; // TODO is this gonna be ok?
+
+pub const STARTING_MELEE: usize = 0x0; // TODO
+pub const STARTING_GUN: usize = 0x0; // TODO
 
 pub(crate) const KEY_ITEMS: [&str; 21] = [
     "Astronomical Board",          // 0
     "Vajura",                      // 1
     "Essence of Intelligence",     // 2
     "Essence of Technique",        // 3
-    "Essence of Warrior",          // 4
+    "Essence of Fighting",          // 4
     "Soul of Steel",               // 5
     "Full Orihalcon",              // 6
     "Orihalcon Fragment",          // 7
@@ -32,7 +52,7 @@ pub static ITEM_MISSION_MAP: LazyLock<HashMap<&'static str, i32>> = LazyLock::ne
         (KEY_ITEMS[1], 5),   // Vajura
         (KEY_ITEMS[2], 6),   // Essence of Intelligence
         (KEY_ITEMS[3], 6),   // Essence of Technique
-        (KEY_ITEMS[4], 6),   // Essence of Warrior
+        (KEY_ITEMS[4], 6),   // Essence of Fighting
         (KEY_ITEMS[5], 5),   // Soul of Steel
         (KEY_ITEMS[6], 13),  // Full Orihalcon
         (KEY_ITEMS[7], 7),   // Orihalcon Fragment
@@ -61,28 +81,29 @@ pub static MISSION_ITEM_MAP: LazyLock<HashMap<i32, Vec<&'static str>>> = LazyLoc
 });
 
 pub static KEY_ITEM_OFFSETS: LazyLock<HashMap<&'static str, i32>> = LazyLock::new(|| {
+    // Unknown: 3 (High roller card most likely)
     HashMap::from([
-        (KEY_ITEMS[0], 5),   // Astronomical Board, obtained at the end of M4, used in M5
-        (KEY_ITEMS[1], 5),   // Vajura
-        (KEY_ITEMS[2], 6),   // Essence of Intelligence
+        (KEY_ITEMS[0], 1),   // Astronomical Board
+        (KEY_ITEMS[1], 2),   // Vajura
+        (KEY_ITEMS[2], 7),   // Essence of Intelligence
         (KEY_ITEMS[3], 6),   // Essence of Technique
-        (KEY_ITEMS[4], 6),   // Essence of Warrior
-        (KEY_ITEMS[5], 5),   // Soul of Steel
-        (KEY_ITEMS[6], 13),  // Full Orihalcon
-        (KEY_ITEMS[7], 7),   // Orihalcon Fragment
-        (KEY_ITEMS[8], 15),  // Orihalcon Fragment (Right)
-        (KEY_ITEMS[9], 15),  // Orihalcon Fragment (Bottom)
-        (KEY_ITEMS[10], 15), // Orihalcon Fragment (Left)
-        (KEY_ITEMS[11], 7),  // Siren's Shriek
-        (KEY_ITEMS[12], 7),  // Crystal Skull
-        (KEY_ITEMS[13], 8),  // Ignis Fatuus
-        (KEY_ITEMS[14], 9),  // Ambrosia
-        (KEY_ITEMS[15], 10), // Stone Mask
-        (KEY_ITEMS[16], 10), // Neo Generator
-        (KEY_ITEMS[17], 12), // Haywire Neo Generator
-        (KEY_ITEMS[18], 16), // Golden Sun
-        (KEY_ITEMS[19], 16), // Onyx Moonshard
-        (KEY_ITEMS[20], 19), // Samsara
+        (KEY_ITEMS[4], 5),   // Essence of Fighting
+        (KEY_ITEMS[5], 4),   // Soul of Steel
+        (KEY_ITEMS[6], 16),  // Full Orihalcon
+        (KEY_ITEMS[7], 8),   // Orihalcon Fragment
+        (KEY_ITEMS[8], 17),  // Orihalcon Fragment (Right)
+        (KEY_ITEMS[9], 18),  // Orihalcon Fragment (Bottom)
+        (KEY_ITEMS[10], 19), // Orihalcon Fragment (Left)
+        (KEY_ITEMS[11], 9),  // Siren's Shriek
+        (KEY_ITEMS[12], 10),  // Crystal Skull
+        (KEY_ITEMS[13], 11),  // Ignis Fatuus
+        (KEY_ITEMS[14], 12),  // Ambrosia
+        (KEY_ITEMS[15], 13), // Stone Mask
+        (KEY_ITEMS[16], 14), // Neo Generator
+        (KEY_ITEMS[17], 15), // Haywire Neo Generator
+        (KEY_ITEMS[18], 20), // Golden Sun
+        (KEY_ITEMS[19], 21), // Onyx Moonshard
+        (KEY_ITEMS[20], 22), // Samsara
     ])
 });
 

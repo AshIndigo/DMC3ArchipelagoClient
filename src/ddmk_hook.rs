@@ -10,7 +10,7 @@ use std::sync::{OnceLock, RwLock};
 use imgui_sys::{ImGuiCond, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
 use serde::Deserialize;
 use hook::CONNECTION_STATUS;
-use crate::{archipelago, hook, tables, utilities};
+use crate::{archipelago, hook, constants, utilities};
 use crate::archipelago::ArchipelagoData;
 use crate::hook::Status;
 use crate::imgui_bindings::*;
@@ -91,7 +91,7 @@ unsafe fn tracking_window() {
         y: 0.0
     });
     get_imgui_begin()("Tracker\0".as_ptr() as *const c_char, flag as *mut bool, imgui_sys::ImGuiWindowFlags_AlwaysAutoResize as ImGuiWindowFlags);
-    for chunk in tables::KEY_ITEMS.chunks(3) {
+    for chunk in constants::KEY_ITEMS.chunks(3) {
         let row_text = chunk.iter().map(|&item| checkbox_text(item)).collect::<Vec<String>>().join("  "); // TODO Pretty this up later
         text(format!("{}\0", row_text));
     }

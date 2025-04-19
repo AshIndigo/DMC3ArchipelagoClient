@@ -1,8 +1,8 @@
 use crate::archipelago::{connect_archipelago, CHECKED_LOCATIONS, CONNECT_CHANNEL_SETUP, MAPPING, SLOT_NUMBER, TEAM_NUMBER};
-use crate::ddmk_hook::{CHECKLIST};
-use crate::tables::{get_item, EventCode};
-use crate::{archipelago, constants, tables, utilities};
-use archipelago_rs::client::{ArchipelagoClient};
+use crate::ddmk_hook::CHECKLIST;
+use crate::constants::{get_item, EventCode, ItemPickedUpFunc, ItemSpawns, ITEM_PICKED_UP_ADDR, ITEM_SPAWNS_ADDR, ORIGINAL_ITEMPICKEDUP, ORIGINAL_ITEM_SPAWNS};
+use crate::{archipelago, asm_hook, constants, generated_locations, utilities};
+use archipelago_rs::client::ArchipelagoClient;
 use archipelago_rs::protocol::ClientStatus;
 use once_cell::sync::OnceCell;
 use std::arch::asm;
@@ -22,7 +22,7 @@ use winapi::um::memoryapi::VirtualProtect;
 use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::System::Console::{AllocConsole, FreeConsole, GetConsoleMode, GetStdHandle, SetConsoleMode, ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_OUTPUT_HANDLE};
-use crate::utilities::{get_mission};
+use crate::utilities::get_mission;
 
 pub(crate) static TX: OnceCell<Sender<Location>> = OnceCell::new();
 
@@ -39,118 +39,6 @@ impl Display for Location {
             write!(f, "Room ID: {:#} Item ID: {:#x}", self.room, self.item_id)
                 .expect("Failed to print Location as String!"),
         )
-    }
-}
-
-// Due to the function I'm tacking this onto, need a double trampoline
-fn install_super_jmp_for_events(custom_function: usize) {
-    // This is for Location checking
-    unsafe {
-        modify_call_offset(0x1af0f8usize + utilities::get_dmc3_base_address(), 6); //sub, orig 6
-        let first_target_address = utilities::get_dmc3_base_address() + 0x1A9BBAusize; // This is for the 6 bytes above 1a9bc0
-        let mut old_protect = 0;
-        let length_first = 6;
-        VirtualProtect(
-            // TODO Make a generic protection handler! remove duped code
-            first_target_address as *mut _,
-            length_first, // MOV + JMP = 12 bytes
-            PAGE_EXECUTE_READWRITE,
-            &mut old_protect,
-        );
-
-        // Write the absolute jump (MOV RAX + JMP RAX)
-        let target_code = slice::from_raw_parts_mut(first_target_address as *mut u8, length_first);
-        target_code[0] = 0xE8;
-        target_code[1] = 0x82;
-        target_code[2] = 0xFE;
-        target_code[3] = 0xFF;
-        target_code[4] = 0xFF;
-        target_code[5] = 0x90;
-
-        // Restore the original memory protection
-        VirtualProtect(
-            first_target_address as *mut _,
-            length_first,
-            old_protect,
-            &mut old_protect,
-        );
-
-        log::debug!(
-            "Installed 1st trampoline: Target Address = 0x{:x}, Custom Function = 0x{:x}",
-            first_target_address,
-            custom_function
-        );
-
-        let second_target_address = utilities::get_dmc3_base_address() + 0x1A9A41usize;
-        let mut old_protect = 0;
-        let length_second = 16;
-        VirtualProtect(
-            second_target_address as *mut _,
-            length_second, // MOV + JMP = 12 bytes
-            PAGE_EXECUTE_READWRITE,
-            &mut old_protect,
-        );
-
-        // Write the absolute jump (MOV RAX + JMP RAX)
-        let target_code_second =
-            slice::from_raw_parts_mut(second_target_address as *mut u8, length_second);
-        target_code_second[0] = 0x50; // Push RAX
-        target_code_second[1] = 0x48; // REX.W
-        target_code_second[2] = 0xB8; // MOV RAX, imm64
-        target_code_second[3..11].copy_from_slice(&custom_function.to_le_bytes());
-
-        target_code_second[11] = 0xFF; // JMP opcode
-        target_code_second[12] = 0xD0; // JMP RAX
-        target_code_second[13] = 0x58; // POP Rax
-        target_code_second[14] = 0xC3; // RET
-                                       // Restore the original memory protection
-        VirtualProtect(
-            second_target_address as *mut _,
-            length_second,
-            old_protect,
-            &mut old_protect,
-        );
-    }
-}
-
-/// Modifies a CALL instructions offset, subtracting it by the given value
-pub(crate) fn modify_call_offset(call_address: usize, modify: i32) {
-    unsafe {
-        // Modify memory protection to allow writing
-        let mut old_protect = 0;
-        VirtualProtect(
-            call_address as *mut _,
-            5, // CALL opcode + 4-byte offset = 5 bytes
-            PAGE_EXECUTE_READWRITE,
-            &mut old_protect,
-        );
-
-        // Read the existing offset
-        let call_code = slice::from_raw_parts_mut(call_address as *mut u8, 5);
-
-        // Ensure the opcode is CALL (0xE8)
-        if call_code[0] != 0xE8 {
-            panic!(
-                "Instruction at 0x{:x} is not a CALL instruction. Opcode: 0x{:x}",
-                call_address, call_code[0]
-            );
-        }
-
-        // Extract the existing 4-byte relative offset
-        let existing_offset = i32::from_le_bytes(call_code[1..5].try_into().unwrap());
-
-        // Calculate the new offset
-        let new_offset = existing_offset.wrapping_sub(modify);
-
-        call_code[1..5].copy_from_slice(&new_offset.to_le_bytes());
-
-        // Restore the original memory protection
-        VirtualProtect(call_address as *mut _, 5, old_protect, &mut old_protect);
-
-        log::debug!(
-            "Modified CALL instruction at 0x{:x}: Old Offset = 0x{:x}, Modify = {}, New Offset = 0x{:x}",
-            call_address, existing_offset, modify, new_offset
-        );
     }
 }
 
@@ -204,7 +92,7 @@ pub(crate) fn setup_items_channel() -> Arc<Mutex<Receiver<Location>>> {
 pub(crate) fn install_initial_functions() {
     //asm_hook::install_jmps();
     log::info!("Installing the super trampoline for event tables");
-    install_super_jmp_for_events(edit_event_wrapper as usize);
+    asm_hook::install_super_jmp_for_events(edit_event_wrapper as usize);
 /*    match tables::EVENT_TABLES.set(set_event_tables()) { // TODO Remove
         Ok(_) => {
             log::info!("EVENT_TABLES was set successfully")
@@ -312,19 +200,17 @@ pub(crate) async fn spawn_arch_thread(rx: Arc<Mutex<Receiver<Location>>>) {
 
 /// Set the starting gun and melee weapon upon a new game
 pub unsafe fn set_starting_weapons(melee_id: u8, gun_id: u8) {
-    utilities::replace_single_byte(0x000, melee_id); // Melee weapon
-    utilities::replace_single_byte(0x000, gun_id); // Gun
+    utilities::replace_single_byte(constants::STARTING_MELEE, melee_id); // Melee weapon
+    utilities::replace_single_byte(constants::STARTING_GUN, gun_id); // Gun
     todo!()
 }
 
 pub unsafe fn edit_event_wrapper() {
     pub unsafe fn edit_event_drop() {
         // Basic values
-        let mission_num = get_mission();
-        let base_table = 0x01A42680usize; // TODO is this gonna be ok?
         let Some(mapping) = MAPPING.get() else { return };
         // Get events for the specific mission
-        let Some(mission_event_tables) = tables::EVENT_TABLES.get(&mission_num) else {
+        let Some(mission_event_tables) = constants::EVENT_TABLES.get(&get_mission()) else {
             return;
         };
         let Some(checked_locations) = CHECKED_LOCATIONS.get() else {
@@ -338,20 +224,20 @@ pub unsafe fn edit_event_wrapper() {
                     log::debug!("Event loc checked: {}", &event_table.location);
                     // If the location has been checked, disable it by making the game check for an item the player already has
                     if event.event_type == EventCode::CHECK {
-                        utilities::replace_single_byte_no_offset(base_table + event.offset, 0x00) // Use 0x00, trying to use rebellion doesn't work
+                        utilities::replace_single_byte_no_offset(constants::EVENT_TABLE_ADDR + event.offset, 0x00) // Use 0x00, trying to use rebellion doesn't work
                     }
                     // if (event.event_type == EventCode::GIVE) {
                     //     replace_single_byte_no_offset(base_table + event.offset, tables::get_item_id(mapping.items.get(&tbl.location).unwrap()).unwrap())
                     // }
                     if event.event_type == EventCode::END {
-                        utilities::replace_single_byte_no_offset(base_table + event.offset, 0x00)
+                        utilities::replace_single_byte_no_offset(constants::EVENT_TABLE_ADDR + event.offset, 0x00)
                     }
                 } else {
                     // Location has not been checked off! TODO Make the "check" event, a dummied item
                     log::debug!("Event loc not checked: {}", &event_table.location);
                     utilities::replace_single_byte_no_offset(
-                        base_table + event.offset,
-                        tables::get_item_id(mapping.items.get(&event_table.location).unwrap()).unwrap(),
+                        constants::EVENT_TABLE_ADDR + event.offset,
+                        constants::get_item_id(mapping.items.get(&event_table.location).unwrap()).unwrap(),
                     )
                 }
             }
@@ -387,7 +273,7 @@ pub unsafe fn edit_event_wrapper() {
 // start at 1B3944 -> 1B395A
 // Set these from 01 to 02
 pub(crate) unsafe fn rewrite_mode_table() {
-    let table_address = 0x1B4534usize + utilities::get_dmc3_base_address();
+    let table_address = constants::ITEM_MODE_TABLE + utilities::get_dmc3_base_address();
     let mut old_protect = 0;
     let length = 16;
     VirtualProtect(
@@ -410,17 +296,16 @@ pub(crate) unsafe fn rewrite_mode_table() {
 
 /// Modifies Adjudicator Drops
 pub(crate) unsafe fn modify_adjudicator_drop() {
-    let mission_number = get_mission();
     match MAPPING.get() {
         Some(mapping) => {
-            for (location_name, entry) in constants::ITEM_MISSION_MAP.iter() {
+            for (location_name, entry) in generated_locations::ITEM_MISSION_MAP.iter() {
                 // Run through all locations
-                if entry.adjudicator && entry.mission == mission_number as u8 {
+                if entry.adjudicator && entry.mission == get_mission() as u8 {
                     // If Location is adjudicator and mission numbers match
                     let item_id =
-                        tables::get_item_id(mapping.items.get(*location_name).unwrap()).unwrap(); // Get the item ID and replace
-                    utilities::replace_single_byte(0x250594, item_id);
-                    utilities::replace_single_byte(0x25040d, item_id);
+                        constants::get_item_id(mapping.items.get(*location_name).unwrap()).unwrap(); // Get the item ID and replace
+                    utilities::replace_single_byte(constants::ADJUDICATOR_ITEM_ID_1, item_id);
+                    utilities::replace_single_byte(constants::ADJUDICATOR_ITEM_ID_2, item_id);
                 }
             }
         }
@@ -432,7 +317,7 @@ pub(crate) unsafe fn modify_adjudicator_drop() {
 unsafe fn item_picked_up_hook(loc_chk_flg: i64, item_id: i16, unknown: i32) {
     if item_id > 0x03 {
         log::debug!("Loc CHK Flg is: {:x}", loc_chk_flg);
-        log::debug!("Item ID is: {} (0x{:x})", tables::get_item(item_id as u64), item_id);
+        log::debug!("Item ID is: {} (0x{:x})", constants::get_item(item_id as u64), item_id);
         log::debug!("Unknown is: {:x}", unknown); // Don't know what to make of this just yet
         let mut room_5 = false;
         if unknown == 10013 {
@@ -478,14 +363,14 @@ unsafe fn item_spawns_hook(unknown: i64) {
             for _i in 0..item_count {
                 let item_ref: &u32 = &*(item_addr as *const u32);
                 log::debug!("Item ID: {} (0x{:x})", get_item(*item_ref as u64), *item_ref);
-                for (location_name, entry) in constants::ITEM_MISSION_MAP.iter() {
+                for (location_name, entry) in generated_locations::ITEM_MISSION_MAP.iter() {
                     if entry.room_number == 0 {
                         // Skipping if location file has room as 0, that means its either event or not done
                         continue;
                     }
                     //log::debug!("Room number X: {} Room number memory: {}, Item ID X: 0x{:x}, Item ID Memory: 0x{:x}", entry.room_number, room_num, entry.item_id, *item_ref);
                     if entry.room_number == room_num && entry.item_id as u32 == *item_ref && !entry.adjudicator {
-                        let ins_val = tables::get_item_id(mapping.items.get(*location_name).unwrap()); // Scary
+                        let ins_val = constants::get_item_id(mapping.items.get(*location_name).unwrap()); // Scary
                         *item_addr = ins_val.unwrap() as i32;
                         log::info!(
                             "Replaced item in room {} ({}) with {} 0x{:x}",
@@ -510,14 +395,14 @@ unsafe fn item_spawns_hook(unknown: i64) {
 
 fn set_relevant_key_items() {
     let checklist: RwLockWriteGuard<HashMap<String, bool>> = CHECKLIST.get().unwrap().write().unwrap();
-    let current_inv_addr = utilities::read_usize_from_address(0xC90E28 + 0x8);
+    let current_inv_addr = utilities::read_usize_from_address(constants::INVENTORY_PTR);
     log::debug!("Current INV Addr: 0x{:x}", current_inv_addr);
     log::debug!("Resetting high roller card");
    /* let item_addr = current_inv_addr + 0x60 + tables::KEY_ITEMS.iter().position(|&str| str == *item).unwrap();
     log::debug!("Attempting to replace at address: 0x{:x} with flag 0x{:x}", item_addr, flag);
     unsafe { utilities::replace_single_byte_no_offset(item_addr, flag) };*/
     let mut flag: u8;
-    match tables::MISSION_ITEM_MAP.get(&get_mission()) {
+    match constants::MISSION_ITEM_MAP.get(&get_mission()) {
         None => {} // No items for the mission
         Some(item_list) => {
             for item in item_list.into_iter() {
@@ -527,21 +412,13 @@ fn set_relevant_key_items() {
                 } else {
                     flag = 0x00;
                 }
-                let item_addr = current_inv_addr + 0x60 + tables::KEY_ITEM_OFFSETS.get(item).unwrap().clone() as usize; // TODO Need to fix, map to specific offsets
+                let item_addr = current_inv_addr + 0x60 + constants::KEY_ITEM_OFFSETS.get(item).unwrap().clone() as usize; // TODO Need to fix, map to specific offsets
                 log::debug!("Attempting to replace at address: 0x{:x} with flag 0x{:x}", item_addr, flag);
                 unsafe { utilities::replace_single_byte_no_offset(item_addr, flag) };
             }
         }
     }
 }
-
-type ItemPickedUpFunc = unsafe extern "C" fn(loc_chk_id: c_longlong, param_2: c_short, item_id: c_int);
-const ITEM_PICKED_UP_ADDR: usize = 0x1aa6e0;
-static mut ORIGINAL_ITEMPICKEDUP: Option<ItemPickedUpFunc> = None;
-
-type ItemSpawns = unsafe extern "C" fn(loc_chk_id: c_longlong);
-const ITEM_SPAWNS_ADDR: usize = 0x1b4440; // 0x1b4480
-static mut ORIGINAL_ITEM_SPAWNS: Option<ItemSpawns> = None;
 
 // 23d680 - Pause menu event? Hook in here to do rendering
 fn setup_hooks() {

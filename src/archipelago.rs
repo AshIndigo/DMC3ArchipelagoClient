@@ -1,7 +1,7 @@
 use crate::cache::{read_cache, CustomGameData};
 use crate::ddmk_hook::CHECKLIST;
 use crate::hook::{modify_itm_table, Location, Status};
-use crate::{cache, constants, hook, tables};
+use crate::{cache, generated_locations, hook, constants};
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
@@ -302,8 +302,8 @@ fn use_mappings() { // TODO Need to see if the provided seed matches up with the
     match MAPPING.get() {
         Some(data) => {
             for (location_name, item_name) in data.items.iter() {
-                match constants::ITEM_MISSION_MAP.get(location_name as &str) {
-                    Some(entry) => match tables::get_item_id(item_name) {
+                match generated_locations::ITEM_MISSION_MAP.get(location_name as &str) {
+                    Some(entry) => match constants::get_item_id(item_name) {
                         Some(id) => unsafe { modify_itm_table(entry.offset, id) },
                         None => {
                             log::warn!("Item not found: {}", item_name);
@@ -370,7 +370,7 @@ pub async fn handle_things(cl: &mut ArchipelagoClient, rx: &Arc<Mutex<Receiver<L
                 log::error!("Data Package not found");
                 return;
             };
-            for (location_key, item_entry) in constants::ITEM_MISSION_MAP.iter() {
+            for (location_key, item_entry) in generated_locations::ITEM_MISSION_MAP.iter() {
                 //log::debug!("Checking room {} vs {} and mission {} vs {}", v.room_number as i32, item.room, v.mission as i32, item.mission);
                 if item_entry.room_number as i32 == item.room {
                     // && v.mission as i32 == item.mission { // First confirm the room and mission number
@@ -378,15 +378,15 @@ pub async fn handle_things(cl: &mut ArchipelagoClient, rx: &Arc<Mutex<Receiver<L
                     let item_str = mapping_data.items.get(*location_key).unwrap();
                     log::debug!(
                         "Checking location items: 0x{:x} vs 0x{:x}",
-                        tables::get_item_id(item_str).unwrap(),
+                        constants::get_item_id(item_str).unwrap(),
                         item.item_id as u8
                     );
-                    if tables::get_item_id(item_str).unwrap() == item.item_id as u8 {
+                    if constants::get_item_id(item_str).unwrap() == item.item_id as u8 {
                         // Then see if the item picked up matches the specified in the map
                         match dp.location_name_to_id.get(*location_key) {
                             Some(loc_id) => match cl.location_checks(vec![loc_id.clone()]).await {
                                 Ok(_) => {
-                                    if tables::KEY_ITEMS.contains(&&**item_str) {
+                                    if constants::KEY_ITEMS.contains(&&**item_str) {
                                         set_checklist_item(item_str, true);
                                         log::debug!("Key Item checked off: {}", item_str);
                                     }
@@ -425,7 +425,7 @@ pub async fn handle_things(cl: &mut ArchipelagoClient, rx: &Arc<Mutex<Receiver<L
             Some(ServerMessage::ReceivedItems(items)) => {
                 for item in items.items.iter() {
                     if item.item < 0x14 { // Consumables/orbs TODO
-                        match cl.set(format!("team{}_slot{}_{}", TEAM_NUMBER.load(Ordering::SeqCst), SLOT_NUMBER.load(Ordering::SeqCst), tables::get_item(item.item as u64)), Value::from(1), false, vec![
+                        match cl.set(format!("team{}_slot{}_{}", TEAM_NUMBER.load(Ordering::SeqCst), SLOT_NUMBER.load(Ordering::SeqCst), constants::get_item(item.item as u64)), Value::from(1), false, vec![
                             DataStorageOperation {
                                 replace: "add".to_string(),
                                 value: Value::from(1),

@@ -58,6 +58,6 @@ fn main() {
 
     // Write to src folder
     let out_dir = Path::new("src");
-    let dest_path = Path::new(&out_dir).join("constants.rs");
-    fs::write(dest_path, output).expect("Unable to write constants.rs");
+    let dest_path = Path::new(&out_dir).join("generated_locations.rs");
+    fs::write(dest_path, output).expect("Unable to write generated_locations");
 }
