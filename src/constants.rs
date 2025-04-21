@@ -45,6 +45,14 @@ pub(crate) const KEY_ITEMS: [&str; 21] = [
     "Samsara",                     //20
 ];
 
+pub(crate) const CONSUMABLES: [&str; 5] = [
+    "Vital Star L",          // 0
+    "Vital Star S",          // 1
+    "Devil Star",            // 2
+    "Holy Water",            // 3
+    "Red Orbs" // Remove? 4
+];
+
 // What item is used in what mission
 pub static ITEM_MISSION_MAP: LazyLock<HashMap<&'static str, i32>> = LazyLock::new(|| {
     HashMap::from([

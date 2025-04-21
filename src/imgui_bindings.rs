@@ -1,3 +1,4 @@
+use std::ffi::{c_float, c_int};
 use crate::utilities::get_mary_base_address;
 use imgui_sys::{cty, ImGuiCond, ImGuiInputTextCallback, ImGuiInputTextFlags, ImGuiWindowFlags, ImVec2};
 use std::os::raw::c_char;
@@ -18,6 +19,9 @@ pub type ImGuiTextInput = extern "C" fn(
 //pub type ImGuiWindowPos = extern "C" fn(pos: &ImVec2, cond: ImGuiCond);
 pub type ImGuiNextWindowPos = extern "C" fn (pos: &ImVec2, cond: ImGuiCond, pivot: &ImVec2);
 
+pub type ImGuiSameLine = extern "C" fn (offset_from_start_x: c_float, spacing_w: c_float);
+pub type ImGuiPushID = extern "C" fn (offset_from_start_x: c_int);
+
 //pub type ImGuiCheckbox = extern "C" fn (text: *const cty::c_char, p_open: *mut bool);
 
 pub const BEGIN_FUNC_ADDR: usize = 0x1F8B0;
@@ -28,6 +32,9 @@ pub const TEXT_ADDR: usize = 0x69d50;
 pub const INPUT_ADDR: usize = 0x60c80;
 
 pub const POS_FUNC_ADDR: usize = 0x374a0;
+pub const SAME_LINE_ADDR: usize = 0x36200;
+pub const PUSH_ID_ADDR: usize = 0x32850;
+pub const POP_ID_ADDR: usize = 0x5fe0;
 //pub const CHECKBOX_FUNC_ADDR: usize = 0x5a7e0;
 
 pub fn text<T: AsRef<str>>(text: T) {
@@ -49,6 +56,9 @@ static IMGUI_END: OnceLock<BasicNothingFunc> = OnceLock::new();
 static IMGUI_BEGIN: OnceLock<ImGuiBegin> = OnceLock::new();
 static IMGUI_BUTTON: OnceLock<ImGuiButton> = OnceLock::new();
 static IMGUI_POS: OnceLock<ImGuiNextWindowPos> = OnceLock::new();
+static IMGUI_SAME_LINE: OnceLock<ImGuiSameLine> = OnceLock::new();
+static IMGUI_PUSH_ID: OnceLock<ImGuiPushID> = OnceLock::new();
+static IMGUI_POP_ID: OnceLock<BasicNothingFunc> = OnceLock::new(); 
 //static IMGUI_CHECKBOX: OnceLock<ImGuiNextWindowPos> = OnceLock::new();
 
 // Helpers to retrieve values
@@ -73,6 +83,24 @@ pub fn get_imgui_button() -> &'static ImGuiButton {
 pub fn get_imgui_pos() -> &'static ImGuiNextWindowPos {
     IMGUI_POS.get_or_init(|| unsafe {
         std::mem::transmute::<_, ImGuiNextWindowPos>(get_mary_base_address() + POS_FUNC_ADDR)
+    })
+}
+
+pub fn get_imgui_same_line() -> &'static ImGuiSameLine {
+    IMGUI_SAME_LINE.get_or_init(|| unsafe {
+        std::mem::transmute::<_, ImGuiSameLine>(get_mary_base_address() + SAME_LINE_ADDR)
+    })
+}
+
+pub fn get_imgui_push_id() -> &'static ImGuiPushID {
+    IMGUI_PUSH_ID.get_or_init(|| unsafe {
+        std::mem::transmute::<_, ImGuiPushID>(get_mary_base_address() + PUSH_ID_ADDR)
+    })
+}
+
+pub fn get_imgui_pop_id() -> &'static BasicNothingFunc {
+    IMGUI_POP_ID.get_or_init(|| unsafe {
+        std::mem::transmute::<_, BasicNothingFunc>(get_mary_base_address() + POP_ID_ADDR)
     })
 }
 

@@ -1,10 +1,12 @@
 use crate::cache::{read_cache, CustomGameData};
 use crate::ddmk_hook::CHECKLIST;
 use crate::hook::{modify_itm_table, Location, Status};
-use crate::{cache, generated_locations, hook, constants};
+use crate::{cache, constants, generated_locations, hook};
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
+use archipelago_rs::protocol::{DataStorageOperation, ServerMessage};
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::fs::{remove_file, File};
@@ -14,14 +16,13 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{mpsc, Arc, Mutex};
-use archipelago_rs::protocol::{DataStorageOperation, ServerMessage};
-use serde_json::Value;
 
 pub static MAPPING: OnceCell<Mapping> = OnceCell::new();
 pub static DATA_PACKAGE: OnceCell<CustomGameData> = OnceCell::new();
 pub static mut CHECKED_LOCATIONS: OnceCell<Vec<String>> = OnceCell::new();
 
 pub static TX_ARCH: OnceCell<Sender<ArchipelagoData>> = OnceCell::new();
+pub static TX_BANK: OnceCell<Sender<String>> = OnceCell::new();
 
 pub static CONNECT_CHANNEL_SETUP: AtomicBool = AtomicBool::new(false);
 pub static SLOT_NUMBER: AtomicI32 = AtomicI32::new(-1);
@@ -50,33 +51,26 @@ pub fn setup_connect_channel() -> Arc<Mutex<Receiver<ArchipelagoData>>> {
     let (tx, rx) = mpsc::channel();
     TX_ARCH.set(tx).expect("TX already initialized");
     Arc::new(Mutex::new(rx))
-    //RX_ARCH = Some(rx);
 }
 
-// An ungodly mess, TODO Remove?
-/*pub async fn connect_archipelago_get_url() -> Result<ArchipelagoClient, ArchipelagoError> {
-    let url = input("Archipelago URL: ")?;
-    let name = input("Name: ")?;
-    let password = input("Password (Leave blank if unneeded): ")?;
-    log::info!("url: {}", url);
-
-    connect_archipelago(ArchipelagoData {
-        url,
-        name,
-        password,
-    })
-    .await
-}*/
+pub fn setup_bank_channel() -> Arc<Mutex<Receiver<String>>> {
+    let (tx, rx) = mpsc::channel();
+    TX_BANK.set(tx).expect("TX already initialized");
+    Arc::new(Mutex::new(rx))
+}
 
 pub async fn connect_archipelago(
     login_data: ArchipelagoData,
 ) -> Result<ArchipelagoClient, ArchipelagoError> {
-    let mut client_res: Result<ArchipelagoClient, ArchipelagoError> = Err(ArchipelagoError::ConnectionClosed);
+    let mut client_res: Result<ArchipelagoClient, ArchipelagoError> =
+        Err(ArchipelagoError::ConnectionClosed);
     if !cache::check_for_cache_file() {
         // If the cache file does not exist, then it needs to be acquired
         client_res = ArchipelagoClient::with_data_package(
             &login_data.url,
-            Some(vec!["Devil May Cry 3".parse().expect("Failed to parse string")]),
+            Some(vec!["Devil May Cry 3"
+                .parse()
+                .expect("Failed to parse string")]),
         )
         .await;
         match client_res {
@@ -84,8 +78,8 @@ pub async fn connect_archipelago(
                 // Write the data package to a local cache file
                 None => {
                     log::error!("No data package found");
-                    return Err(ArchipelagoError::ConnectionClosed)
-                },
+                    return Err(ArchipelagoError::ConnectionClosed);
+                }
                 Some(ref dp) => {
                     let mut clone_data = HashMap::new();
                     let _ = &dp.games.iter().for_each(|g| {
@@ -164,7 +158,7 @@ pub async fn connect_archipelago(
                         save_connection_info(login_data);
                         Ok(cl)
                     }
-                },
+                }
                 Err(err) => Err(err),
             }
         }
@@ -200,7 +194,7 @@ fn set_checklist_item(item: &str, value: bool) {
             let mut checklist = rwlock.write().unwrap();
             checklist.insert(item.to_string(), value);
         }
-        if let Ok(checklist) = rwlock.read() {
+        if let Ok(_checklist) = rwlock.read() {
             // log::debug!("Checklist: {:?}", *checklist);
         }
     }
@@ -298,7 +292,8 @@ pub struct ItemEntry {
                           // TODO Secret
 }
 
-fn use_mappings() { // TODO Need to see if the provided seed matches up with the world seed or something to ensure mappings are correct
+fn use_mappings() {
+    // TODO Need to see if the provided seed matches up with the world seed or something to ensure mappings are correct
     match MAPPING.get() {
         Some(data) => {
             for (location_name, item_name) in data.items.iter() {
@@ -357,9 +352,9 @@ pub fn load_location_map() -> Option<Mapping> {
     }
 }
 
-pub async fn handle_things(cl: &mut ArchipelagoClient, rx: &Arc<Mutex<Receiver<Location>>>) {
-    if let Ok(rec) = rx.lock() {
-        while let Ok(item) = rec.try_recv() {
+pub async fn handle_things(client: &mut ArchipelagoClient, loc_rx: &Arc<Mutex<Receiver<Location>>>) {
+    if let Ok(item_rec) = loc_rx.lock() {
+        while let Ok(item) = item_rec.try_recv() {
             // See if there's an item!
             log::info!("Processing item: {}", item); // TODO Need to handle offline storage... if the item cant be sent it needs to be buffered
             let Some(mapping_data) = MAPPING.get() else {
@@ -384,7 +379,7 @@ pub async fn handle_things(cl: &mut ArchipelagoClient, rx: &Arc<Mutex<Receiver<L
                     if constants::get_item_id(item_str).unwrap() == item.item_id as u8 {
                         // Then see if the item picked up matches the specified in the map
                         match dp.location_name_to_id.get(*location_key) {
-                            Some(loc_id) => match cl.location_checks(vec![loc_id.clone()]).await {
+                            Some(loc_id) => match client.location_checks(vec![loc_id.clone()]).await {
                                 Ok(_) => {
                                     if constants::KEY_ITEMS.contains(&&**item_str) {
                                         set_checklist_item(item_str, true);
@@ -401,14 +396,15 @@ pub async fn handle_things(cl: &mut ArchipelagoClient, rx: &Arc<Mutex<Receiver<L
                                     log::info!("Failed to check location: {}", err);
                                 }
                             },
-                            None => log::error!("Location not found: {}", location_key)
+                            None => log::error!("Location not found: {}", location_key),
                         }
                     }
                 }
             }
         }
     }
-    match cl.recv().await {
+
+    match client.recv().await {
         Ok(opt_msg) => match opt_msg {
             None => {}
             Some(ServerMessage::PrintJSON(json_msg)) => {
@@ -424,13 +420,25 @@ pub async fn handle_things(cl: &mut ArchipelagoClient, rx: &Arc<Mutex<Receiver<L
             }
             Some(ServerMessage::ReceivedItems(items)) => {
                 for item in items.items.iter() {
-                    if item.item < 0x14 { // Consumables/orbs TODO
-                        match cl.set(format!("team{}_slot{}_{}", TEAM_NUMBER.load(Ordering::SeqCst), SLOT_NUMBER.load(Ordering::SeqCst), constants::get_item(item.item as u64)), Value::from(1), false, vec![
-                            DataStorageOperation {
-                                replace: "add".to_string(),
-                                value: Value::from(1),
-                            }
-                        ]).await {
+                    if item.item < 0x14 {
+                        // Consumables/orbs TODO
+                        match client
+                            .set(
+                                format!(
+                                    "team{}_slot{}_{}",
+                                    TEAM_NUMBER.load(Ordering::SeqCst),
+                                    SLOT_NUMBER.load(Ordering::SeqCst),
+                                    constants::get_item(item.item as u64)
+                                ),
+                                Value::from(1),
+                                false,
+                                vec![DataStorageOperation {
+                                    replace: "add".to_string(),
+                                    value: Value::from(1),
+                                }],
+                            )
+                            .await
+                        {
                             _ => {}
                         }
                     }
@@ -456,7 +464,7 @@ pub async fn handle_things(cl: &mut ArchipelagoClient, rx: &Arc<Mutex<Receiver<L
         },
         Err(ArchipelagoError::NetworkError(err)) => {
             log::info!("Failed to receive data, reconnecting: {}", err);
-           /* match connect_archipelago(ArchipelagoData {
+            /* match connect_archipelago(ArchipelagoData {
                 url: "".to_string(),
                 name: "".to_string(),
                 password: "".to_string(),
@@ -473,8 +481,24 @@ pub async fn handle_things(cl: &mut ArchipelagoClient, rx: &Arc<Mutex<Receiver<L
     }
 }
 
+// An ungodly mess, TODO Remove?
+/*pub async fn connect_archipelago_get_url() -> Result<ArchipelagoClient, ArchipelagoError> {
+    let url = input("Archipelago URL: ")?;
+    let name = input("Name: ")?;
+    let password = input("Password (Leave blank if unneeded): ")?;
+    log::info!("url: {}", url);
+
+    connect_archipelago(ArchipelagoData {
+        url,
+        name,
+        password,
+    })
+    .await
+}*/
+
+/* // TODO Remove
 fn input(text: &str) -> Result<String, anyhow::Error> {
     log::info!("{}", text);
 
     Ok(io::stdin().lock().lines().next().unwrap()?)
-}
+}*/

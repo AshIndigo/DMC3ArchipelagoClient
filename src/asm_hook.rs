@@ -3,7 +3,7 @@ use winapi::um::memoryapi::VirtualProtect;
 use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
 use std::slice;
 use crate::archipelago::MAPPING;
-use crate::{generated_locations, hook, constants, utilities};
+use crate::{generated_locations, constants, utilities};
 use crate::hook::{Location, TX};
 
 const TARGET_FUNCTION: usize = 0x1b4595;

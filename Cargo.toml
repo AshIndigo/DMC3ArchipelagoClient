@@ -32,7 +32,6 @@ imgui = { version = "0.12.0" }
 imgui-sys = { version = "0.12.0" }
 minhook = "0.7.1"
 egui = "0.31.0"
-shroud = { version = "0.2.3", features = ["directx11"] }
 libloading = "0.8.6"
 
 # Testing deps
@@ -49,6 +48,7 @@ winit = { version = "0.30.9" }
 #egui_d3d11 = {path = "egui_d3d11"}
 #egui-d3d11 = {git = "https://github.com/janis-bhm/egui-d3d11.git"}
 faithe = "0.8.0"
+shroud = { version = "0.2.3", features = ["directx11"] }
 #imgui = "0.11.0"
 #imgui-dx11-renderer = "0.8.0"
 #imgui-dx11-renderer = {git = "https://github.com/cohaereo/imgui-dx11-renderer"}

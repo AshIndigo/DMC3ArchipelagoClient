@@ -1,4 +1,4 @@
-use crate::archipelago::{connect_archipelago, CHECKED_LOCATIONS, CONNECT_CHANNEL_SETUP, MAPPING, SLOT_NUMBER, TEAM_NUMBER};
+use crate::archipelago::{connect_archipelago, setup_bank_channel, CHECKED_LOCATIONS, CONNECT_CHANNEL_SETUP, MAPPING, SLOT_NUMBER, TEAM_NUMBER};
 use crate::ddmk_hook::CHECKLIST;
 use crate::constants::{get_item, EventCode, ItemPickedUpFunc, ItemSpawns, ITEM_PICKED_UP_ADDR, ITEM_SPAWNS_ADDR, ORIGINAL_ITEMPICKEDUP, ORIGINAL_ITEM_SPAWNS};
 use crate::{archipelago, asm_hook, constants, generated_locations, utilities};
@@ -6,7 +6,6 @@ use archipelago_rs::client::ArchipelagoClient;
 use archipelago_rs::protocol::ClientStatus;
 use once_cell::sync::OnceCell;
 use std::arch::asm;
-use std::ffi::{c_int, c_longlong};
 use std::fmt::{Display, Formatter};
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -14,7 +13,6 @@ use std::sync::{Arc, LazyLock, Mutex, RwLockWriteGuard};
 use std::{ptr, slice};
 use std::collections::HashMap;
 use std::convert::Into;
-use std::os::raw::c_short;
 use anyhow::{anyhow, Error};
 use minhook::MinHook;
 use winapi::um::libloaderapi::{FreeLibrary, GetModuleHandleW};
@@ -153,6 +151,7 @@ pub(crate) async fn spawn_arch_thread(rx: Arc<Mutex<Receiver<Location>>>) {
     log::info!("In thread");
     // For handling connection requests from the UI
     let rx_connect = archipelago::setup_connect_channel();
+    let rx_bank = setup_bank_channel();
     CONNECT_CHANNEL_SETUP.store(true, Ordering::SeqCst); // Unneeded?
 
     loop {
@@ -342,6 +341,7 @@ unsafe fn item_picked_up_hook(loc_chk_flg: i64, item_id: i16, unknown: i32) {
 }
 
 unsafe fn item_spawns_hook(unknown: i64) {
+    #[allow(unused_assignments)]
     let mut item_addr: *mut i32 = ptr::null_mut();
     let item_count: u32;
     asm!(
@@ -469,4 +469,9 @@ pub unsafe fn modify_itm_table(offset: usize, id: u8) {
 
     VirtualProtect(true_offset as *mut _, 4, old_protect, &mut old_protect);
     log::debug!("Modified Item Table: Address: 0x{:x}, ID: 0x{:x}, Offset: 0x{:x}", true_offset, id, offset);
+}
+
+pub(crate) fn can_add_item(p0: &&str) -> bool {
+    todo!();
+    return false;
 }
