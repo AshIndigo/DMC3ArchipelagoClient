@@ -52,7 +52,7 @@ fn load_real_dinput8() {
 
 pub static DLL_HINST: OnceLock<isize> = OnceLock::new();
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "system" fn DllMain(
     _hinst_dll: HINSTANCE,
     fdw_reason: u32,
@@ -125,7 +125,7 @@ fn main_setup() {
 }
 
 #[allow(non_snake_case)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "system" fn DirectInput8Create(
     hinst: HINSTANCE,
     dwVersion: DWORD,

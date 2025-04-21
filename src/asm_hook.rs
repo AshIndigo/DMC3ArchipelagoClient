@@ -9,9 +9,9 @@ use crate::hook::{Location, TX};
 const TARGET_FUNCTION: usize = 0x1b4595;
 
 /// Unused, possibly to be deleted
-unsafe fn modify_itm() {
+unsafe fn modify_itm() { unsafe {
     //noinspection RsBorrowChecker
-    unsafe fn modify_itm_memory() {
+    unsafe fn modify_itm_memory() { unsafe {
         let itm_addr: *mut i32;
         let item_id: u32;
         asm!(
@@ -48,7 +48,7 @@ unsafe fn modify_itm() {
                 log::warn!("No mappings found!");
             }
         }
-    }
+    }}
 
     asm!(
         "sub rsp, 16",
@@ -73,12 +73,12 @@ unsafe fn modify_itm() {
         sym modify_itm_memory,
         clobber_abi("win64"),
     );
-}
-#[no_mangle]
-pub unsafe extern "system" fn check_off_location() {
+}}
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn check_off_location() { unsafe {
     //noinspection RsBorrowChecker // To make RustRover quiet down
     // This does not work for event weapons...
-    unsafe extern "system" fn send_off() {
+    unsafe extern "system" fn send_off() { unsafe {
         let item_id: u64;
         asm!(
             "movzx r9d, byte ptr [rcx+0x60]", // To capture item_id
@@ -96,7 +96,7 @@ pub unsafe extern "system" fn check_off_location() {
                     .expect("Failed to send Location!");
             }
         }
-    }
+    }}
 
     asm!(
         "sub rsp, 8",
@@ -127,7 +127,7 @@ pub unsafe extern "system" fn check_off_location() {
         out("r14") _,
         out("r15") _,
     );
-}
+}}
 
 #[allow(dead_code)] /// Remains unused for now
 pub(crate) fn install_jmps() {

@@ -49,9 +49,9 @@ impl InputHandler {
     }
 }
 
-pub unsafe fn show_cursor(state: bool) {
+pub unsafe fn show_cursor(state: bool) { unsafe {
     ShowCursor(state);
-}
+}}
 
 // Putting this in a separate method just in case
 pub fn render_imgui_ui(hud_instance: &mut ArchipelagoHud, ui: &mut Ui) {

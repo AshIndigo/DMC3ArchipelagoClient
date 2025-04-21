@@ -1,4 +1,4 @@
-use crate::archipelago::{connect_archipelago, setup_bank_channel, CHECKED_LOCATIONS, CONNECT_CHANNEL_SETUP, MAPPING, SLOT_NUMBER, TEAM_NUMBER};
+use crate::archipelago::{connect_archipelago, setup_bank_channel, CONNECT_CHANNEL_SETUP, MAPPING, SLOT_NUMBER, TEAM_NUMBER};
 use crate::ddmk_hook::CHECKLIST;
 use crate::constants::{get_item, EventCode, ItemPickedUpFunc, ItemSpawns, ITEM_PICKED_UP_ADDR, ITEM_SPAWNS_ADDR, ORIGINAL_ITEMPICKEDUP, ORIGINAL_ITEM_SPAWNS};
 use crate::{archipelago, asm_hook, constants, generated_locations, utilities};
@@ -69,7 +69,7 @@ pub fn create_console() {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "system" fn free_self() -> bool {
     unsafe {
         FreeConsole().expect("Bai bai console");
@@ -198,21 +198,21 @@ pub(crate) async fn spawn_arch_thread(rx: Arc<Mutex<Receiver<Location>>>) {
 }
 
 /// Set the starting gun and melee weapon upon a new game
-pub unsafe fn set_starting_weapons(melee_id: u8, gun_id: u8) {
+pub unsafe fn set_starting_weapons(melee_id: u8, gun_id: u8) { unsafe {
     utilities::replace_single_byte(constants::STARTING_MELEE, melee_id); // Melee weapon
     utilities::replace_single_byte(constants::STARTING_GUN, gun_id); // Gun
     todo!()
-}
+}}
 
-pub unsafe fn edit_event_wrapper() {
-    pub unsafe fn edit_event_drop() {
+pub unsafe fn edit_event_wrapper() { unsafe {
+    pub unsafe fn edit_event_drop() { unsafe {
         // Basic values
         let Some(mapping) = MAPPING.get() else { return };
         // Get events for the specific mission
         let Some(mission_event_tables) = constants::EVENT_TABLES.get(&get_mission()) else {
             return;
         };
-        let Some(checked_locations) = CHECKED_LOCATIONS.get() else {
+        let Ok(checked_locations) = archipelago::get_checked_locations().lock() else {
             return;
         };
 
@@ -241,7 +241,7 @@ pub unsafe fn edit_event_wrapper() {
                 }
             }
         }
-    }
+    }}
 
     asm!(
         "sub rsp, 72",
@@ -266,12 +266,12 @@ pub unsafe fn edit_event_wrapper() {
         sym edit_event_drop,
         //clobber_abi("win64"),
     );
-}
+}}
 
 /// Modify the game's code so the "pickup mode" table is correct
 // start at 1B3944 -> 1B395A
 // Set these from 01 to 02
-pub(crate) unsafe fn rewrite_mode_table() {
+pub(crate) unsafe fn rewrite_mode_table() { unsafe {
     let table_address = constants::ITEM_MODE_TABLE + utilities::get_dmc3_base_address();
     let mut old_protect = 0;
     let length = 16;
@@ -291,10 +291,10 @@ pub(crate) unsafe fn rewrite_mode_table() {
         old_protect,
         &mut old_protect,
     );
-}
+}}
 
 /// Modifies Adjudicator Drops
-pub(crate) unsafe fn modify_adjudicator_drop() {
+pub(crate) unsafe fn modify_adjudicator_drop() { unsafe {
     match MAPPING.get() {
         Some(mapping) => {
             for (location_name, entry) in generated_locations::ITEM_MISSION_MAP.iter() {
@@ -310,10 +310,10 @@ pub(crate) unsafe fn modify_adjudicator_drop() {
         }
         _ => {}
     }
-}
+}}
 
 /// Hook into item picked up method (1aa6e0)
-unsafe fn item_picked_up_hook(loc_chk_flg: i64, item_id: i16, unknown: i32) {
+unsafe fn item_picked_up_hook(loc_chk_flg: i64, item_id: i16, unknown: i32) { unsafe {
     if item_id > 0x03 {
         log::debug!("Loc CHK Flg is: {:x}", loc_chk_flg);
         log::debug!("Item ID is: {} (0x{:x})", constants::get_item(item_id as u64), item_id);
@@ -338,9 +338,9 @@ unsafe fn item_picked_up_hook(loc_chk_flg: i64, item_id: i16, unknown: i32) {
     if let Some(original) = ORIGINAL_ITEMPICKEDUP {
         original(loc_chk_flg, item_id, unknown);
     }
-}
+}}
 
-unsafe fn item_spawns_hook(unknown: i64) {
+unsafe fn item_spawns_hook(unknown: i64) { unsafe {
     #[allow(unused_assignments)]
     let mut item_addr: *mut i32 = ptr::null_mut();
     let item_count: u32;
@@ -391,7 +391,7 @@ unsafe fn item_spawns_hook(unknown: i64) {
     if let Some(original) = ORIGINAL_ITEM_SPAWNS {
         original(unknown);
     }
-}
+}}
 
 fn set_relevant_key_items() {
     let checklist: RwLockWriteGuard<HashMap<String, bool>> = CHECKLIST.get().unwrap().write().unwrap();
@@ -448,7 +448,7 @@ fn setup_hooks() {
 }
 
 /// The mapping data at dmc3.exe+5c4c20+1A00
-pub unsafe fn modify_itm_table(offset: usize, id: u8) {
+pub unsafe fn modify_itm_table(offset: usize, id: u8) { unsafe {
     // let start_addr = 0x5C4C20usize; dmc3.exe+5c4c20+1A00
     // let end_addr = 0x5C4C20 + 0xC8; // 0x5C4CE8
     let true_offset = offset + utilities::get_dmc3_base_address() + 0x1A00usize; // MFW I can't do my offsets correctly
@@ -469,9 +469,9 @@ pub unsafe fn modify_itm_table(offset: usize, id: u8) {
 
     VirtualProtect(true_offset as *mut _, 4, old_protect, &mut old_protect);
     log::debug!("Modified Item Table: Address: 0x{:x}, ID: 0x{:x}, Offset: 0x{:x}", true_offset, id, offset);
-}
+}}
 
-pub(crate) fn can_add_item(p0: &&str) -> bool {
+pub(crate) fn can_add_item(item_name: &&str) -> bool {
     todo!();
     return false;
 }

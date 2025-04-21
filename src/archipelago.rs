@@ -1,32 +1,34 @@
-use crate::cache::{read_cache, CustomGameData};
+use crate::cache::{CustomGameData, read_cache};
 use crate::ddmk_hook::CHECKLIST;
-use crate::hook::{modify_itm_table, Location, Status};
+use crate::hook::{Location, Status, modify_itm_table};
 use crate::{cache, constants, generated_locations, hook};
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
 use archipelago_rs::protocol::{DataStorageOperation, ServerMessage};
-use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::fs::{remove_file, File};
-use std::io;
-use std::io::{BufRead, BufReader, Write};
+use std::fs::{File, remove_file};
+use std::io::{BufReader, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock, mpsc};
 
-pub static MAPPING: OnceCell<Mapping> = OnceCell::new();
-pub static DATA_PACKAGE: OnceCell<CustomGameData> = OnceCell::new();
-pub static mut CHECKED_LOCATIONS: OnceCell<Vec<String>> = OnceCell::new();
+pub static MAPPING: OnceLock<Mapping> = OnceLock::new();
+pub static DATA_PACKAGE: OnceLock<CustomGameData> = OnceLock::new();
+pub static CHECKED_LOCATIONS: OnceLock<Mutex<Vec<String>>> = OnceLock::new(); // mut
 
-pub static TX_ARCH: OnceCell<Sender<ArchipelagoData>> = OnceCell::new();
-pub static TX_BANK: OnceCell<Sender<String>> = OnceCell::new();
+pub static TX_ARCH: OnceLock<Sender<ArchipelagoData>> = OnceLock::new();
+pub static TX_BANK: OnceLock<Sender<String>> = OnceLock::new();
 
 pub static CONNECT_CHANNEL_SETUP: AtomicBool = AtomicBool::new(false);
 pub static SLOT_NUMBER: AtomicI32 = AtomicI32::new(-1);
 pub static TEAM_NUMBER: AtomicI32 = AtomicI32::new(-1);
+
+pub fn get_checked_locations() -> &'static Mutex<Vec<String>> {
+    CHECKED_LOCATIONS.get_or_init(|| Mutex::new(vec![]))
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct ArchipelagoData {
@@ -62,15 +64,16 @@ pub fn setup_bank_channel() -> Arc<Mutex<Receiver<String>>> {
 pub async fn connect_archipelago(
     login_data: ArchipelagoData,
 ) -> Result<ArchipelagoClient, ArchipelagoError> {
+    #[allow(unused_assignments)]
     let mut client_res: Result<ArchipelagoClient, ArchipelagoError> =
         Err(ArchipelagoError::ConnectionClosed);
     if !cache::check_for_cache_file() {
         // If the cache file does not exist, then it needs to be acquired
         client_res = ArchipelagoClient::with_data_package(
             &login_data.url,
-            Some(vec!["Devil May Cry 3"
-                .parse()
-                .expect("Failed to parse string")]),
+            Some(vec![
+                "Devil May Cry 3".parse().expect("Failed to parse string"),
+            ]),
         )
         .await;
         match client_res {
@@ -80,7 +83,7 @@ pub async fn connect_archipelago(
                     log::error!("No data package found");
                     return Err(ArchipelagoError::ConnectionClosed);
                 }
-                Some(ref dp) => {
+                Some(dp) => {
                     let mut clone_data = HashMap::new();
                     let _ = &dp.games.iter().for_each(|g| {
                         let dat = CustomGameData {
@@ -111,7 +114,7 @@ pub async fn connect_archipelago(
                                 log::error!("Failed to remove cache.json: {}", err);
                             }
                         };
-                        client_res = Err(ArchipelagoError::ConnectionClosed); // TODO Figure out a better way to do this - Good now?
+                        //client_res = Err(ArchipelagoError::ConnectionClosed); // TODO Figure out a better way to do this - Good now?
                         return Box::pin(connect_archipelago(login_data)).await; //Err(anyhow!("Reconnecting to grab cache!"));
                     }
                 }
@@ -134,30 +137,26 @@ pub async fn connect_archipelago(
             );
             match res.await {
                 Ok(mut connected) => {
-                    unsafe {
-                        CHECKED_LOCATIONS.take();
-                        CHECKED_LOCATIONS.set(vec![]).unwrap(); // TODO Something weird happened here when reconnecting
-                        let reversed_loc_id: HashMap<i32, String> = HashMap::from_iter(
-                            read_cache()
-                                .unwrap()
-                                .location_name_to_id
-                                .iter()
-                                .map(|(k, v)| (*v, k.clone())),
-                        );
-                        connected.checked_locations.iter_mut().for_each(|val| {
-                            match CHECKED_LOCATIONS.get_mut() {
-                                None => {}
-                                Some(locs_chk) => {
-                                    locs_chk.push(reversed_loc_id.get(val).unwrap().clone());
-                                }
-                            }
-                        });
-                        log::info!("Connected info: {:?}", connected);
-                        SLOT_NUMBER.store(connected.slot, Ordering::SeqCst);
-                        TEAM_NUMBER.store(connected.team, Ordering::SeqCst);
-                        save_connection_info(login_data);
-                        Ok(cl)
-                    }
+                    let Ok(mut checked_locations) = get_checked_locations().lock() else {
+                        log::error!("Failed to get checked locations");
+                        return Err(ArchipelagoError::ConnectionClosed);
+                    };
+                    checked_locations.clear(); // TODO Something weird happened here when reconnecting
+                    let reversed_loc_id: HashMap<i32, String> = HashMap::from_iter(
+                        read_cache()
+                            .unwrap()
+                            .location_name_to_id
+                            .iter()
+                            .map(|(k, v)| (*v, k.clone())),
+                    );
+                    connected.checked_locations.iter_mut().for_each(|val| {
+                        checked_locations.push(reversed_loc_id.get(val).unwrap().clone());
+                    });
+                    log::info!("Connected info: {:?}", connected);
+                    SLOT_NUMBER.store(connected.slot, Ordering::SeqCst);
+                    TEAM_NUMBER.store(connected.team, Ordering::SeqCst);
+                    save_connection_info(login_data);
+                    Ok(cl)
                 }
                 Err(err) => Err(err),
             }
@@ -352,7 +351,10 @@ pub fn load_location_map() -> Option<Mapping> {
     }
 }
 
-pub async fn handle_things(client: &mut ArchipelagoClient, loc_rx: &Arc<Mutex<Receiver<Location>>>) {
+pub async fn handle_things(
+    client: &mut ArchipelagoClient,
+    loc_rx: &Arc<Mutex<Receiver<Location>>>,
+) {
     if let Ok(item_rec) = loc_rx.lock() {
         while let Ok(item) = item_rec.try_recv() {
             // See if there's an item!
@@ -379,23 +381,25 @@ pub async fn handle_things(client: &mut ArchipelagoClient, loc_rx: &Arc<Mutex<Re
                     if constants::get_item_id(item_str).unwrap() == item.item_id as u8 {
                         // Then see if the item picked up matches the specified in the map
                         match dp.location_name_to_id.get(*location_key) {
-                            Some(loc_id) => match client.location_checks(vec![loc_id.clone()]).await {
-                                Ok(_) => {
-                                    if constants::KEY_ITEMS.contains(&&**item_str) {
-                                        set_checklist_item(item_str, true);
-                                        log::debug!("Key Item checked off: {}", item_str);
+                            Some(loc_id) => {
+                                match client.location_checks(vec![loc_id.clone()]).await {
+                                    Ok(_) => {
+                                        if constants::KEY_ITEMS.contains(&&**item_str) {
+                                            set_checklist_item(item_str, true);
+                                            log::debug!("Key Item checked off: {}", item_str);
+                                        }
+                                        log::info!(
+                                            "Location check successful: {} ({}), Item: {}",
+                                            location_key,
+                                            loc_id,
+                                            item_str
+                                        );
                                     }
-                                    log::info!(
-                                        "Location check successful: {} ({}), Item: {}",
-                                        location_key,
-                                        loc_id,
-                                        item_str
-                                    );
+                                    Err(err) => {
+                                        log::info!("Failed to check location: {}", err);
+                                    }
                                 }
-                                Err(err) => {
-                                    log::info!("Failed to check location: {}", err);
-                                }
-                            },
+                            }
                             None => log::error!("Location not found: {}", location_key),
                         }
                     }

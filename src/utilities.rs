@@ -13,7 +13,7 @@ const TEXT_DISPLAYED_ADDRESS: usize = 0xCB89A0; // 0x01 if text is being display
 const TEXT_LENGTH_ADDRESS: usize = 0xCB89E0; // X + 30 apparently?
 const TEXT_ADDRESS: usize = 0xCB8A1E; // Text string
 
-pub unsafe fn display_message(string: &str) {
+pub unsafe fn display_message(string: &str) { unsafe {
     let bytes = string.as_bytes();
     let ptr = TEXT_LENGTH_ADDRESS as *mut u8;
 
@@ -21,7 +21,7 @@ pub unsafe fn display_message(string: &str) {
     *ptr.add(bytes.len()) = 0x00; // Null terminator
     std::ptr::write(TEXT_LENGTH_ADDRESS as *mut u8, (bytes.len() + 1) as u8);
     std::ptr::write(TEXT_DISPLAYED_ADDRESS as *mut u8, 0x01); // TODO Verify
-}
+}}
 
 /// Read an int from DMC3
 pub fn read_int_from_address(address: usize) -> i32 {
@@ -66,7 +66,7 @@ pub fn is_ddmk_loaded() -> bool {
     }
 }
 
-pub unsafe fn replace_single_byte(offset: usize, new_val: u8) {
+pub unsafe fn replace_single_byte(offset: usize, new_val: u8) { unsafe {
     let length = 1;
     let offset = offset + get_dmc3_base_address();
     let mut old_protect = 0;
@@ -86,9 +86,9 @@ pub unsafe fn replace_single_byte(offset: usize, new_val: u8) {
     //     offset,
     //     new_val
     // );
-}
+}}
 
-pub unsafe fn replace_single_byte_no_offset(offset: usize, new_val: u8) {
+pub unsafe fn replace_single_byte_no_offset(offset: usize, new_val: u8) { unsafe {
     let length = 1;
     let offset = offset;
     let mut old_protect = 0;
@@ -108,7 +108,7 @@ pub unsafe fn replace_single_byte_no_offset(offset: usize, new_val: u8) {
     //     offset,
     //     new_val
     // );
-}
+}}
 
 /// Get current mission
 pub fn get_mission() -> i32 {

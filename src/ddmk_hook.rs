@@ -4,7 +4,7 @@ use crate::hook::Status;
 use crate::imgui_bindings::*;
 use crate::ui::ArchipelagoHud;
 use crate::utilities::get_mary_base_address;
-use crate::{archipelago, constants, hook, imgui_bindings, utilities};
+use crate::{archipelago, constants, hook, utilities};
 use hook::CONNECTION_STATUS;
 use imgui_sys::{ImGuiCond, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
 use minhook::MinHook;
@@ -28,7 +28,7 @@ const MAIN_FUNC_ADDR: usize = 0xC65E0; // 0xC17B0 (For 2022 ddmk)
 const TIMESTEP_FUNC_ADDR: usize = 0x1DE20; // 0x1DC50 (For 2022 ddmk)
 const DDMK_UI_ENABLED: usize = 0x12c73a;
 
-unsafe extern "C" fn hooked_timestep() {
+unsafe extern "C" fn hooked_timestep() { unsafe {
     if !SETUP.load(Ordering::SeqCst) {
         MinHook::enable_hook((get_mary_base_address() + MAIN_FUNC_ADDR) as _)
             .expect("Failed to enable hook");
@@ -65,9 +65,9 @@ unsafe extern "C" fn hooked_timestep() {
             timestep_func();
         }
     }
-}
+}}
 
-unsafe extern "C" fn hooked_render() {
+unsafe extern "C" fn hooked_render() { unsafe {
     if !SETUP.load(Ordering::SeqCst) {
         return;
     }
@@ -85,9 +85,9 @@ unsafe extern "C" fn hooked_render() {
             }
         }
     })
-}
+}}
 
-unsafe fn tracking_window() {
+unsafe fn tracking_window() { unsafe {
     let flag = &mut true;
     get_imgui_pos()(
         &ImVec2 { x: 800.0, y: 300.0 },
@@ -108,9 +108,9 @@ unsafe fn tracking_window() {
         text(format!("{}\0", row_text));
     }
     get_imgui_end()();
-}
+}}
 
-unsafe fn bank_window() {
+unsafe fn bank_window() { unsafe {
     let flag = &mut true;
     get_imgui_pos()(
         &ImVec2 { x: 800.0, y: 500.0 },
@@ -141,7 +141,7 @@ unsafe fn bank_window() {
         get_imgui_pop_id()();
     }
     get_imgui_end()();
-}
+}}
 
 fn checkbox_text(item: &str) -> String {
     let state = CHECKLIST
@@ -153,7 +153,7 @@ fn checkbox_text(item: &str) -> String {
 }
 
 pub static CHECKLIST: OnceLock<RwLock<HashMap<String, bool>>> = OnceLock::new();
-pub unsafe fn archipelago_window(instance_cell: &RefCell<ArchipelagoHud>) {
+pub unsafe fn archipelago_window(instance_cell: &RefCell<ArchipelagoHud>) { unsafe {
     let flag = &mut true;
     let mut instance = instance_cell.borrow_mut();
     get_imgui_pos()(
@@ -187,7 +187,7 @@ pub unsafe fn archipelago_window(instance_cell: &RefCell<ArchipelagoHud>) {
         });
     }
     get_imgui_end()();
-}
+}}
 
 fn set_status_text() {
     text(format!(
