@@ -1,7 +1,8 @@
 use crate::cache::{CustomGameData, read_cache};
-use crate::ddmk_hook::CHECKLIST;
-use crate::hook::{Location, Status, modify_itm_table};
-use crate::{cache, constants, generated_locations, hook};
+use crate::check_handler::Location;
+use crate::constants::CONSUMABLES;
+use crate::hook::{Status, modify_itm_table};
+use crate::{cache, constants, generated_locations, hook, utilities};
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
 use archipelago_rs::protocol::{DataStorageOperation, ServerMessage};
 use serde::{Deserialize, Serialize};
@@ -10,14 +11,18 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::fs::{File, remove_file};
 use std::io::{BufReader, Write};
+use std::ops::SubAssign;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex, OnceLock, mpsc};
+use crate::ui::ddmk_hook::CHECKLIST;
 
 pub static MAPPING: OnceLock<Mapping> = OnceLock::new();
 pub static DATA_PACKAGE: OnceLock<CustomGameData> = OnceLock::new();
 pub static CHECKED_LOCATIONS: OnceLock<Mutex<Vec<String>>> = OnceLock::new(); // mut
+
+pub static BANK: OnceLock<Mutex<HashMap<&'static str, i32>>> = OnceLock::new();
 
 pub static TX_ARCH: OnceLock<Sender<ArchipelagoData>> = OnceLock::new();
 pub static TX_BANK: OnceLock<Sender<String>> = OnceLock::new();
@@ -28,6 +33,18 @@ pub static TEAM_NUMBER: AtomicI32 = AtomicI32::new(-1);
 
 pub fn get_checked_locations() -> &'static Mutex<Vec<String>> {
     CHECKED_LOCATIONS.get_or_init(|| Mutex::new(vec![]))
+}
+
+pub fn get_bank() -> &'static Mutex<HashMap<&'static str, i32>> {
+    BANK.get_or_init(|| {
+        Mutex::new(HashMap::from([
+            (CONSUMABLES[0], 0),
+            (CONSUMABLES[1], 0),
+            (CONSUMABLES[2], 0),
+            (CONSUMABLES[3], 0),
+            (CONSUMABLES[4], 0),
+        ]))
+    })
 }
 
 #[derive(Serialize, Deserialize)]
@@ -92,7 +109,9 @@ pub async fn connect_archipelago(
                         };
                         clone_data.insert(g.0.clone(), dat);
                     });
-                    cache::write_cache(clone_data, cl.room_info()).await
+                    cache::write_cache(clone_data, cl.room_info())
+                        .await
+                        .unwrap_or_else(|err| log::error!("Failed to write cache: {}", err));
                 }
             },
             Err(err) => return Err(err.into()),
@@ -102,8 +121,7 @@ pub async fn connect_archipelago(
         client_res = ArchipelagoClient::new(&login_data.url).await;
         match client_res {
             Ok(ref mut cl) => {
-                let option = cache::check_checksums(cl.room_info()).await;
-                match option {
+                match cache::find_checksum_errors(cl.room_info()).await {
                     None => log::info!("Checksums check out!"),
                     Some(failures) => {
                         // If there are checksums that don't match, obliterate the cache file and reconnect to obtain the data package
@@ -260,11 +278,11 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) {
             }
         }
     }
-    match load_location_map() {
+    match load_location_map() { // TODO Refactor the error handling + Use seed as some kind verification system? Ensure right mappings are being used?
         None => {}
         Some(mappings) => match MAPPING.set(mappings) {
             Ok(_) => {}
-            Err(_) => {
+            Err(e) => {
                 log::info!("Failed to set cell!");
             }
         },
@@ -351,9 +369,19 @@ pub fn load_location_map() -> Option<Mapping> {
     }
 }
 
+fn get_bank_key(item: &String) -> String {
+    format!(
+        "team{}_slot{}_{}",
+        TEAM_NUMBER.load(Ordering::SeqCst),
+        SLOT_NUMBER.load(Ordering::SeqCst),
+        item
+    )
+}
+
 pub async fn handle_things(
     client: &mut ArchipelagoClient,
     loc_rx: &Arc<Mutex<Receiver<Location>>>,
+    bank_rx: &Arc<Mutex<Receiver<String>>>,
 ) {
     if let Ok(item_rec) = loc_rx.lock() {
         while let Ok(item) = item_rec.try_recv() {
@@ -407,7 +435,52 @@ pub async fn handle_things(
             }
         }
     }
-
+    if let Ok(bank_rec) = bank_rx.lock() {
+        while let Ok(item) = bank_rec.try_recv() {
+            match client.get(vec![get_bank_key(&item)]).await {
+                Ok(val) => {
+                    let item_count = val
+                        .keys
+                        .get(&get_bank_key(&item))
+                        .unwrap()
+                        .as_i64()
+                        .unwrap();
+                    log::info!("{} is {}", item, item_count);
+                    if item_count > 0 {
+                        match client
+                            .set(
+                                get_bank_key(&item),
+                                Value::from(1),
+                                false,
+                                vec![DataStorageOperation {
+                                    replace: "add".to_string(),
+                                    value: Value::from(-1),
+                                }],
+                            )
+                            .await
+                        {
+                            Ok(_) => {
+                                log::debug!("{} subtracted", item);
+                                hook::add_item(&item);
+                                get_bank()
+                                    .lock()
+                                    .unwrap()
+                                    .get_mut(&*item.clone())
+                                    .unwrap()
+                                    .sub_assign(1);
+                            }
+                            Err(err) => {
+                                log::error!("Failed to subtract item: {}", err);
+                            }
+                        }
+                    }
+                }
+                Err(err) => {
+                    log::error!("Failed to get banker item: {}", err);
+                }
+            }
+        }
+    }
     match client.recv().await {
         Ok(opt_msg) => match opt_msg {
             None => {}
@@ -424,15 +497,18 @@ pub async fn handle_things(
             }
             Some(ServerMessage::ReceivedItems(items)) => {
                 for item in items.items.iter() {
+                    unsafe {
+                        utilities::display_message(format!(
+                            "Received {}!",
+                            constants::get_item(item.item as u64)
+                        ));
+                    }
                     if item.item < 0x14 {
                         // Consumables/orbs TODO
                         match client
                             .set(
-                                format!(
-                                    "team{}_slot{}_{}",
-                                    TEAM_NUMBER.load(Ordering::SeqCst),
-                                    SLOT_NUMBER.load(Ordering::SeqCst),
-                                    constants::get_item(item.item as u64)
+                                get_bank_key(
+                                    &constants::get_item(item.item as u64).parse().unwrap(),
                                 ),
                                 Value::from(1),
                                 false,

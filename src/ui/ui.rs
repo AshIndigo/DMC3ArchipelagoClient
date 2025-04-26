@@ -1,31 +1,28 @@
-use std::time::{Duration, Instant};
-use imgui::{Condition, Ui};
-use windows::Win32::UI::WindowsAndMessaging::ShowCursor;
-use crate::config::Settings;
+//use crate::config::Settings;
 
 pub struct ArchipelagoHud {
-    pub(crate) open: bool,
-    pub(crate) settings: Settings,
+    // pub(crate) open: bool,
+    // pub(crate) settings: Settings,
     pub(crate) arch_url: String,
     pub(crate) username: String,
     pub(crate) password: String,
-    pub input_handler: InputHandler,
+    //pub input_handler: InputHandler,
 }
 
 impl ArchipelagoHud {
     pub(crate) fn new() -> Self {
         Self {
-            open: false,
-            settings: Settings::default(),
+            // open: false,
+            // settings: Settings::default(),
             arch_url: String::with_capacity(256),
             username: String::with_capacity(256),
             password: String::with_capacity(256),
-            input_handler: InputHandler::new(),
+            //input_handler: InputHandler::new(),
         }
     }
 }
 
-pub struct InputHandler {
+/*pub struct InputHandler {
     last_key_time: Instant,
     delay: Duration,
 }
@@ -60,10 +57,6 @@ pub fn render_imgui_ui(hud_instance: &mut ArchipelagoHud, ui: &mut Ui) {
         .build(|| {
             ui.input_text("Archipelago URL", &mut hud_instance.arch_url)
                 .build();
-            ui.button("Connect").then(connect)
+            ui.button("Connect")
         });
-}
-
-fn connect() {
-    log::info!("Connect");
-}
+}*/

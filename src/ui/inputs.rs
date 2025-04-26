@@ -1,6 +1,6 @@
 use std::ops::Range;
 use crate::utilities::get_mary_base_address;
-use crate::imgui_bindings::{ImGuiTextInput, INPUT_ADDR};
+use crate::ui::imgui_bindings::{ImGuiTextInput, INPUT_ADDR};
 use std::os::raw::{c_char, c_int, c_void};
 use imgui::{sys, HistoryDirection, InputTextCallback, InputTextFlags};
 

@@ -1,3 +1,4 @@
+use imgui::InputText;
 use std::ffi::{c_float, c_int};
 use crate::utilities::get_mary_base_address;
 use imgui_sys::{cty, ImGuiCond, ImGuiInputTextCallback, ImGuiInputTextFlags, ImGuiWindowFlags, ImVec2};
@@ -31,10 +32,11 @@ pub const BUTTON_ADDR: usize = 0x59f20;
 pub const TEXT_ADDR: usize = 0x69d50;
 pub const INPUT_ADDR: usize = 0x60c80;
 
-pub const POS_FUNC_ADDR: usize = 0x374a0;
+pub const NEXT_POS_FUNC_ADDR: usize = 0x374a0;
 pub const SAME_LINE_ADDR: usize = 0x36200;
 pub const PUSH_ID_ADDR: usize = 0x32850;
 pub const POP_ID_ADDR: usize = 0x5fe0;
+pub const NEXT_WINDOW_SIZE_ADDR: usize = 0x37530;
 //pub const CHECKBOX_FUNC_ADDR: usize = 0x5a7e0;
 
 pub fn text<T: AsRef<str>>(text: T) {
@@ -47,7 +49,7 @@ pub fn text<T: AsRef<str>>(text: T) {
 }
 
 pub fn input_rs<T: AsRef<str>>(label: T, buf: &mut String, password: bool) {
-    crate::inputs::InputText::new(label, buf).password(password).build();
+    crate::ui::inputs::InputText::new(label, buf).password(password).build();
 }
 
 pub type BasicNothingFunc = unsafe extern "system" fn(); // No args no returns
@@ -80,11 +82,18 @@ pub fn get_imgui_button() -> &'static ImGuiButton {
     })
 }
 
-pub fn get_imgui_pos() -> &'static ImGuiNextWindowPos {
+pub fn get_imgui_next_pos() -> &'static ImGuiNextWindowPos {
     IMGUI_POS.get_or_init(|| unsafe {
-        std::mem::transmute::<_, ImGuiNextWindowPos>(get_mary_base_address() + POS_FUNC_ADDR)
+        std::mem::transmute::<_, ImGuiNextWindowPos>(get_mary_base_address() + NEXT_POS_FUNC_ADDR)
     })
 }
+
+pub fn get_imgui_next_size() -> &'static ImGuiNextWindowPos {
+    IMGUI_POS.get_or_init(|| unsafe {
+        std::mem::transmute::<_, ImGuiNextWindowPos>(get_mary_base_address() + NEXT_WINDOW_SIZE_ADDR)
+    })
+}
+
 
 pub fn get_imgui_same_line() -> &'static ImGuiSameLine {
     IMGUI_SAME_LINE.get_or_init(|| unsafe {

@@ -1,4 +1,4 @@
-use imgui::Key;
+/*use imgui::Key; // TODO Remove
 
 #[derive(Debug, Clone)]
 pub(crate) struct Settings {
@@ -11,4 +11,4 @@ impl Default for Settings {
             display: Key::Tab,
         }
     }
-}
+}*/

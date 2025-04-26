@@ -1,12 +1,10 @@
-use crate::archipelago::ArchipelagoData;
+use crate::archipelago::{get_bank, ArchipelagoData};
 use crate::constants::CONSUMABLES;
 use crate::hook::Status;
-use crate::imgui_bindings::*;
-use crate::ui::ArchipelagoHud;
 use crate::utilities::get_mary_base_address;
 use crate::{archipelago, constants, hook, utilities};
 use hook::CONNECTION_STATUS;
-use imgui_sys::{ImGuiCond, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
+use imgui_sys::{ImGuiCond, ImGuiCond_Always, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
 use minhook::MinHook;
 use serde::Deserialize;
 use std::cell::RefCell;
@@ -18,6 +16,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{OnceLock, RwLock};
 use std::{fs, path, thread};
 use std::ffi::c_int;
+use crate::ui::imgui_bindings::*;
+use crate::ui::ui::ArchipelagoHud;
 
 thread_local! {
     static HUD_INSTANCE: RefCell<ArchipelagoHud> = RefCell::new(ArchipelagoHud::new());
@@ -27,6 +27,7 @@ static SETUP: AtomicBool = AtomicBool::new(false);
 const MAIN_FUNC_ADDR: usize = 0xC65E0; // 0xC17B0 (For 2022 ddmk)
 const TIMESTEP_FUNC_ADDR: usize = 0x1DE20; // 0x1DC50 (For 2022 ddmk)
 const DDMK_UI_ENABLED: usize = 0x12c73a;
+
 
 unsafe extern "C" fn hooked_timestep() { unsafe {
     if !SETUP.load(Ordering::SeqCst) {
@@ -72,6 +73,9 @@ unsafe extern "C" fn hooked_render() { unsafe {
         return;
     }
     HUD_INSTANCE.with(|instance| {
+        if false { // TODO: Hud for pause menu and main menu
+            on_screen_hud();
+        }
         if !utilities::read_bool_from_address_ddmk(DDMK_UI_ENABLED) {
             return;
         }
@@ -89,7 +93,7 @@ unsafe extern "C" fn hooked_render() { unsafe {
 
 unsafe fn tracking_window() { unsafe {
     let flag = &mut true;
-    get_imgui_pos()(
+    get_imgui_next_pos()(
         &ImVec2 { x: 800.0, y: 300.0 },
         ImGuiCond_Appearing as ImGuiCond,
         &ImVec2 { x: 0.0, y: 0.0 },
@@ -112,7 +116,7 @@ unsafe fn tracking_window() { unsafe {
 
 unsafe fn bank_window() { unsafe {
     let flag = &mut true;
-    get_imgui_pos()(
+    get_imgui_next_pos()(
         &ImVec2 { x: 800.0, y: 500.0 },
         ImGuiCond_Appearing as ImGuiCond,
         &ImVec2 { x: 0.0, y: 0.0 },
@@ -125,7 +129,7 @@ unsafe fn bank_window() { unsafe {
 
     for n in 0..CONSUMABLES.len() { // Special case for red orbs...
         let item = CONSUMABLES.get(n).unwrap();
-        text(format!("{}: {}\0", item, 5));
+        text(format!("{}: {}\0", item, get_bank().lock().unwrap().get(item).unwrap()));
         get_imgui_same_line()(0f32, 5f32); // TODO Figure out how to align properly
         get_imgui_push_id()(n as c_int);
         if get_imgui_button()(
@@ -152,11 +156,11 @@ fn checkbox_text(item: &str) -> String {
     format!("{} [{}]", item, if state { "X" } else { " " })
 }
 
-pub static CHECKLIST: OnceLock<RwLock<HashMap<String, bool>>> = OnceLock::new();
+pub static CHECKLIST: OnceLock<RwLock<HashMap<String, bool>>> = OnceLock::new(); // TODO Move this out of DDMK?
 pub unsafe fn archipelago_window(instance_cell: &RefCell<ArchipelagoHud>) { unsafe {
     let flag = &mut true;
     let mut instance = instance_cell.borrow_mut();
-    get_imgui_pos()(
+    get_imgui_next_pos()(
         &ImVec2 { x: 800.0, y: 100.0 },
         ImGuiCond_Appearing as ImGuiCond,
         &ImVec2 { x: 0.0, y: 0.0 },
@@ -184,6 +188,14 @@ pub unsafe fn archipelago_window(instance_cell: &RefCell<ArchipelagoHud>) { unsa
         let password = instance.deref().password.clone().trim().to_string();
         thread::spawn(move || {
             connect_button_pressed(url, name, password);
+        });
+    }
+    
+    if get_imgui_button()("Display Message\0".as_ptr() as *const c_char,
+                          &ImVec2 { x: 0.0, y: 0.0 },
+    ) {
+        thread::spawn(move || {
+            utilities::display_message("Test Message".parse().unwrap());
         });
     }
     get_imgui_end()();
@@ -304,4 +316,22 @@ fn init_timestep_func() {
 
 fn get_orig_timestep_func() -> Option<BasicNothingFunc> {
     *ORIG_TIMESTEP_FUNC.get().unwrap_or(&None)
+}
+
+fn on_screen_hud() {
+    get_imgui_next_pos()(
+        &ImVec2 { x: 800.0, y: 100.0 },
+        ImGuiCond_Always as ImGuiCond,
+        &ImVec2 { x: 0.0, y: 0.0 },
+    );
+    get_imgui_next_size()(
+        &ImVec2 { x: 100.0, y: 100.0 },
+        ImGuiCond_Always as ImGuiCond,
+        &ImVec2 { x: 0.0, y: 0.0 },
+    );
+    let flag = &mut true;
+    get_imgui_begin()("Archipelago\0".as_ptr() as *const c_char,
+                      flag as *mut bool,
+                      imgui_sys::ImGuiWindowFlags_AlwaysAutoResize as ImGuiWindowFlags);
+    text("test\0");
 }
