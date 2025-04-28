@@ -1,17 +1,19 @@
+use crate::archipelago::CHECKLIST;
 use crate::archipelago::{
-    connect_archipelago, CONNECT_CHANNEL_SETUP, MAPPING, SLOT_NUMBER, TEAM_NUMBER,
+    CONNECT_CHANNEL_SETUP, MAPPING, SLOT_NUMBER, TEAM_NUMBER, connect_archipelago,
 };
+use crate::bank::setup_bank_channel;
 use crate::constants::{
-    get_item, EventCode, ItemPickedUpFunc, ItemSpawns, ITEM_PICKED_UP_ADDR,
-    ITEM_SPAWNS_ADDR, ORIGINAL_ITEMPICKEDUP, ORIGINAL_ITEM_SPAWNS,
+    EventCode, ITEM_PICKED_UP_ADDR, ITEM_SPAWNS_ADDR, ItemPickedUpFunc, ItemSpawns,
+    ORIGINAL_ITEM_SPAWNS, ORIGINAL_ITEMPICKEDUP, get_item,
 };
 use crate::experiments::asm_hook;
 use crate::utilities::get_mission;
 use crate::{archipelago, check_handler, constants, generated_locations, utilities};
-use anyhow::{anyhow, Error};
+use anyhow::{Error, anyhow};
 use archipelago_rs::client::ArchipelagoClient;
 use archipelago_rs::protocol::ClientStatus;
-use minhook::{MinHook, MH_STATUS};
+use minhook::{MH_STATUS, MinHook};
 use std::arch::asm;
 use std::collections::HashMap;
 use std::convert::Into;
@@ -23,11 +25,9 @@ use winapi::um::memoryapi::VirtualProtect;
 use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::System::Console::{
-    AllocConsole, FreeConsole, GetConsoleMode, GetStdHandle, SetConsoleMode,
-    ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_OUTPUT_HANDLE,
+    AllocConsole, ENABLE_VIRTUAL_TERMINAL_PROCESSING, FreeConsole, GetConsoleMode, GetStdHandle,
+    STD_OUTPUT_HANDLE, SetConsoleMode,
 };
-use crate::archipelago::CHECKLIST;
-use crate::bank::setup_bank_channel;
 
 pub fn create_console() {
     unsafe {
@@ -74,7 +74,12 @@ pub(crate) fn install_initial_functions() {
     //asm_hook::install_jmps();
     log::info!("Installing the super trampoline for event tables");
     asm_hook::install_super_jmp_for_events(edit_event_wrapper as usize);
-    setup_hooks().unwrap_or_else(|status| panic!("Unable to initialize hooks, randomizer is unable to function: {:?}", status));
+    setup_hooks().unwrap_or_else(|status| {
+        panic!(
+            "Unable to initialize hooks, randomizer is unable to function: {:?}",
+            status
+        )
+    });
 }
 
 pub(crate) static CLIENT: LazyLock<Mutex<Option<ArchipelagoClient>>> =
@@ -411,11 +416,19 @@ fn set_relevant_key_items() {
 fn setup_hooks() -> Result<(), MH_STATUS> {
     unsafe {
         let original_picked_up = utilities::get_dmc3_base_address() + ITEM_PICKED_UP_ADDR;
-        ORIGINAL_ITEMPICKEDUP = Some(std::mem::transmute::<_, ItemPickedUpFunc>(MinHook::create_hook(original_picked_up as _, check_handler::item_picked_up_hook as _)?));
+        ORIGINAL_ITEMPICKEDUP = Some(std::mem::transmute::<_, ItemPickedUpFunc>(
+            MinHook::create_hook(
+                original_picked_up as _,
+                check_handler::item_picked_up_hook as _,
+            )?,
+        ));
         MinHook::enable_hook(original_picked_up as _)?;
         log::info!("Item picked up hook enabled");
         let original_spawn = utilities::get_dmc3_base_address() + ITEM_SPAWNS_ADDR;
-        ORIGINAL_ITEM_SPAWNS = Some(std::mem::transmute::<_, ItemSpawns>(MinHook::create_hook(original_spawn as _, item_spawns_hook as _,)?));
+        ORIGINAL_ITEM_SPAWNS = Some(std::mem::transmute::<_, ItemSpawns>(MinHook::create_hook(
+            original_spawn as _,
+            item_spawns_hook as _,
+        )?));
         MinHook::enable_hook(original_spawn as _)?;
         log::info!("Item spawn hook enabled");
         Ok(())

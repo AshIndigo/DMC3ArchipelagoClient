@@ -418,3 +418,5 @@ pub(crate) struct EventTable {
     pub location: String,
     pub events: Vec<Event>,
 }
+
+pub const GAME_NAME: &str = "Devil May Cry 3";

@@ -1,26 +1,27 @@
-use crate::cache::{read_cache, CustomGameData};
+use crate::cache::{CustomGameData, read_cache};
 use crate::check_handler::Location;
-use crate::constants::CONSUMABLES;
-use crate::hook::{modify_itm_table, Status};
-use crate::{bank, cache, constants, generated_locations, hook};
+use crate::constants::{GAME_NAME};
+use crate::hook::{Status, modify_itm_table};
+use crate::ui::ui::ArchipelagoHud;
+use crate::{cache, constants, generated_locations, hook};
 use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
-use archipelago_rs::protocol::{DataStorageOperation, ServerMessage};
+use archipelago_rs::protocol::{ServerMessage};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::fs::{remove_file, File};
+use std::fs::{File, remove_file};
 use std::io::{BufReader, Write};
-use std::ops::SubAssign;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
-use std::sync::{mpsc, Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock, mpsc};
 
 pub static MAPPING: OnceLock<Mapping> = OnceLock::new();
+pub static CHECKLIST: OnceLock<RwLock<HashMap<String, bool>>> = OnceLock::new();
 pub static DATA_PACKAGE: OnceLock<CustomGameData> = OnceLock::new();
-pub static CHECKED_LOCATIONS: OnceLock<Mutex<Vec<String>>> = OnceLock::new(); // mut
+pub static CHECKED_LOCATIONS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+pub static HUD_INSTANCE: OnceLock<Mutex<ArchipelagoHud>> = OnceLock::new();
 
 pub static BANK: OnceLock<Mutex<HashMap<&'static str, i32>>> = OnceLock::new();
 
@@ -32,6 +33,10 @@ pub static TEAM_NUMBER: AtomicI32 = AtomicI32::new(-1);
 
 pub fn get_checked_locations() -> &'static Mutex<Vec<String>> {
     CHECKED_LOCATIONS.get_or_init(|| Mutex::new(vec![]))
+}
+
+pub fn get_hud_data() -> &'static Mutex<ArchipelagoHud> {
+    HUD_INSTANCE.get_or_init(|| Mutex::new(ArchipelagoHud::new()))
 }
 
 #[derive(Serialize, Deserialize)]
@@ -59,100 +64,96 @@ pub fn setup_connect_channel() -> Arc<Mutex<Receiver<ArchipelagoData>>> {
     Arc::new(Mutex::new(rx))
 }
 
-pub async fn connect_archipelago(
-    login_data: ArchipelagoData,
+pub async fn get_archipelago_client(
+    login_data: &ArchipelagoData,
 ) -> Result<ArchipelagoClient, ArchipelagoError> {
-    #[allow(unused_assignments)]
-    let mut client_res: Result<ArchipelagoClient, ArchipelagoError> = Err(ArchipelagoError::ConnectionClosed);
     if !cache::check_for_cache_file() {
         // If the cache file does not exist, then it needs to be acquired
-        client_res = ArchipelagoClient::with_data_package(&login_data.url, Some(vec!["Devil May Cry 3".parse().expect("Failed to parse string")])).await;
-        match client_res {
-            Ok(ref cl) => match &cl.data_package() {
-                // Write the data package to a local cache file
-                None => {
-                    log::error!("No data package found");
-                    return Err(ArchipelagoError::ConnectionClosed);
-                }
-                Some(dp) => {
-                    let mut clone_data = HashMap::new();
-                    let _ = &dp.games.iter().for_each(|g| {
-                        let dat = CustomGameData {
-                            item_name_to_id: g.1.item_name_to_id.clone(),
-                            location_name_to_id: g.1.location_name_to_id.clone(),
-                        };
-                        clone_data.insert(g.0.clone(), dat);
-                    });
-                    cache::write_cache(clone_data, cl.room_info())
-                        .await
-                        .unwrap_or_else(|err| log::error!("Failed to write cache: {}", err));
-                }
-            },
-            Err(err) => return Err(err.into()),
+        let cl = ArchipelagoClient::with_data_package(
+            &login_data.url,
+            Some(vec![GAME_NAME.parse().expect("Failed to parse string")]),
+        )
+        .await?;
+        match &cl.data_package() {
+            // Write the data package to a local cache file
+            None => {
+                log::error!("No data package found");
+                Err(ArchipelagoError::ConnectionClosed)
+            }
+            Some(dp) => {
+                let mut clone_data = HashMap::new();
+                let _ = &dp.games.iter().for_each(|g| {
+                    let dat = CustomGameData {
+                        item_name_to_id: g.1.item_name_to_id.clone(),
+                        location_name_to_id: g.1.location_name_to_id.clone(),
+                    };
+                    clone_data.insert(g.0.clone(), dat);
+                });
+                cache::write_cache(clone_data, cl.room_info())
+                    .await
+                    .unwrap_or_else(|err| log::error!("Failed to write cache: {}", err));
+                Ok(cl)
+            }
         }
     } else {
         // If the cache exists, then connect normally and verify the cache file
-        client_res = ArchipelagoClient::new(&login_data.url).await;
-        match client_res {
-            Ok(ref mut cl) => {
-                match cache::find_checksum_errors(cl.room_info()).await {
-                    None => log::info!("Checksums check out!"),
-                    Some(failures) => {
-                        // If there are checksums that don't match, obliterate the cache file and reconnect to obtain the data package
-                        log::info!("Checksums check failures: {:?}", failures);
-                        match remove_file("cache.json") {
-                            Ok(_) => {}
-                            Err(err) => {
-                                log::error!("Failed to remove cache.json: {}", err);
-                            }
-                        };
-                        //client_res = Err(ArchipelagoError::ConnectionClosed); // TODO Figure out a better way to do this - Good now?
-                        return Box::pin(connect_archipelago(login_data)).await; //Err(anyhow!("Reconnecting to grab cache!"));
-                    }
-                }
+        let cl = ArchipelagoClient::new(&login_data.url).await?;
+        match cache::find_checksum_errors(cl.room_info()).await {
+            None => {
+                log::info!("Checksums check out!");
+                Ok(cl)
             }
-            Err(er) => return Err(er),
+            Some(failures) => {
+                // If there are checksums that don't match, obliterate the cache file and reconnect to obtain the data package
+                log::info!("Checksums check failures: {:?}", failures);
+                if let Err(err) = remove_file("cache.json") {
+                    log::error!("Failed to remove cache.json: {}", err);
+                };
+                Box::pin(get_archipelago_client(login_data)).await
+            }
         }
     }
-    log::info!("Connecting to url");
-    match client_res {
-        // Whether we have a client
-        Ok(mut cl) => {
-            log::info!("Attempting room connection");
-            match cl.connect(
-                "Devil May Cry 3",
-                &login_data.name,
-                Some(&login_data.password),
-                Option::from(0b111),
-                vec!["AP".to_string()],
-                true,
-            ).await {
-                Ok(mut connected) => {
-                    let Ok(mut checked_locations) = get_checked_locations().lock() else {
-                        log::error!("Failed to get checked locations");
-                        return Err(ArchipelagoError::ConnectionClosed);
-                    };
-                    checked_locations.clear(); // TODO Something weird happened here when reconnecting
-                    let reversed_loc_id: HashMap<i32, String> = HashMap::from_iter(
-                        read_cache()
-                            .unwrap()
-                            .location_name_to_id
-                            .iter()
-                            .map(|(k, v)| (*v, k.clone())),
-                    );
-                    connected.checked_locations.iter_mut().for_each(|val| {
-                        checked_locations.push(reversed_loc_id.get(val).unwrap().clone());
-                    });
-                    log::info!("Connected info: {:?}", connected);
-                    SLOT_NUMBER.store(connected.slot, Ordering::SeqCst);
-                    TEAM_NUMBER.store(connected.team, Ordering::SeqCst);
-                    save_connection_info(login_data).unwrap_or_else(|err| log::error!("Failed to save connection info: {}", err));
-                    Ok(cl)
-                }
-                Err(err) => Err(err),
-            }
-        }
+}
 
+pub async fn connect_archipelago(
+    login_data: ArchipelagoData,
+) -> Result<ArchipelagoClient, ArchipelagoError> {
+    log::info!("Attempting room connection");
+    let mut cl = get_archipelago_client(&login_data).await?;
+    match cl
+        .connect(
+            GAME_NAME,
+            &login_data.name,
+            Some(&login_data.password),
+            Option::from(0b111),
+            vec!["AP".to_string()],
+            true,
+        )
+        .await
+    {
+        Ok(mut connected) => {
+            let Ok(mut checked_locations) = get_checked_locations().lock() else {
+                log::error!("Failed to get checked locations");
+                return Err(ArchipelagoError::ConnectionClosed);
+            };
+            checked_locations.clear(); // TODO Something weird happened here when reconnecting
+            let reversed_loc_id: HashMap<i32, String> = HashMap::from_iter(
+                read_cache()
+                    .unwrap()
+                    .location_name_to_id
+                    .iter()
+                    .map(|(k, v)| (*v, k.clone())),
+            );
+            connected.checked_locations.iter_mut().for_each(|val| {
+                checked_locations.push(reversed_loc_id.get(val).unwrap().clone());
+            });
+            log::info!("Connected info: {:?}", connected);
+            SLOT_NUMBER.store(connected.slot, Ordering::SeqCst);
+            TEAM_NUMBER.store(connected.team, Ordering::SeqCst);
+            save_connection_info(login_data)
+                .unwrap_or_else(|err| log::error!("Failed to save connection info: {}", err));
+            Ok(cl)
+        }
         Err(err) => Err(err),
     }
 }
@@ -184,9 +185,7 @@ fn set_checklist_item(item: &str, value: bool) {
             let mut checklist = rwlock.write().unwrap();
             checklist.insert(item.to_string(), value);
         }
-        if let Ok(_checklist) = rwlock.read() {
-            // log::debug!("Checklist: {:?}", *checklist);
-        }
+        if let Ok(_checklist) = rwlock.read() {}
     }
 }
 
@@ -211,7 +210,7 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) {
                         .data_package()
                         .unwrap()
                         .games
-                        .get("Devil May Cry 3")
+                        .get(GAME_NAME)
                         .unwrap()
                         .item_name_to_id
                         .clone(),
@@ -219,7 +218,7 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) {
                         .data_package()
                         .unwrap()
                         .games
-                        .get("Devil May Cry 3")
+                        .get(GAME_NAME)
                         .unwrap()
                         .location_name_to_id
                         .clone(),
@@ -401,16 +400,17 @@ pub async fn handle_things(
         },
         Err(ArchipelagoError::NetworkError(err)) => {
             log::info!("Failed to receive data, reconnecting: {}", err);
-            /* match connect_archipelago(ArchipelagoData {
-                url: "".to_string(),
-                name: "".to_string(),
-                password: "".to_string(),
-            }).await {
-                Ok(client) => {
-                    *cl = client;
-                }
-                Err(_) => {}
-            }*/
+            match  get_hud_data().lock() {
+                Ok(data) => match connect_archipelago(ArchipelagoData {
+                    url: data.arch_url.clone(),
+                    name: data.username.clone(),
+                    password: data.username.clone(),
+                }).await {
+                    Ok(cl) => *client = cl,
+                    Err(err) => log::error!("Failed to connect: {}", err),
+                },
+                Err(err) => {log::error!("Failed to get hud data: {}", err);}
+            }
         }
         Err(err) => {
             log::info!("Failed to receive data: {}", err)
@@ -439,4 +439,3 @@ fn input(text: &str) -> Result<String, anyhow::Error> {
 
     Ok(io::stdin().lock().lines().next().unwrap()?)
 }*/
-pub static CHECKLIST: OnceLock<RwLock<HashMap<String, bool>>> = OnceLock::new();

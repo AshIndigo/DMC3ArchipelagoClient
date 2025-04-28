@@ -7,28 +7,23 @@ use hook::CONNECTION_STATUS;
 use imgui_sys::{ImGuiCond, ImGuiCond_Always, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
 use minhook::MinHook;
 use serde::Deserialize;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::BufReader;
 use std::ops::{Deref, DerefMut};
 use std::os::raw::c_char;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{OnceLock, RwLock};
+use std::sync::{MutexGuard, OnceLock, RwLock};
 use std::{fs, path, thread};
 use std::ffi::c_int;
 use crate::bank::get_bank;
 use crate::ui::imgui_bindings::*;
 use crate::ui::ui::ArchipelagoHud;
 
-thread_local! {
-    static HUD_INSTANCE: RefCell<ArchipelagoHud> = RefCell::new(ArchipelagoHud::new());
-}
 static SETUP: AtomicBool = AtomicBool::new(false);
 
 const MAIN_FUNC_ADDR: usize = 0xC65E0; // 0xC17B0 (For 2022 ddmk)
 const TIMESTEP_FUNC_ADDR: usize = 0x1DE20; // 0x1DC50 (For 2022 ddmk)
 const DDMK_UI_ENABLED: usize = 0x12c73a;
-
 
 unsafe extern "C" fn hooked_timestep() { unsafe {
     if !SETUP.load(Ordering::SeqCst) {
@@ -42,11 +37,15 @@ unsafe extern "C" fn hooked_timestep() { unsafe {
                     let mut json_reader = serde_json::Deserializer::from_reader(reader);
                     match ArchipelagoData::deserialize(&mut json_reader) {
                         Ok(data) => {
-                            HUD_INSTANCE.with(|instance| {
-                                let mut instance = instance.borrow_mut();
-                                instance.deref_mut().arch_url = data.url.to_string();
-                                instance.deref_mut().username = data.name.to_string();
-                            });
+                            match archipelago::get_hud_data().lock() {
+                                Ok(mut instance) => {
+                                    instance.arch_url = data.url;
+                                    instance.username = data.name;
+                                }
+                                Err(err) => {
+                                    log::error!("{}", err);
+                                }
+                            }
                         }
                         Err(err) => {
                             log::error!("{}", err);
@@ -73,24 +72,31 @@ unsafe extern "C" fn hooked_render() { unsafe {
     if !SETUP.load(Ordering::SeqCst) {
         return;
     }
-    HUD_INSTANCE.with(|instance| {
-        if false { // TODO: Hud for pause menu and main menu
-            on_screen_hud();
-        }
-        if !utilities::read_bool_from_address_ddmk(DDMK_UI_ENABLED) {
-            return;
-        }
-        archipelago_window(instance); // For the archipelago window
-        tracking_window();
-        bank_window();
-        match get_orig_render_func() {
-            None => {}
-            Some(fnc) => {
-                fnc();
+        match archipelago::get_hud_data().lock() {
+            Ok(instance) => {
+                if false { // TODO: Hud for pause menu and main menu
+                    on_screen_hud();
+                }
+                if !utilities::read_bool_from_address_ddmk(DDMK_UI_ENABLED) {
+                    return;
+                }
+                archipelago_window(instance); // For the archipelago window
+                tracking_window();
+                bank_window();
+                match get_orig_render_func() {
+                    None => {}
+                    Some(fnc) => {
+                        fnc();
+                    }
+                }
+            }
+            Err(err) => {
+                log::error!("{}", err);
             }
         }
-    })
-}}
+
+    }
+}
 
 unsafe fn tracking_window() { unsafe {
     let flag = &mut true;
@@ -157,9 +163,9 @@ fn checkbox_text(item: &str) -> String {
     format!("{} [{}]", item, if state { "X" } else { " " })
 }
 
-pub unsafe fn archipelago_window(instance_cell: &RefCell<ArchipelagoHud>) { unsafe {
+pub unsafe fn archipelago_window(mut instance: MutexGuard<ArchipelagoHud>) { unsafe {
     let flag = &mut true;
-    let mut instance = instance_cell.borrow_mut();
+    //let mut instance = instance_cell;
     get_imgui_next_pos()(
         &ImVec2 { x: 800.0, y: 100.0 },
         ImGuiCond_Appearing as ImGuiCond,
@@ -172,9 +178,9 @@ pub unsafe fn archipelago_window(instance_cell: &RefCell<ArchipelagoHud>) { unsa
     );
     set_status_text();
     text("Connection:\0");
-    input_rs("URL\0", &mut instance.deref_mut().arch_url, false); // TODO: Slight issue where some letters arent being cleared properly?
-    input_rs("Username\0", &mut instance.deref_mut().username, false);
-    input_rs("Password\0", &mut instance.deref_mut().password, true);
+    input_rs("URL\0", &mut instance.arch_url, false); // TODO: Slight issue where some letters arent being cleared properly?
+    input_rs("Username\0", &mut instance.username, false);
+    input_rs("Password\0", &mut instance.password, true);
     if get_imgui_button()(
         "Connect\0".as_ptr() as *const c_char,
         &ImVec2 { x: 0.0, y: 0.0 },
@@ -205,30 +211,15 @@ fn set_status_text() {
     text(format!(
         "Status: {}\0",
         match CONNECTION_STATUS.load(Ordering::SeqCst).into() {
-            Status::Connected => {
-                "Connected"
-            }
-            Status::Disconnected => {
-                "Disconnected"
-            }
-            Status::InvalidSlot => {
-                "Invalid slot (Check name)"
-            }
-            Status::InvalidGame => {
-                "Invalid game (Wrong url/port or name?)"
-            }
-            Status::IncompatibleVersion => {
-                "Incompatible Version, post on GitHub or Discord"
-            }
-            Status::InvalidPassword => {
-                "Invalid password"
-            }
-            Status::InvalidItemHandling => {
-                "Invalid item handling, post on Github or Discord"
-            }
+            Status::Connected => "Connected",
+            Status::Disconnected => "Disconnected",
+            Status::InvalidSlot => "Invalid slot (Check name)",
+            Status::InvalidGame => "Invalid game (Wrong url/port or name?)",
+            Status::IncompatibleVersion => "Incompatible Version, post on GitHub or Discord",
+            Status::InvalidPassword => "Invalid password",
+            Status::InvalidItemHandling => "Invalid item handling, post on Github or Discord",
         }
     ));
-    //text(format!("Status: {:#}\0", if CONNECTION_STATUS.load(Ordering::SeqCst) { "Connected" } else { "Disconnected" }));
 }
 
 #[tokio::main(flavor = "current_thread")]
