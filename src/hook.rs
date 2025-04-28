@@ -1,18 +1,17 @@
 use crate::archipelago::{
-    CONNECT_CHANNEL_SETUP, MAPPING, SLOT_NUMBER, TEAM_NUMBER, connect_archipelago,
-    setup_bank_channel,
+    connect_archipelago, CONNECT_CHANNEL_SETUP, MAPPING, SLOT_NUMBER, TEAM_NUMBER,
 };
 use crate::constants::{
-    EventCode, ITEM_PICKED_UP_ADDR, ITEM_SPAWNS_ADDR, ItemPickedUpFunc, ItemSpawns,
-    ORIGINAL_ITEM_SPAWNS, ORIGINAL_ITEMPICKEDUP, get_item,
+    get_item, EventCode, ItemPickedUpFunc, ItemSpawns, ITEM_PICKED_UP_ADDR,
+    ITEM_SPAWNS_ADDR, ORIGINAL_ITEMPICKEDUP, ORIGINAL_ITEM_SPAWNS,
 };
 use crate::experiments::asm_hook;
 use crate::utilities::get_mission;
 use crate::{archipelago, check_handler, constants, generated_locations, utilities};
-use anyhow::{Error, anyhow};
+use anyhow::{anyhow, Error};
 use archipelago_rs::client::ArchipelagoClient;
 use archipelago_rs::protocol::ClientStatus;
-use minhook::{MH_STATUS, MinHook};
+use minhook::{MinHook, MH_STATUS};
 use std::arch::asm;
 use std::collections::HashMap;
 use std::convert::Into;
@@ -24,10 +23,11 @@ use winapi::um::memoryapi::VirtualProtect;
 use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::System::Console::{
-    AllocConsole, ENABLE_VIRTUAL_TERMINAL_PROCESSING, FreeConsole, GetConsoleMode, GetStdHandle,
-    STD_OUTPUT_HANDLE, SetConsoleMode,
+    AllocConsole, FreeConsole, GetConsoleMode, GetStdHandle, SetConsoleMode,
+    ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_OUTPUT_HANDLE,
 };
-use crate::ui::ddmk_hook::CHECKLIST;
+use crate::archipelago::CHECKLIST;
+use crate::bank::setup_bank_channel;
 
 pub fn create_console() {
     unsafe {

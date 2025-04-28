@@ -1,22 +1,22 @@
-use crate::cache::{CustomGameData, read_cache};
+use crate::cache::{read_cache, CustomGameData};
 use crate::check_handler::Location;
 use crate::constants::CONSUMABLES;
-use crate::hook::{Status, modify_itm_table};
-use crate::{cache, constants, generated_locations, hook, utilities};
+use crate::hook::{modify_itm_table, Status};
+use crate::{bank, cache, constants, generated_locations, hook};
+use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
 use archipelago_rs::protocol::{DataStorageOperation, ServerMessage};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::fs::{File, remove_file};
+use std::fs::{remove_file, File};
 use std::io::{BufReader, Write};
 use std::ops::SubAssign;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
-use std::sync::{Arc, Mutex, OnceLock, mpsc};
-use crate::ui::ddmk_hook::CHECKLIST;
+use std::sync::{mpsc, Arc, Mutex, OnceLock, RwLock};
 
 pub static MAPPING: OnceLock<Mapping> = OnceLock::new();
 pub static DATA_PACKAGE: OnceLock<CustomGameData> = OnceLock::new();
@@ -25,7 +25,6 @@ pub static CHECKED_LOCATIONS: OnceLock<Mutex<Vec<String>>> = OnceLock::new(); //
 pub static BANK: OnceLock<Mutex<HashMap<&'static str, i32>>> = OnceLock::new();
 
 pub static TX_ARCH: OnceLock<Sender<ArchipelagoData>> = OnceLock::new();
-pub static TX_BANK: OnceLock<Sender<String>> = OnceLock::new();
 
 pub static CONNECT_CHANNEL_SETUP: AtomicBool = AtomicBool::new(false);
 pub static SLOT_NUMBER: AtomicI32 = AtomicI32::new(-1);
@@ -33,18 +32,6 @@ pub static TEAM_NUMBER: AtomicI32 = AtomicI32::new(-1);
 
 pub fn get_checked_locations() -> &'static Mutex<Vec<String>> {
     CHECKED_LOCATIONS.get_or_init(|| Mutex::new(vec![]))
-}
-
-pub fn get_bank() -> &'static Mutex<HashMap<&'static str, i32>> {
-    BANK.get_or_init(|| {
-        Mutex::new(HashMap::from([
-            (CONSUMABLES[0], 0),
-            (CONSUMABLES[1], 0),
-            (CONSUMABLES[2], 0),
-            (CONSUMABLES[3], 0),
-            (CONSUMABLES[4], 0),
-        ]))
-    })
 }
 
 #[derive(Serialize, Deserialize)]
@@ -72,27 +59,14 @@ pub fn setup_connect_channel() -> Arc<Mutex<Receiver<ArchipelagoData>>> {
     Arc::new(Mutex::new(rx))
 }
 
-pub fn setup_bank_channel() -> Arc<Mutex<Receiver<String>>> {
-    let (tx, rx) = mpsc::channel();
-    TX_BANK.set(tx).expect("TX already initialized");
-    Arc::new(Mutex::new(rx))
-}
-
 pub async fn connect_archipelago(
     login_data: ArchipelagoData,
 ) -> Result<ArchipelagoClient, ArchipelagoError> {
     #[allow(unused_assignments)]
-    let mut client_res: Result<ArchipelagoClient, ArchipelagoError> =
-        Err(ArchipelagoError::ConnectionClosed);
+    let mut client_res: Result<ArchipelagoClient, ArchipelagoError> = Err(ArchipelagoError::ConnectionClosed);
     if !cache::check_for_cache_file() {
         // If the cache file does not exist, then it needs to be acquired
-        client_res = ArchipelagoClient::with_data_package(
-            &login_data.url,
-            Some(vec![
-                "Devil May Cry 3".parse().expect("Failed to parse string"),
-            ]),
-        )
-        .await;
+        client_res = ArchipelagoClient::with_data_package(&login_data.url, Some(vec!["Devil May Cry 3".parse().expect("Failed to parse string")])).await;
         match client_res {
             Ok(ref cl) => match &cl.data_package() {
                 // Write the data package to a local cache file
@@ -145,15 +119,14 @@ pub async fn connect_archipelago(
         // Whether we have a client
         Ok(mut cl) => {
             log::info!("Attempting room connection");
-            let res = cl.connect(
+            match cl.connect(
                 "Devil May Cry 3",
                 &login_data.name,
                 Some(&login_data.password),
                 Option::from(0b111),
                 vec!["AP".to_string()],
                 true,
-            );
-            match res.await {
+            ).await {
                 Ok(mut connected) => {
                     let Ok(mut checked_locations) = get_checked_locations().lock() else {
                         log::error!("Failed to get checked locations");
@@ -173,7 +146,7 @@ pub async fn connect_archipelago(
                     log::info!("Connected info: {:?}", connected);
                     SLOT_NUMBER.store(connected.slot, Ordering::SeqCst);
                     TEAM_NUMBER.store(connected.team, Ordering::SeqCst);
-                    save_connection_info(login_data);
+                    save_connection_info(login_data).unwrap_or_else(|err| log::error!("Failed to save connection info: {}", err));
                     Ok(cl)
                 }
                 Err(err) => Err(err),
@@ -217,19 +190,11 @@ fn set_checklist_item(item: &str, value: bool) {
     }
 }
 
-fn save_connection_info(login_data: ArchipelagoData) {
-    match serde_json::to_string(&login_data) {
-        Ok(res) => {
-            log::info!("Info: {}", res);
-            let mut file = File::create("login_data.json").expect("Could not create file!");
-
-            file.write_all(res.as_bytes())
-                .expect("Cannot write to the file!");
-        }
-        Err(err) => {
-            log::error!("Failed to serialize login_data: {}", err);
-        }
-    }
+fn save_connection_info(login_data: ArchipelagoData) -> Result<(), Box<dyn std::error::Error>> {
+    let res = serde_json::to_string(&login_data)?;
+    let mut file = File::create("login_data.json")?;
+    file.write_all(res.as_bytes())?;
+    Ok(())
 }
 
 pub async fn run_setup(cl: &mut ArchipelagoClient) {
@@ -238,59 +203,44 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) {
         hook::rewrite_mode_table();
     }
     match cl.data_package() {
-        Some(dat) => {
-            log::info!("Data package exists: {:?}", dat);
-            log::info!(
-                "Item to ID: {:#?}",
-                &dat.games["Devil May Cry 3"].item_name_to_id
-            );
-            log::info!(
-                "Loc to ID: {:#?}",
-                &dat.games["Devil May Cry 3"].location_name_to_id
-            );
-            match DATA_PACKAGE.set(CustomGameData {
-                item_name_to_id: cl
-                    .data_package()
-                    .unwrap()
-                    .games
-                    .get("Devil May Cry 3")
-                    .unwrap()
-                    .item_name_to_id
-                    .clone(),
-                location_name_to_id: cl
-                    .data_package()
-                    .unwrap()
-                    .games
-                    .get("Devil May Cry 3")
-                    .unwrap()
-                    .location_name_to_id
-                    .clone(),
-            }) {
-                Ok(_) => {}
-                Err(_) => {}
-            }
+        Some(_dat) => {
+            log::info!("Using received data package");
+            DATA_PACKAGE
+                .set(CustomGameData {
+                    item_name_to_id: cl
+                        .data_package()
+                        .unwrap()
+                        .games
+                        .get("Devil May Cry 3")
+                        .unwrap()
+                        .item_name_to_id
+                        .clone(),
+                    location_name_to_id: cl
+                        .data_package()
+                        .unwrap()
+                        .games
+                        .get("Devil May Cry 3")
+                        .unwrap()
+                        .location_name_to_id
+                        .clone(),
+                })
+                .expect("DATA_PACKAGE already set");
         }
         None => {
             log::info!("No data package found, using cached data");
-            match DATA_PACKAGE.set(read_cache().expect("Expected cache file...")) {
-                Ok(_) => {}
-                Err(_) => {}
-            }
+            DATA_PACKAGE
+                .set(read_cache().expect("Expected cache file"))
+                .expect("DATA_PACKAGE already set");
         }
     }
-    match load_location_map() { // TODO Refactor the error handling + Use seed as some kind verification system? Ensure right mappings are being used?
-        None => {}
-        Some(mappings) => match MAPPING.set(mappings) {
-            Ok(_) => {}
-            Err(e) => {
-                log::info!("Failed to set cell!");
-            }
-        },
-    }
+    // TODO Refactor the error handling + Use seed as some kind verification system? Ensure right mappings are being used?
+    MAPPING
+        .set(load_mappings_file().unwrap())
+        .expect("MAPPING already set");
     use_mappings();
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct Mapping {
     // For mapping JSON
     pub seed: String,
@@ -333,49 +283,15 @@ fn use_mappings() {
     }
 }
 
-pub fn load_location_map() -> Option<Mapping> {
-    match Path::new("mappings.json").try_exists() {
-        Ok(res) => {
-            if res == true {
-                log::info!("Mapping file Exists!");
-                let file = File::open("mappings.json");
-                match file {
-                    Ok(mapping) => {
-                        let reader = BufReader::new(mapping);
-                        let mut json_reader = serde_json::Deserializer::from_reader(reader);
-                        let json = Mapping::deserialize(&mut json_reader);
-                        match json {
-                            Ok(map) => {
-                                log::info!("Mapping location mapped successfully!");
-                                Some(map)
-                            }
-                            Err(_) => None,
-                        }
-                    }
-                    Err(err) => {
-                        log::info!("Mapping file doesn't exist?: {:?}", err);
-                        None
-                    }
-                }
-            } else {
-                log::info!("Mapping file doesn't exist");
-                None
-            }
-        }
-        Err(_) => {
-            log::info!("Failed to check for cache file!");
-            None
-        }
+pub fn load_mappings_file() -> Result<Mapping, Box<dyn std::error::Error>> {
+    if Path::new("mappings.json").try_exists()? {
+        log::info!("Mapping file Exists!");
+        let mut json_reader =
+            serde_json::Deserializer::from_reader(BufReader::new(File::open("mappings.json")?));
+        Ok(Mapping::deserialize(&mut json_reader)?)
+    } else {
+        Err(Box::from(anyhow!("Mapping file doesn't exist")))
     }
-}
-
-fn get_bank_key(item: &String) -> String {
-    format!(
-        "team{}_slot{}_{}",
-        TEAM_NUMBER.load(Ordering::SeqCst),
-        SLOT_NUMBER.load(Ordering::SeqCst),
-        item
-    )
 }
 
 pub async fn handle_things(
@@ -435,52 +351,7 @@ pub async fn handle_things(
             }
         }
     }
-    if let Ok(bank_rec) = bank_rx.lock() {
-        while let Ok(item) = bank_rec.try_recv() {
-            match client.get(vec![get_bank_key(&item)]).await {
-                Ok(val) => {
-                    let item_count = val
-                        .keys
-                        .get(&get_bank_key(&item))
-                        .unwrap()
-                        .as_i64()
-                        .unwrap();
-                    log::info!("{} is {}", item, item_count);
-                    if item_count > 0 {
-                        match client
-                            .set(
-                                get_bank_key(&item),
-                                Value::from(1),
-                                false,
-                                vec![DataStorageOperation {
-                                    replace: "add".to_string(),
-                                    value: Value::from(-1),
-                                }],
-                            )
-                            .await
-                        {
-                            Ok(_) => {
-                                log::debug!("{} subtracted", item);
-                                hook::add_item(&item);
-                                get_bank()
-                                    .lock()
-                                    .unwrap()
-                                    .get_mut(&*item.clone())
-                                    .unwrap()
-                                    .sub_assign(1);
-                            }
-                            Err(err) => {
-                                log::error!("Failed to subtract item: {}", err);
-                            }
-                        }
-                    }
-                }
-                Err(err) => {
-                    log::error!("Failed to get banker item: {}", err);
-                }
-            }
-        }
-    }
+    //bank::handle_bank(bank_rx); // TODO Bank
     match client.recv().await {
         Ok(opt_msg) => match opt_msg {
             None => {}
@@ -496,31 +367,17 @@ pub async fn handle_things(
                 hook::CONNECTION_STATUS.store(Status::Connected.into(), Ordering::Relaxed);
             }
             Some(ServerMessage::ReceivedItems(items)) => {
+                // READ https://github.com/ArchipelagoMW/Archipelago/blob/main/docs/network%20protocol.md#synchronizing-items
                 for item in items.items.iter() {
-                    unsafe {
+                    /*    unsafe { // TODO This will crash if its on the main menu? or not prepared properly?
                         utilities::display_message(format!(
                             "Received {}!",
                             constants::get_item(item.item as u64)
                         ));
-                    }
-                    if item.item < 0x14 {
+                    }*/
+                    if item.item < 0x14 { // TODO Bank stuff broken
                         // Consumables/orbs TODO
-                        match client
-                            .set(
-                                get_bank_key(
-                                    &constants::get_item(item.item as u64).parse().unwrap(),
-                                ),
-                                Value::from(1),
-                                false,
-                                vec![DataStorageOperation {
-                                    replace: "add".to_string(),
-                                    value: Value::from(1),
-                                }],
-                            )
-                            .await
-                        {
-                            _ => {}
-                        }
+                        //bank::add_item(client, item).await;
                     }
                 }
                 log::debug!("Received items: {:?}", items.items);
@@ -582,3 +439,4 @@ fn input(text: &str) -> Result<String, anyhow::Error> {
 
     Ok(io::stdin().lock().lines().next().unwrap()?)
 }*/
+pub static CHECKLIST: OnceLock<RwLock<HashMap<String, bool>>> = OnceLock::new();

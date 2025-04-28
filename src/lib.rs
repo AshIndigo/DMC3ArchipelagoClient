@@ -27,6 +27,7 @@ mod ui;
 mod utilities;
 mod save_handler;
 mod check_handler;
+mod bank;
 
 static mut REAL_DIRECTINPUT8CREATE: Option<
     unsafe extern "system" fn(HINSTANCE, DWORD, REFIID, *mut *mut c_void, *mut c_void) -> HRESULT,

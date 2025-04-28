@@ -1,8 +1,8 @@
-use crate::archipelago::{get_bank, ArchipelagoData};
+use crate::archipelago::{ArchipelagoData, CHECKLIST};
 use crate::constants::CONSUMABLES;
 use crate::hook::Status;
 use crate::utilities::get_mary_base_address;
-use crate::{archipelago, constants, hook, utilities};
+use crate::{archipelago, bank, constants, hook, utilities};
 use hook::CONNECTION_STATUS;
 use imgui_sys::{ImGuiCond, ImGuiCond_Always, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
 use minhook::MinHook;
@@ -16,6 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{OnceLock, RwLock};
 use std::{fs, path, thread};
 use std::ffi::c_int;
+use crate::bank::get_bank;
 use crate::ui::imgui_bindings::*;
 use crate::ui::ui::ArchipelagoHud;
 
@@ -156,7 +157,6 @@ fn checkbox_text(item: &str) -> String {
     format!("{} [{}]", item, if state { "X" } else { " " })
 }
 
-pub static CHECKLIST: OnceLock<RwLock<HashMap<String, bool>>> = OnceLock::new(); // TODO Move this out of DDMK?
 pub unsafe fn archipelago_window(instance_cell: &RefCell<ArchipelagoHud>) { unsafe {
     let flag = &mut true;
     let mut instance = instance_cell.borrow_mut();
@@ -248,7 +248,7 @@ async fn connect_button_pressed(url: String, name: String, password: String) {
 
 #[tokio::main(flavor = "current_thread")]
 async fn retrieve_button_pressed(item_name: &&str) {
-    match archipelago::TX_BANK.get() {
+    match bank::TX_BANK.get() {
         None => log::error!("Connect TX doesn't exist"),
         Some(tx) => {
             tx.send(item_name.parse().unwrap())

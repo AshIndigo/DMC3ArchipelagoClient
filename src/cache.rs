@@ -1,3 +1,4 @@
+use anyhow::Error;
 use archipelago_rs::protocol::RoomInfo;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -9,20 +10,10 @@ use std::path::Path;
 /// If file exists then check the checksums in it
 /// Returns false if file doesn't exist (or if it cant be checked for)
 pub fn check_for_cache_file() -> bool {
-    match Path::new("cache.json").try_exists() {
-        Ok(res) => {
-            if res == true {
-                log::info!("Cache file Exists!");
-                true
-            } else {
-                false
-            }
-        }
-        Err(_) => {
-            log::info!("Failed to check for cache file!");
-            false
-        }
-    }
+    Path::new("cache.json").try_exists().unwrap_or_else(|err| {
+        log::info!("Failed to check for cache file: {}", err);
+        false
+    })
 }
 
 #[derive(Deserialize, Serialize)]
@@ -36,9 +27,7 @@ pub async fn find_checksum_errors(room_info: &RoomInfo) -> Option<Vec<String>> {
     let file = File::open("cache.json");
     match file {
         Ok(cache) => {
-            let reader = BufReader::new(cache);
-            let mut json_reader = serde_json::Deserializer::from_reader(reader);
-            let json = Cache::deserialize(&mut json_reader);
+            let json = Cache::deserialize(&mut serde_json::Deserializer::from_reader(BufReader::new(cache)));
             match json {
                 Ok(cac) => {
                     let mut failed_checks = vec![];
@@ -68,7 +57,7 @@ pub async fn find_checksum_errors(room_info: &RoomInfo) -> Option<Vec<String>> {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct CustomGameData {
     pub item_name_to_id: HashMap<String, i32>,
     pub location_name_to_id: HashMap<String, i32>,
@@ -89,37 +78,22 @@ pub async fn write_cache(
     Ok(())
 }
 
-pub(crate) fn read_cache() -> Option<CustomGameData> {
-    let file = File::open("cache.json");
-    match file {
-        Ok(cache) => {
-            let reader = BufReader::new(cache);
-            let mut json_reader = serde_json::Deserializer::from_reader(reader);
-            let json = Cache::deserialize(&mut json_reader);
-            match json {
-                Ok(cac) => Some(CustomGameData {
-                    item_name_to_id: cac
-                        .data_package
-                        .get("Devil May Cry 3")
-                        .unwrap()
-                        .item_name_to_id
-                        .clone(),
-                    location_name_to_id: cac
-                        .data_package
-                        .get("Devil May Cry 3")
-                        .unwrap()
-                        .location_name_to_id
-                        .clone(),
-                }),
-                Err(err) => {
-                    log::info!("Failed to deserialize JSON: {}", err);
-                    None
-                }
-            }
-        }
-        Err(err) => {
-            log::info!("Failed to open cache file: {}", err);
-            None
-        }
-    }
+pub(crate) fn read_cache() -> Result<CustomGameData, Error> {
+    let cache = Cache::deserialize(&mut serde_json::Deserializer::from_reader(BufReader::new(
+        File::open("cache.json")?,
+    )))?;
+    Ok(CustomGameData {
+        item_name_to_id: cache
+            .data_package
+            .get("Devil May Cry 3")
+            .unwrap()
+            .item_name_to_id
+            .clone(),
+        location_name_to_id: cache
+            .data_package
+            .get("Devil May Cry 3")
+            .unwrap()
+            .location_name_to_id
+            .clone(),
+    })
 }
