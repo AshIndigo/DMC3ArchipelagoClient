@@ -1,6 +1,6 @@
 use crate::archipelago::{ArchipelagoData, CHECKLIST};
 use crate::constants::CONSUMABLES;
-use crate::hook::Status;
+use crate::constants::Status;
 use crate::utilities::get_mary_base_address;
 use crate::{archipelago, bank, constants, hook, utilities};
 use hook::CONNECTION_STATUS;

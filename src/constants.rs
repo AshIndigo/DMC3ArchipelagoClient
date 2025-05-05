@@ -8,6 +8,10 @@ pub type ItemPickedUpFunc = unsafe extern "C" fn(loc_chk_id: c_longlong, param_2
 pub const ITEM_PICKED_UP_ADDR: usize = 0x1aa6e0;
 pub static mut ORIGINAL_ITEMPICKEDUP: Option<ItemPickedUpFunc> = None;
 
+pub type ItemHandlePickupFunc = unsafe extern "C" fn(item_struct: c_longlong);
+pub const ITEM_HANDLE_PICKUP_ADDR: usize = 0x1b45a0;
+pub static mut ORIGINAL_HANDLE_PICKUP: Option<ItemHandlePickupFunc> = None;
+
 pub type ItemSpawns = unsafe extern "C" fn(loc_chk_id: c_longlong);
 pub const ITEM_SPAWNS_ADDR: usize = 0x1b4440;  // 0x1b4480
 pub static mut ORIGINAL_ITEM_SPAWNS: Option<ItemSpawns> = None;
@@ -420,3 +424,42 @@ pub(crate) struct EventTable {
 }
 
 pub const GAME_NAME: &str = "Devil May Cry 3";
+
+pub(crate) enum Status {
+    Disconnected = 0,
+    Connected = 1,
+    InvalidSlot = 2,
+    InvalidGame = 3,
+    IncompatibleVersion = 4,
+    InvalidPassword = 5,
+    InvalidItemHandling = 6,
+}
+
+impl From<Status> for isize {
+    fn from(value: Status) -> Self {
+        match value {
+            Status::Disconnected => 0,
+            Status::Connected => 1,
+            Status::InvalidSlot => 2,
+            Status::InvalidGame => 3,
+            Status::IncompatibleVersion => 4,
+            Status::InvalidPassword => 5,
+            Status::InvalidItemHandling => 6,
+        }
+    }
+}
+
+impl From<isize> for Status {
+    fn from(value: isize) -> Self {
+        match value {
+            0 => Status::Disconnected,
+            1 => Status::Connected,
+            2 => Status::InvalidSlot,
+            3 => Status::InvalidGame,
+            4 => Status::IncompatibleVersion,
+            5 => Status::InvalidPassword,
+            6 => Status::InvalidItemHandling,
+            _ => Status::Disconnected,
+        }
+    }
+}

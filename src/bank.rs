@@ -11,10 +11,9 @@ use crate::{constants, hook};
 use crate::constants::CONSUMABLES;
 
 pub(crate) async fn add_item(client: &mut ArchipelagoClient, item: &NetworkItem) {
-    client.set(get_bank_key(&constants::get_item(item.item as u64).parse().unwrap(), ), Value::from(1), false, vec![DataStorageOperation {
-            replace: "add".to_string(),
-            value: Value::from(1),
-        }], )
+    client.set(get_bank_key(&constants::get_item(item.item as u64).parse().unwrap(), ), Value::from(1), false, vec![
+        DataStorageOperation::Add(Value::from(1))
+    ], )
         .await.unwrap();
 }
 
@@ -53,7 +52,7 @@ pub(crate) async fn handle_bank(mut client: ArchipelagoClient, bank_rx: &Arc<Mut
             match client.get(vec![get_bank_key(&item)]).await {
                 Ok(val) => {
                     let item_count = val
-                        .keys
+                        .keys// TODO Had to make this pub
                         .get(&get_bank_key(&item))
                         .unwrap()
                         .as_i64()
@@ -65,10 +64,7 @@ pub(crate) async fn handle_bank(mut client: ArchipelagoClient, bank_rx: &Arc<Mut
                                 get_bank_key(&item),
                                 Value::from(1),
                                 false,
-                                vec![DataStorageOperation {
-                                    replace: "add".to_string(),
-                                    value: Value::from(-1),
-                                }],
+                                vec![DataStorageOperation::Add(Value::from(-1))],
                             )
                             .await
                         {

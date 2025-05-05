@@ -24,10 +24,13 @@ fn main() {
         let room = value["room_number"].as_u64().unwrap();
         let item_id = value["default_item"].as_u64().unwrap();
         let adjudicator = value["adjudicator"].as_bool().unwrap();
+        let x_coord = value["xCoord"].as_u64().unwrap();
+        let y_coord = value["yCoord"].as_u64().unwrap();
+        let z_coord = value["zCoord"].as_u64().unwrap();
 
         output.push_str(&format!(
-            r#"        ("{}", ItemEntry {{ offset: {}, mission: {}, room_number: {}, item_id: {}, adjudicator: {} }}),"#,
-            key, offset, mission_number, room, item_id, adjudicator
+            r#"        ("{}", ItemEntry {{ offset: {}, mission: {}, room_number: {}, item_id: {}, adjudicator: {}, x_coord: {}, y_coord: {}, z_coord: {} }}),"#,
+            key, offset, mission_number, room, item_id, adjudicator, x_coord, y_coord, z_coord
         ));
         output.push('\n');
     }

@@ -1,19 +1,16 @@
 use crate::archipelago::CHECKLIST;
 use crate::archipelago::{
-    CONNECT_CHANNEL_SETUP, MAPPING, SLOT_NUMBER, TEAM_NUMBER, connect_archipelago,
+    connect_archipelago, CONNECT_CHANNEL_SETUP, MAPPING, SLOT_NUMBER, TEAM_NUMBER,
 };
 use crate::bank::setup_bank_channel;
-use crate::constants::{
-    EventCode, ITEM_PICKED_UP_ADDR, ITEM_SPAWNS_ADDR, ItemPickedUpFunc, ItemSpawns,
-    ORIGINAL_ITEM_SPAWNS, ORIGINAL_ITEMPICKEDUP, get_item,
-};
+use crate::constants::{get_item, EventCode, ItemHandlePickupFunc, ItemPickedUpFunc, ItemSpawns, Status, ITEM_HANDLE_PICKUP_ADDR, ITEM_PICKED_UP_ADDR, ITEM_SPAWNS_ADDR, ORIGINAL_HANDLE_PICKUP, ORIGINAL_ITEMPICKEDUP, ORIGINAL_ITEM_SPAWNS};
 use crate::experiments::asm_hook;
 use crate::utilities::get_mission;
 use crate::{archipelago, check_handler, constants, generated_locations, utilities};
-use anyhow::{Error, anyhow};
+use anyhow::{anyhow, Error};
 use archipelago_rs::client::ArchipelagoClient;
 use archipelago_rs::protocol::ClientStatus;
-use minhook::{MH_STATUS, MinHook};
+use minhook::{MinHook, MH_STATUS};
 use std::arch::asm;
 use std::collections::HashMap;
 use std::convert::Into;
@@ -25,8 +22,8 @@ use winapi::um::memoryapi::VirtualProtect;
 use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::System::Console::{
-    AllocConsole, ENABLE_VIRTUAL_TERMINAL_PROCESSING, FreeConsole, GetConsoleMode, GetStdHandle,
-    STD_OUTPUT_HANDLE, SetConsoleMode,
+    AllocConsole, FreeConsole, GetConsoleMode, GetStdHandle, SetConsoleMode,
+    ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_OUTPUT_HANDLE,
 };
 
 pub fn create_console() {
@@ -85,52 +82,12 @@ pub(crate) fn install_initial_functions() {
 pub(crate) static CLIENT: LazyLock<Mutex<Option<ArchipelagoClient>>> =
     LazyLock::new(|| Mutex::new(None));
 
-pub(crate) enum Status {
-    Disconnected = 0,
-    Connected = 1,
-    InvalidSlot = 2,
-    InvalidGame = 3,
-    IncompatibleVersion = 4,
-    InvalidPassword = 5,
-    InvalidItemHandling = 6,
-}
-impl From<Status> for isize {
-    fn from(value: Status) -> Self {
-        match value {
-            Status::Disconnected => 0,
-            Status::Connected => 1,
-            Status::InvalidSlot => 2,
-            Status::InvalidGame => 3,
-            Status::IncompatibleVersion => 4,
-            Status::InvalidPassword => 5,
-            Status::InvalidItemHandling => 6,
-        }
-    }
-}
-
-impl From<isize> for Status {
-    fn from(value: isize) -> Self {
-        match value {
-            0 => Status::Disconnected,
-            1 => Status::Connected,
-            2 => Status::InvalidSlot,
-            3 => Status::InvalidGame,
-            4 => Status::IncompatibleVersion,
-            5 => Status::InvalidPassword,
-            6 => Status::InvalidItemHandling,
-            _ => Status::Disconnected,
-        }
-    }
-}
-
 pub(crate) static CONNECTION_STATUS: AtomicIsize = AtomicIsize::new(0); // Disconnected
 
 #[tokio::main(flavor = "current_thread")]
 pub(crate) async fn spawn_arch_thread() {
-    // let mut connected = false;
     let mut setup = false; // ??
-    //let mut client = Err(anyhow::anyhow!("Archipelago Client not initialized"));
-    log::info!("In thread");
+    log::info!("Archipelago Thread started");
     // For handling connection requests from the UI
     let rx_locations = check_handler::setup_items_channel();
     let rx_connect = archipelago::setup_connect_channel();
@@ -143,7 +100,6 @@ pub(crate) async fn spawn_arch_thread() {
                 while let Ok(item) = rec.try_recv() {
                     log::info!("Processing data: {}", item);
                     match connect_archipelago(item).await {
-                        // worked
                         Ok(cl) => {
                             CLIENT.lock().unwrap().replace(cl);
                             CONNECTION_STATUS.store(Status::Connected.into(), Ordering::SeqCst);
@@ -163,7 +119,7 @@ pub(crate) async fn spawn_arch_thread() {
             // If the client exists and is usable, then try to initially set things up and then handle messages
             Some(ref mut cl) => {
                 if setup == false {
-                    cl.status_update(ClientStatus::ClientConnected)
+                    cl.status_update(ClientStatus::ClientReady)
                         .await
                         .expect("Status update failed?");
                     archipelago::run_setup(cl).await;
@@ -175,6 +131,7 @@ pub(crate) async fn spawn_arch_thread() {
             }
             None => {
                 CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::SeqCst);
+                setup = false;
             }
         }
     }
@@ -415,15 +372,24 @@ fn set_relevant_key_items() {
 // 23d680 - Pause menu event? Hook in here to do rendering
 fn setup_hooks() -> Result<(), MH_STATUS> {
     unsafe {
+        let original_item_handle = utilities::get_dmc3_base_address() + ITEM_HANDLE_PICKUP_ADDR;
+        ORIGINAL_HANDLE_PICKUP = Some(std::mem::transmute::<_, ItemHandlePickupFunc>(
+            MinHook::create_hook(
+                original_item_handle as _,
+                check_handler::item_non_event as _,
+            )?,
+        ));
+        MinHook::enable_hook(original_item_handle as _)?;
+        log::info!("Non event item hook enabled");
         let original_picked_up = utilities::get_dmc3_base_address() + ITEM_PICKED_UP_ADDR;
         ORIGINAL_ITEMPICKEDUP = Some(std::mem::transmute::<_, ItemPickedUpFunc>(
             MinHook::create_hook(
                 original_picked_up as _,
-                check_handler::item_picked_up_hook as _,
+                check_handler::item_event as _,
             )?,
         ));
         MinHook::enable_hook(original_picked_up as _)?;
-        log::info!("Item picked up hook enabled");
+        log::info!("Event item hook enabled");
         let original_spawn = utilities::get_dmc3_base_address() + ITEM_SPAWNS_ADDR;
         ORIGINAL_ITEM_SPAWNS = Some(std::mem::transmute::<_, ItemSpawns>(MinHook::create_hook(
             original_spawn as _,

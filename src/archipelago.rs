@@ -1,14 +1,15 @@
 use crate::cache::{CustomGameData, read_cache};
 use crate::check_handler::Location;
-use crate::constants::{GAME_NAME};
-use crate::hook::{Status, modify_itm_table};
+use crate::constants::{GAME_NAME, Status};
+use crate::hook::{CONNECTION_STATUS, modify_itm_table};
 use crate::ui::ui::ArchipelagoHud;
 use crate::{cache, constants, generated_locations, hook};
 use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
-use archipelago_rs::protocol::{ServerMessage};
+use archipelago_rs::protocol::{Connected, JSONMessagePart, PrintJSON, ServerMessage};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::fs::{File, remove_file};
 use std::io::{BufReader, Write};
@@ -22,6 +23,7 @@ pub static CHECKLIST: OnceLock<RwLock<HashMap<String, bool>>> = OnceLock::new();
 pub static DATA_PACKAGE: OnceLock<CustomGameData> = OnceLock::new();
 pub static CHECKED_LOCATIONS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
 pub static HUD_INSTANCE: OnceLock<Mutex<ArchipelagoHud>> = OnceLock::new();
+pub static CONNECTED: OnceLock<Mutex<Connected>> = OnceLock::new();
 
 pub static BANK: OnceLock<Mutex<HashMap<&'static str, i32>>> = OnceLock::new();
 
@@ -37,6 +39,21 @@ pub fn get_checked_locations() -> &'static Mutex<Vec<String>> {
 
 pub fn get_hud_data() -> &'static Mutex<ArchipelagoHud> {
     HUD_INSTANCE.get_or_init(|| Mutex::new(ArchipelagoHud::new()))
+}
+
+pub fn get_connected() -> &'static Mutex<Connected> {
+    CONNECTED.get_or_init(|| {
+        Mutex::new(Connected {
+            team: 0,
+            slot: 0,
+            players: vec![],
+            missing_locations: vec![],
+            checked_locations: vec![],
+            slot_data: Default::default(),
+            slot_info: Default::default(),
+            hint_points: 0,
+        })
+    })
 }
 
 #[derive(Serialize, Deserialize)]
@@ -127,7 +144,6 @@ pub async fn connect_archipelago(
             Some(&login_data.password),
             Option::from(0b111),
             vec!["AP".to_string()],
-            true,
         )
         .await
     {
@@ -250,12 +266,15 @@ pub struct Mapping {
 
 pub struct ItemEntry {
     // Represents an item on the ground
-    pub offset: usize,    // Offset for the item table
-    pub room_number: u16, // Room number
-    pub item_id: u8,      // Default Item ID
-    pub mission: u8,      // Mission Number
+    pub offset: usize,     // Offset for the item table
+    pub room_number: u16,  // Room number
+    pub item_id: u8,       // Default Item ID
+    pub mission: u8,       // Mission Number
     pub adjudicator: bool, // Adjudicator
-                          // TODO Secret
+    pub x_coord: u32,
+    pub y_coord: u32,
+    pub z_coord: u32,
+    // TODO Secret
 }
 
 fn use_mappings() {
@@ -298,64 +317,18 @@ pub async fn handle_things(
     loc_rx: &Arc<Mutex<Receiver<Location>>>,
     bank_rx: &Arc<Mutex<Receiver<String>>>,
 ) {
-    if let Ok(item_rec) = loc_rx.lock() {
-        while let Ok(item) = item_rec.try_recv() {
-            // See if there's an item!
-            log::info!("Processing item: {}", item); // TODO Need to handle offline storage... if the item cant be sent it needs to be buffered
-            let Some(mapping_data) = MAPPING.get() else {
-                log::error!("No mapping found");
-                return;
-            };
-            let Some(dp) = DATA_PACKAGE.get() else {
-                log::error!("Data Package not found");
-                return;
-            };
-            for (location_key, item_entry) in generated_locations::ITEM_MISSION_MAP.iter() {
-                //log::debug!("Checking room {} vs {} and mission {} vs {}", v.room_number as i32, item.room, v.mission as i32, item.mission);
-                if item_entry.room_number as i32 == item.room {
-                    // && v.mission as i32 == item.mission { // First confirm the room and mission number
-                    //log::debug!("Room and mission check out!");
-                    let item_str = mapping_data.items.get(*location_key).unwrap();
-                    log::debug!(
-                        "Checking location items: 0x{:x} vs 0x{:x}",
-                        constants::get_item_id(item_str).unwrap(),
-                        item.item_id as u8
-                    );
-                    if constants::get_item_id(item_str).unwrap() == item.item_id as u8 {
-                        // Then see if the item picked up matches the specified in the map
-                        match dp.location_name_to_id.get(*location_key) {
-                            Some(loc_id) => {
-                                match client.location_checks(vec![loc_id.clone()]).await {
-                                    Ok(_) => {
-                                        if constants::KEY_ITEMS.contains(&&**item_str) {
-                                            set_checklist_item(item_str, true);
-                                            log::debug!("Key Item checked off: {}", item_str);
-                                        }
-                                        log::info!(
-                                            "Location check successful: {} ({}), Item: {}",
-                                            location_key,
-                                            loc_id,
-                                            item_str
-                                        );
-                                    }
-                                    Err(err) => {
-                                        log::info!("Failed to check location: {}", err);
-                                    }
-                                }
-                            }
-                            None => log::error!("Location not found: {}", location_key),
-                        }
-                    }
-                }
-            }
+    match handle_item_receive(client, loc_rx).await {
+        Ok(_) => {}
+        Err(err) => {
+            log::error!("Failed to check location: {}", err);
         }
-    }
+    };
     //bank::handle_bank(bank_rx); // TODO Bank
     match client.recv().await {
         Ok(opt_msg) => match opt_msg {
             None => {}
             Some(ServerMessage::PrintJSON(json_msg)) => {
-                log::info!("Printing JSON: {:?}", json_msg.data);
+                log::info!("{}", handle_print_json(json_msg));
             }
             Some(ServerMessage::RoomInfo(_)) => {}
             Some(ServerMessage::ConnectionRefused(err)) => {
@@ -384,7 +357,7 @@ pub async fn handle_things(
             Some(ServerMessage::LocationInfo(_)) => {}
             Some(ServerMessage::RoomUpdate(_)) => {}
             Some(ServerMessage::Print(msg)) => {
-                log::info!("Printing message: {:?}", msg);
+                log::info!("Printing message: {}", msg.text);
             }
             Some(ServerMessage::DataPackage(_)) => {} // Ignore
             Some(ServerMessage::Bounced(_)) => {
@@ -400,24 +373,254 @@ pub async fn handle_things(
         },
         Err(ArchipelagoError::NetworkError(err)) => {
             log::info!("Failed to receive data, reconnecting: {}", err);
-            match  get_hud_data().lock() {
+            match get_hud_data().lock() {
                 Ok(data) => match connect_archipelago(ArchipelagoData {
                     url: data.arch_url.clone(),
                     name: data.username.clone(),
                     password: data.username.clone(),
-                }).await {
+                })
+                .await
+                {
                     Ok(cl) => *client = cl,
                     Err(err) => log::error!("Failed to connect: {}", err),
                 },
-                Err(err) => {log::error!("Failed to get hud data: {}", err);}
+                Err(err) => {
+                    log::error!("Failed to get hud data: {}", err);
+                }
             }
         }
-        Err(err) => {
-            log::info!("Failed to receive data: {}", err)
+        Err(ArchipelagoError::IllegalResponse { received, expected }) => {
+            log::error!(
+                "Illegal response, expected {:#?}, got {:?}",
+                expected,
+                received
+            );
+        }
+        Err(ArchipelagoError::ConnectionClosed) => {
+            CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::Relaxed);
+            log::info!("Connection closed"); // TODO Update status?
+        }
+        Err(ArchipelagoError::FailedSerialize(err)) => {
+            log::error!("Failed to serialize message: {}", err);
+        }
+        Err(ArchipelagoError::NonTextWebsocketResult(msg)) => {
+            log::error!("Non-text websocket result: {:?}", msg.into_data());
         }
     }
 }
 
+async fn handle_item_receive(
+    client: &mut ArchipelagoClient,
+    loc_rx: &Arc<Mutex<Receiver<Location>>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Ok(item_rec) = loc_rx.lock() {
+        while let Ok(received_item) = item_rec.try_recv() {
+            // See if there's an item!
+            log::info!("Processing item: {}", received_item); // TODO Need to handle offline storage... if the item cant be sent it needs to be buffered
+            let Some(mapping_data) = MAPPING.get() else {
+                return Err(Box::from(anyhow!("No mapping found")));
+            };
+            let Some(dp) = DATA_PACKAGE.get() else {
+                return Err(Box::from(anyhow!("Data package not found!")));
+            };
+            for (location_key, item_entry) in generated_locations::ITEM_MISSION_MAP.iter() {
+                //log::debug!("Checking room {} vs {} and mission {} vs {}", v.room_number as i32, item.room, v.mission as i32, item.mission);
+                if item_entry.room_number as i32 == received_item.room {
+                    if item_entry.x_coord == 0
+                        || (item_entry.x_coord == received_item.x_coord
+                            && item_entry.y_coord == received_item.y_coord
+                            && item_entry.z_coord == received_item.z_coord)
+                    {
+                        let item_str = mapping_data.items.get(*location_key).unwrap();
+                        log::debug!("Believe this to be: {}", location_key);
+                        log::debug!(
+                            "Checking location items: 0x{:x} vs 0x{:x}",
+                            constants::get_item_id(item_str).unwrap(),
+                            received_item.item_id as u8
+                        );
+                        if constants::get_item_id(item_str).unwrap() == received_item.item_id as u8
+                        {
+                            // Then see if the item picked up matches the specified in the map
+                            match dp.location_name_to_id.get(*location_key) {
+                                Some(loc_id) => {
+                                    client.location_checks(vec![loc_id.clone()]).await?;
+                                    if constants::KEY_ITEMS.contains(&&**item_str) {
+                                        set_checklist_item(item_str, true);
+                                        log::debug!("Key Item checked off: {}", item_str);
+                                    }
+                                    log::info!(
+                                        "Location check successful: {} ({}), Item: {}",
+                                        location_key,
+                                        loc_id,
+                                        item_str
+                                    );
+                                }
+                                None => {
+                                    Err(anyhow::anyhow!("Location not found: {}", location_key))?
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn handle_print_json(print_json: PrintJSON) -> String {
+    log::debug!("Printing json: {:?}", print_json);
+    let mut final_message: String = "".to_string();
+    match print_json {
+        PrintJSON::ItemSend {
+            data,
+            receiving,
+            item,
+        } => {
+            for message in data {
+                final_message.push_str(&*handle_message_part(message));
+            }
+        }
+        PrintJSON::ItemCheat {
+            data,
+            receiving,
+            item,
+            team,
+        } => {
+            for message in data {
+                final_message.push_str(&*handle_message_part(message));
+            }
+        }
+        PrintJSON::Hint {
+            data,
+            receiving,
+            item,
+            found,
+        } => {
+            for message in data {
+                final_message.push_str(&*handle_message_part(message));
+            }
+        }
+        PrintJSON::Join {
+            data,
+            team,
+            slot,
+            tags,
+        } => {
+            for message in data {
+                final_message.push_str(&*handle_message_part(message));
+            }
+        }
+        PrintJSON::Part { data, team, slot } => {
+            for message in data {
+                final_message.push_str(&*handle_message_part(message));
+            }
+        }
+        PrintJSON::Chat {
+            data,
+            team,
+            slot,
+            message,
+        } => {
+            for message in data {
+                final_message.push_str(&*handle_message_part(message));
+            }
+        }
+        PrintJSON::ServerChat { data, message } => {
+            for message in data {
+                final_message.push_str(&*handle_message_part(message));
+            }
+        }
+        PrintJSON::Tutorial { data } => {
+            for message in data {
+                final_message.push_str(&*handle_message_part(message));
+            }
+        }
+        PrintJSON::TagsChanged {
+            data,
+            team,
+            slot,
+            tags,
+        } => {
+            for message in data {
+                final_message.push_str(&*handle_message_part(message));
+            }
+        }
+        PrintJSON::CommandResult { data } => {
+            for message in data {
+                final_message.push_str(&*handle_message_part(message));
+            }
+        }
+        PrintJSON::AdminCommandResult { data } => {
+            for message in data {
+                final_message.push_str(&*handle_message_part(message));
+            }
+        }
+        PrintJSON::Goal { data, team, slot } => {
+            for message in data {
+                final_message.push_str(&*handle_message_part(message));
+            }
+        }
+        PrintJSON::Release { data, team, slot } => {
+            for message in data {
+                final_message.push_str(&*handle_message_part(message));
+            }
+        }
+        PrintJSON::Collect { data, team, slot } => {
+            for message in data {
+                final_message.push_str(&*handle_message_part(message));
+            }
+        }
+        PrintJSON::Countdown { data, countdown } => {
+            for message in data {
+                final_message.push_str(&*handle_message_part(message));
+            }
+        }
+    }
+    final_message
+}
+
+fn handle_message_part(message: JSONMessagePart) -> String {
+    match message {
+        JSONMessagePart::PlayerId { text, player } => {
+            log::debug!("PlayerId: {} i32: {}", text, player);
+            get_connected().lock().unwrap().players[player as usize]
+                .name
+                .clone() // TODO I think I need to parse text as string?
+        }
+        JSONMessagePart::PlayerName { text } => text,
+        JSONMessagePart::ItemId {
+            text,
+            flags,
+            player,
+        } => constants::get_item(text.parse::<u64>().expect("Unable to parse as u64"))
+            .parse()
+            .unwrap(),
+        JSONMessagePart::ItemName {
+            text,
+            flags,
+            player,
+        } => {
+            log::debug!("ItemName: {:?} Flags: {}, Player: {}", text, flags, player);
+            text
+        }
+        JSONMessagePart::LocationId { text, player } => {
+            //let map: HashMap<i32, String> = DATA_PACKAGE.get().unwrap().location_name_to_id.iter().map(|(k, v)| (v, k)).collect();
+            log::debug!("LocationId: {:?} Player: {}", text, player);
+            text
+        }
+        JSONMessagePart::LocationName { text, player } => {
+            log::debug!("LocationName: {:?}, Player: {}", text, player);
+            text
+        }
+        JSONMessagePart::EntranceName { text } => text,
+        JSONMessagePart::Color { text, color } => {
+            log::debug!("Received color: txt:{}, color: {:?}", text, color);
+            "".parse().unwrap()
+        }
+        JSONMessagePart::Text { text } => text,
+    }
+}
 // An ungodly mess, TODO Remove?
 /*pub async fn connect_archipelago_get_url() -> Result<ArchipelagoClient, ArchipelagoError> {
     let url = input("Archipelago URL: ")?;
@@ -433,9 +636,8 @@ pub async fn handle_things(
     .await
 }*/
 
-/* // TODO Remove
-fn input(text: &str) -> Result<String, anyhow::Error> {
+/*fn input(text: &str) -> Result<String, anyhow::Error> {
     log::info!("{}", text);
 
-    Ok(io::stdin().lock().lines().next().unwrap()?)
+    Ok(io::stdin().lock().lines().next().unwrap()?) // Use this to support command sending
 }*/
