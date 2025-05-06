@@ -1,12 +1,12 @@
-use crate::archipelago::{CHECKLIST};
+use crate::archipelago::CHECKLIST;
 use crate::archipelago::{
     CONNECT_CHANNEL_SETUP, MAPPING, SLOT_NUMBER, TEAM_NUMBER, connect_archipelago,
 };
 use crate::bank::setup_bank_channel;
 use crate::constants::{
-    EDIT_EVENT_HOOK, EventCode, ITEM_HANDLE_PICKUP_ADDR, ITEM_PICKED_UP_ADDR,
-    ITEM_SPAWNS_ADDR, ORIGINAL_EDIT_EVENT,
-    ORIGINAL_HANDLE_PICKUP, ORIGINAL_ITEM_SPAWNS, ORIGINAL_ITEM_PICKED_UP, Status, get_item,
+    EDIT_EVENT_HOOK, EventCode, ITEM_HANDLE_PICKUP_ADDR, ITEM_PICKED_UP_ADDR, ITEM_SPAWNS_ADDR,
+    ORIGINAL_EDIT_EVENT, ORIGINAL_HANDLE_PICKUP, ORIGINAL_ITEM_PICKED_UP, ORIGINAL_ITEM_SPAWNS,
+    Status, get_item,
 };
 use crate::utilities::get_mission;
 use crate::{archipelago, check_handler, constants, generated_locations, utilities};
@@ -147,7 +147,8 @@ pub unsafe fn set_starting_weapons(melee_id: u8, gun_id: u8) {
 }
 
 pub fn edit_event_drop(param_1: i64, param_2: i32, param_3: i64) {
-        let (mapping, mission_event_tables, checked_locations) = if let (Some(mapping), Some(mission_event_tables), Some(checked_locations)) = (
+    let (mapping, mission_event_tables, checked_locations) =
+        if let (Some(mapping), Some(mission_event_tables), Some(checked_locations)) = (
             MAPPING.get(),
             constants::EVENT_TABLES.get(&get_mission()),
             archipelago::get_checked_locations().lock().ok(),
@@ -155,7 +156,7 @@ pub fn edit_event_drop(param_1: i64, param_2: i32, param_3: i64) {
             (mapping, mission_event_tables, checked_locations)
         } else {
             unsafe {
-                if let Some(original) = ORIGINAL_EDIT_EVENT {
+                if let Some(original) = ORIGINAL_EDIT_EVENT.get() {
                     original(param_1, param_2, param_3);
                 }
             }
@@ -194,7 +195,7 @@ pub fn edit_event_drop(param_1: i64, param_2: i32, param_3: i64) {
                 }
             }
         }
-        if let Some(original) = ORIGINAL_EDIT_EVENT {
+        if let Some(original) = ORIGINAL_EDIT_EVENT.get() {
             original(param_1, param_2, param_3);
         }
     }
@@ -306,7 +307,7 @@ fn item_spawns_hook(unknown: i64) {
                 log::error!("Mapping's are not set up");
             }
         }
-        if let Some(original) = ORIGINAL_ITEM_SPAWNS {
+        if let Some(original) = ORIGINAL_ITEM_SPAWNS.get() {
             original(unknown);
         }
     }
@@ -351,7 +352,9 @@ macro_rules! install_hook {
         let target = (utilities::get_dmc3_base_address() + $offset) as *mut _;
         let detour_ptr = ($detour as *const ()) as *mut std::ffi::c_void;
         let original = MinHook::create_hook(target, detour_ptr)?;
-        $storage = Some(std::mem::transmute(original));
+        $storage
+            .set(std::mem::transmute(original))
+            .expect(concat!($name, " hook already set"));
         MinHook::enable_hook(target)?;
         log::info!("{name} hook enabled", name = $name);
     }};
@@ -360,11 +363,30 @@ macro_rules! install_hook {
 // 23d680 - Pause menu event? Hook in here to do rendering
 fn setup_hooks() -> Result<(), MH_STATUS> {
     unsafe {
-        install_hook!(ITEM_HANDLE_PICKUP_ADDR, check_handler::item_non_event, ORIGINAL_HANDLE_PICKUP, "Non event item");
-        install_hook!(ITEM_PICKED_UP_ADDR, check_handler::item_event, ORIGINAL_ITEM_PICKED_UP, "Event item");
-        install_hook!(ITEM_SPAWNS_ADDR, item_spawns_hook, ORIGINAL_ITEM_SPAWNS, "Item Spawn");
-        install_hook!(EDIT_EVENT_HOOK, edit_event_drop, ORIGINAL_EDIT_EVENT, "Event table");
-        
+        install_hook!(
+            ITEM_HANDLE_PICKUP_ADDR,
+            check_handler::item_non_event,
+            ORIGINAL_HANDLE_PICKUP,
+            "Non event item"
+        );
+        install_hook!(
+            ITEM_PICKED_UP_ADDR,
+            check_handler::item_event,
+            ORIGINAL_ITEM_PICKED_UP,
+            "Event item"
+        );
+        install_hook!(
+            ITEM_SPAWNS_ADDR,
+            item_spawns_hook,
+            ORIGINAL_ITEM_SPAWNS,
+            "Item Spawn"
+        );
+        install_hook!(
+            EDIT_EVENT_HOOK,
+            edit_event_drop,
+            ORIGINAL_EDIT_EVENT,
+            "Event table"
+        );
         Ok(())
     }
 }
