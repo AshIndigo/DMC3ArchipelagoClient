@@ -4,26 +4,25 @@ use std::ffi::{c_int, c_longlong};
 use std::os::raw::c_short;
 
 // DMC3 Offsets+Functions - Offsets are from 2022 DDMK's version
-pub type ItemPickedUpFunc = unsafe extern "C" fn(loc_chk_id: c_longlong, param_2: c_short, item_id: c_int);
 pub const ITEM_PICKED_UP_ADDR: usize = 0x1aa6e0;
-pub static mut ORIGINAL_ITEMPICKEDUP: Option<ItemPickedUpFunc> = None;
+pub static mut ORIGINAL_ITEM_PICKED_UP: Option<unsafe extern "C" fn(loc_chk_id: c_longlong, param_2: c_short, item_id: c_int)> = None;
 
-pub type ItemHandlePickupFunc = unsafe extern "C" fn(item_struct: c_longlong);
 pub const ITEM_HANDLE_PICKUP_ADDR: usize = 0x1b45a0;
-pub static mut ORIGINAL_HANDLE_PICKUP: Option<ItemHandlePickupFunc> = None;
+pub static mut ORIGINAL_HANDLE_PICKUP: Option<unsafe extern "C" fn(item_struct: c_longlong)> = None;
 
-pub type ItemSpawns = unsafe extern "C" fn(loc_chk_id: c_longlong);
 pub const ITEM_SPAWNS_ADDR: usize = 0x1b4440;  // 0x1b4480
-pub static mut ORIGINAL_ITEM_SPAWNS: Option<ItemSpawns> = None;
-pub const INVENTORY_PTR: usize = 0xC90E28 + 0x8;
+pub static mut ORIGINAL_ITEM_SPAWNS: Option<unsafe extern "C" fn(loc_chk_id: c_longlong)> = None;
 
+pub const EDIT_EVENT_HOOK: usize = 0x1a9bc0;
+pub static mut ORIGINAL_EDIT_EVENT: Option<unsafe extern "C" fn(param_1: c_longlong, param_2: c_int, param_3: c_longlong)> = None;
+pub const INVENTORY_PTR: usize = 0xC90E28 + 0x8;
 pub const ADJUDICATOR_ITEM_ID_1: usize = 0x250594;
 pub const ADJUDICATOR_ITEM_ID_2: usize = 0x25040d;
 pub const ITEM_MODE_TABLE: usize = 0x1B4534;
 pub const EVENT_TABLE_ADDR: usize = 0x01A42680; // TODO is this gonna be ok?
 
-pub const STARTING_MELEE: usize = 0x0; // TODO
-pub const STARTING_GUN: usize = 0x0; // TODO
+pub const STARTING_MELEE: usize = 0xC8F250+0x46; // TODO Think is the "obtained" bool, need the starting weapon inv
+pub const STARTING_GUN: usize = 0xC8F250+0x4C; // TODO
 
 pub(crate) const KEY_ITEMS: [&str; 21] = [
     "Astronomical Board",          // 0

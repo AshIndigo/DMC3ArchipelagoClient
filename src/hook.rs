@@ -1,16 +1,19 @@
-use crate::archipelago::CHECKLIST;
+use crate::archipelago::{CHECKLIST};
 use crate::archipelago::{
-    connect_archipelago, CONNECT_CHANNEL_SETUP, MAPPING, SLOT_NUMBER, TEAM_NUMBER,
+    CONNECT_CHANNEL_SETUP, MAPPING, SLOT_NUMBER, TEAM_NUMBER, connect_archipelago,
 };
 use crate::bank::setup_bank_channel;
-use crate::constants::{get_item, EventCode, ItemHandlePickupFunc, ItemPickedUpFunc, ItemSpawns, Status, ITEM_HANDLE_PICKUP_ADDR, ITEM_PICKED_UP_ADDR, ITEM_SPAWNS_ADDR, ORIGINAL_HANDLE_PICKUP, ORIGINAL_ITEMPICKEDUP, ORIGINAL_ITEM_SPAWNS};
-use crate::experiments::asm_hook;
+use crate::constants::{
+    EDIT_EVENT_HOOK, EventCode, ITEM_HANDLE_PICKUP_ADDR, ITEM_PICKED_UP_ADDR,
+    ITEM_SPAWNS_ADDR, ORIGINAL_EDIT_EVENT,
+    ORIGINAL_HANDLE_PICKUP, ORIGINAL_ITEM_SPAWNS, ORIGINAL_ITEM_PICKED_UP, Status, get_item,
+};
 use crate::utilities::get_mission;
 use crate::{archipelago, check_handler, constants, generated_locations, utilities};
-use anyhow::{anyhow, Error};
+use anyhow::{Error, anyhow};
 use archipelago_rs::client::ArchipelagoClient;
 use archipelago_rs::protocol::ClientStatus;
-use minhook::{MinHook, MH_STATUS};
+use minhook::{MH_STATUS, MinHook};
 use std::arch::asm;
 use std::collections::HashMap;
 use std::convert::Into;
@@ -22,8 +25,8 @@ use winapi::um::memoryapi::VirtualProtect;
 use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::System::Console::{
-    AllocConsole, FreeConsole, GetConsoleMode, GetStdHandle, SetConsoleMode,
-    ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_OUTPUT_HANDLE,
+    AllocConsole, ENABLE_VIRTUAL_TERMINAL_PROCESSING, FreeConsole, GetConsoleMode, GetStdHandle,
+    STD_OUTPUT_HANDLE, SetConsoleMode,
 };
 
 pub fn create_console() {
@@ -68,9 +71,6 @@ pub unsafe extern "system" fn free_self() -> bool {
 }
 
 pub(crate) fn install_initial_functions() {
-    //asm_hook::install_jmps();
-    log::info!("Installing the super trampoline for event tables");
-    asm_hook::install_super_jmp_for_events(edit_event_wrapper as usize);
     setup_hooks().unwrap_or_else(|status| {
         panic!(
             "Unable to initialize hooks, randomizer is unable to function: {:?}",
@@ -146,80 +146,57 @@ pub unsafe fn set_starting_weapons(melee_id: u8, gun_id: u8) {
     }
 }
 
-pub unsafe fn edit_event_wrapper() {
-    unsafe {
-        pub unsafe fn edit_event_drop() {
+pub fn edit_event_drop(param_1: i64, param_2: i32, param_3: i64) {
+        let (mapping, mission_event_tables, checked_locations) = if let (Some(mapping), Some(mission_event_tables), Some(checked_locations)) = (
+            MAPPING.get(),
+            constants::EVENT_TABLES.get(&get_mission()),
+            archipelago::get_checked_locations().lock().ok(),
+        ) {
+            (mapping, mission_event_tables, checked_locations)
+        } else {
             unsafe {
-                // Basic values
-                let Some(mapping) = MAPPING.get() else { return };
-                // Get events for the specific mission
-                let Some(mission_event_tables) = constants::EVENT_TABLES.get(&get_mission()) else {
-                    return;
-                };
-                let Ok(checked_locations) = archipelago::get_checked_locations().lock() else {
-                    return;
-                };
-
-                // For each table
-                for event_table in mission_event_tables {
-                    for event in &event_table.events {
-                        if checked_locations.contains(&event_table.location) {
-                            log::debug!("Event loc checked: {}", &event_table.location);
-                            // If the location has been checked, disable it by making the game check for an item the player already has
-                            if event.event_type == EventCode::CHECK {
-                                utilities::replace_single_byte_no_offset(
-                                    constants::EVENT_TABLE_ADDR + event.offset,
-                                    0x00,
-                                ) // Use 0x00, trying to use rebellion doesn't work
-                            }
-                            // if (event.event_type == EventCode::GIVE) {
-                            //     replace_single_byte_no_offset(base_table + event.offset, tables::get_item_id(mapping.items.get(&tbl.location).unwrap()).unwrap())
-                            // }
-                            if event.event_type == EventCode::END {
-                                utilities::replace_single_byte_no_offset(
-                                    constants::EVENT_TABLE_ADDR + event.offset,
-                                    0x00,
-                                )
-                            }
-                        } else {
-                            // Location has not been checked off! TODO Make the "check" event, a dummied item
-                            log::debug!("Event loc not checked: {}", &event_table.location);
-                            utilities::replace_single_byte_no_offset(
-                                constants::EVENT_TABLE_ADDR + event.offset,
-                                constants::get_item_id(
-                                    mapping.items.get(&event_table.location).unwrap(),
-                                )
-                                .unwrap(),
-                            )
-                        }
+                if let Some(original) = ORIGINAL_EDIT_EVENT {
+                    original(param_1, param_2, param_3);
+                }
+            }
+            return;
+        };
+    unsafe {
+        // For each table
+        for event_table in mission_event_tables {
+            for event in &event_table.events {
+                if checked_locations.contains(&event_table.location) {
+                    log::debug!("Event loc checked: {}", &event_table.location);
+                    // If the location has been checked, disable it by making the game check for an item the player already has
+                    if event.event_type == EventCode::CHECK {
+                        utilities::replace_single_byte_no_offset(
+                            constants::EVENT_TABLE_ADDR + event.offset,
+                            0x00,
+                        ) // Use 0x00, trying to use rebellion doesn't work
                     }
+                    // if (event.event_type == EventCode::GIVE) {
+                    //     replace_single_byte_no_offset(base_table + event.offset, tables::get_item_id(mapping.items.get(&tbl.location).unwrap()).unwrap())
+                    // }
+                    if event.event_type == EventCode::END {
+                        utilities::replace_single_byte_no_offset(
+                            constants::EVENT_TABLE_ADDR + event.offset,
+                            0x00,
+                        )
+                    }
+                } else {
+                    // Location has not been checked off! TODO Make the "check" event, a dummied item
+                    log::debug!("Event loc not checked: {}", &event_table.location);
+                    utilities::replace_single_byte_no_offset(
+                        constants::EVENT_TABLE_ADDR + event.offset,
+                        constants::get_item_id(mapping.items.get(&event_table.location).unwrap())
+                            .unwrap(),
+                    )
                 }
             }
         }
-
-        asm!(
-            "sub rsp, 72",
-            "push rcx",
-            "push rdx",
-            "push rbx",
-            "push r11",
-            "push r10",
-            "push r9",
-            "push r8",
-            "push rsi",
-            "call {}", // Call the function
-            "pop rsi",
-            "pop r8",
-            "pop r9",
-            "pop r10",
-            "pop r11",
-            "pop rbx",
-            "pop rdx",
-            "pop rcx",
-            "add rsp, 72",
-            sym edit_event_drop,
-            //clobber_abi("win64"),
-        );
+        if let Some(original) = ORIGINAL_EDIT_EVENT {
+            original(param_1, param_2, param_3);
+        }
     }
 }
 
@@ -272,7 +249,7 @@ pub(crate) unsafe fn modify_adjudicator_drop() {
     }
 }
 
-unsafe fn item_spawns_hook(unknown: i64) {
+fn item_spawns_hook(unknown: i64) {
     unsafe {
         #[allow(unused_assignments)]
         let mut item_addr: *mut i32 = ptr::null_mut();
@@ -369,34 +346,25 @@ fn set_relevant_key_items() {
     }
 }
 
+macro_rules! install_hook {
+    ($offset:expr, $detour:expr, $storage:ident, $name:expr) => {{
+        let target = (utilities::get_dmc3_base_address() + $offset) as *mut _;
+        let detour_ptr = ($detour as *const ()) as *mut std::ffi::c_void;
+        let original = MinHook::create_hook(target, detour_ptr)?;
+        $storage = Some(std::mem::transmute(original));
+        MinHook::enable_hook(target)?;
+        log::info!("{name} hook enabled", name = $name);
+    }};
+}
+
 // 23d680 - Pause menu event? Hook in here to do rendering
 fn setup_hooks() -> Result<(), MH_STATUS> {
     unsafe {
-        let original_item_handle = utilities::get_dmc3_base_address() + ITEM_HANDLE_PICKUP_ADDR;
-        ORIGINAL_HANDLE_PICKUP = Some(std::mem::transmute::<_, ItemHandlePickupFunc>(
-            MinHook::create_hook(
-                original_item_handle as _,
-                check_handler::item_non_event as _,
-            )?,
-        ));
-        MinHook::enable_hook(original_item_handle as _)?;
-        log::info!("Non event item hook enabled");
-        let original_picked_up = utilities::get_dmc3_base_address() + ITEM_PICKED_UP_ADDR;
-        ORIGINAL_ITEMPICKEDUP = Some(std::mem::transmute::<_, ItemPickedUpFunc>(
-            MinHook::create_hook(
-                original_picked_up as _,
-                check_handler::item_event as _,
-            )?,
-        ));
-        MinHook::enable_hook(original_picked_up as _)?;
-        log::info!("Event item hook enabled");
-        let original_spawn = utilities::get_dmc3_base_address() + ITEM_SPAWNS_ADDR;
-        ORIGINAL_ITEM_SPAWNS = Some(std::mem::transmute::<_, ItemSpawns>(MinHook::create_hook(
-            original_spawn as _,
-            item_spawns_hook as _,
-        )?));
-        MinHook::enable_hook(original_spawn as _)?;
-        log::info!("Item spawn hook enabled");
+        install_hook!(ITEM_HANDLE_PICKUP_ADDR, check_handler::item_non_event, ORIGINAL_HANDLE_PICKUP, "Non event item");
+        install_hook!(ITEM_PICKED_UP_ADDR, check_handler::item_event, ORIGINAL_ITEM_PICKED_UP, "Event item");
+        install_hook!(ITEM_SPAWNS_ADDR, item_spawns_hook, ORIGINAL_ITEM_SPAWNS, "Item Spawn");
+        install_hook!(EDIT_EVENT_HOOK, edit_event_drop, ORIGINAL_EDIT_EVENT, "Event table");
+        
         Ok(())
     }
 }

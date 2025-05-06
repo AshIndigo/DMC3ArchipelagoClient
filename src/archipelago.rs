@@ -9,7 +9,6 @@ use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
 use archipelago_rs::protocol::{Connected, JSONMessagePart, PrintJSON, ServerMessage};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::fs::{File, remove_file};
 use std::io::{BufReader, Write};

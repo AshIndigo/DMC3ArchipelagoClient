@@ -2,7 +2,7 @@ use once_cell::sync::OnceCell;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{mpsc, Arc, Mutex};
 use std::fmt::{Display, Formatter};
-use crate::constants::{ORIGINAL_HANDLE_PICKUP, ORIGINAL_ITEMPICKEDUP};
+use crate::constants::{ORIGINAL_HANDLE_PICKUP, ORIGINAL_ITEM_PICKED_UP};
 use crate::{constants, utilities};
 use crate::utilities::get_mission;
 
@@ -36,7 +36,7 @@ fn send_off_location(item_id: i32) {
         tx.send(Location {
             item_id: item_id as u64,
             room: utilities::get_room(),
-            mission: get_mission(), // About to add a fucking flag for room 5
+            _mission: get_mission(), // About to add a fucking flag for room 5
             x_coord: 0,
             y_coord: 0,
             z_coord: 0,
@@ -50,7 +50,7 @@ fn send_off_location_coords(item_id: i32, x_coord: u32, y_coord: u32, z_coord: u
         tx.send(Location {
             item_id: item_id as u64,
             room: utilities::get_room(),
-            mission: get_mission(), // About to add a fucking flag for room 5
+            _mission: get_mission(), // About to add a fucking flag for room 5
             x_coord,
             y_coord,
             z_coord,
@@ -70,7 +70,7 @@ pub fn item_event(loc_chk_flg: i64, item_id: i16, unknown: i32) { unsafe {
         }
     }
 
-    if let Some(original) = ORIGINAL_ITEMPICKEDUP {
+    if let Some(original) = ORIGINAL_ITEM_PICKED_UP {
         original(loc_chk_flg, item_id, unknown);
     }
 }}
@@ -81,7 +81,7 @@ pub fn mission_complete_check() {
         tx.send(Location {
             item_id: 0,
             room: 0,
-            mission: get_mission(),
+            _mission: get_mission(),
             x_coord: 0,
             y_coord: 0,
             z_coord: 0,
@@ -95,7 +95,7 @@ pub(crate) static LOCATION_CHECK_TX: OnceCell<Sender<Location>> = OnceCell::new(
 pub(crate) struct Location {
     pub(crate) item_id: u64,
     pub(crate) room: i32,
-    pub(crate) mission: i32,
+    pub(crate) _mission: i32,
     pub(crate) x_coord: u32,
     pub(crate) y_coord: u32,
     pub(crate) z_coord: u32,

@@ -233,7 +233,7 @@ dependencies = [
 [[package]]
 name = "archipelago_rs"
 version = "0.1.0"
-source = "git+https://github.com/ryanisaacg/archipelago_rs.git#9bd113cfbf3b67180ccc9750354d7b7de12a0db8"
+source = "git+https://github.com/AshIndigo/archipelago_rs.git#048ce1f1f53f67a0bc4554aaa2158caa196d5ab0"
 dependencies = [
  "futures-util",
  "serde",
