@@ -91,30 +91,31 @@ pub static MISSION_ITEM_MAP: LazyLock<HashMap<i32, Vec<&'static str>>> = LazyLoc
     map
 });
 
-pub static KEY_ITEM_OFFSETS: LazyLock<HashMap<&'static str, i32>> = LazyLock::new(|| {
+pub static KEY_ITEM_OFFSETS: LazyLock<HashMap<&'static str, u8>> = LazyLock::new(|| {
     // Unknown: 3 (High roller card most likely)
     HashMap::from([
-        (KEY_ITEMS[0], 1),   // Astronomical Board
-        (KEY_ITEMS[1], 2),   // Vajura
-        (KEY_ITEMS[2], 7),   // Essence of Intelligence
-        (KEY_ITEMS[3], 6),   // Essence of Technique
-        (KEY_ITEMS[4], 5),   // Essence of Fighting
-        (KEY_ITEMS[5], 4),   // Soul of Steel
-        (KEY_ITEMS[6], 16),  // Full Orihalcon
-        (KEY_ITEMS[7], 8),   // Orihalcon Fragment
-        (KEY_ITEMS[8], 17),  // Orihalcon Fragment (Right)
-        (KEY_ITEMS[9], 18),  // Orihalcon Fragment (Bottom)
-        (KEY_ITEMS[10], 19), // Orihalcon Fragment (Left)
-        (KEY_ITEMS[11], 9),  // Siren's Shriek
-        (KEY_ITEMS[12], 10),  // Crystal Skull
-        (KEY_ITEMS[13], 11),  // Ignis Fatuus
-        (KEY_ITEMS[14], 12),  // Ambrosia
-        (KEY_ITEMS[15], 13), // Stone Mask
-        (KEY_ITEMS[16], 14), // Neo Generator
-        (KEY_ITEMS[17], 15), // Haywire Neo Generator
-        (KEY_ITEMS[18], 20), // Golden Sun
-        (KEY_ITEMS[19], 21), // Onyx Moonshard
-        (KEY_ITEMS[20], 22), // Samsara
+        (KEY_ITEMS[0], 0x0),   // Astronomical Board
+        (KEY_ITEMS[1], 0x1),   // Vajura
+        ("High Roller Card", 0x2),   // High Roller Card
+        (KEY_ITEMS[2], 0x6),   // Essence of Intelligence
+        (KEY_ITEMS[3], 0x5),   // Essence of Technique
+        (KEY_ITEMS[4], 0x4),   // Essence of Fighting
+        (KEY_ITEMS[5], 0x3),   // Soul of Steel
+        (KEY_ITEMS[6], 15),  // Full Orihalcon
+        (KEY_ITEMS[7], 7),   // Orihalcon Fragment
+        (KEY_ITEMS[8], 16),  // Orihalcon Fragment (Right)
+        (KEY_ITEMS[9], 17),  // Orihalcon Fragment (Bottom)
+        (KEY_ITEMS[10], 18), // Orihalcon Fragment (Left)
+        (KEY_ITEMS[11], 8),  // Siren's Shriek
+        (KEY_ITEMS[12], 9),  // Crystal Skull
+        (KEY_ITEMS[13], 10),  // Ignis Fatuus
+        (KEY_ITEMS[14], 11),  // Ambrosia
+        (KEY_ITEMS[15], 12), // Stone Mask
+        (KEY_ITEMS[16], 13), // Neo Generator
+        (KEY_ITEMS[17], 14), // Haywire Neo Generator
+        (KEY_ITEMS[18], 19), // Golden Sun
+        (KEY_ITEMS[19], 20), // Onyx Moonshard
+        (KEY_ITEMS[20], 21), // Samsara
     ])
 });
 
@@ -252,7 +253,7 @@ pub static EVENT_TABLES: LazyLock<HashMap<i32, Vec<EventTable>>> = LazyLock::new
             3,
             vec![
                 EventTable {
-                    mission: 3,
+                    _mission: 3,
                     location: "Mission #3 - Shotgun".to_string(),
                     events: vec![
                         Event {
@@ -278,7 +279,7 @@ pub static EVENT_TABLES: LazyLock<HashMap<i32, Vec<EventTable>>> = LazyLock::new
                     ],
                 },
                 EventTable {
-                    mission: 3,
+                    _mission: 3,
                     location: "Mission #3 - Cerberus".to_string(),
                     events: vec![
                         Event {
@@ -296,7 +297,7 @@ pub static EVENT_TABLES: LazyLock<HashMap<i32, Vec<EventTable>>> = LazyLock::new
         (
             4,
             vec![EventTable {
-                mission: 4,
+                _mission: 4,
                 location: "Mission #4 - Astronomical Board".to_string(),
                 events: vec![Event {
                     event_type: EventCode::END,
@@ -308,7 +309,7 @@ pub static EVENT_TABLES: LazyLock<HashMap<i32, Vec<EventTable>>> = LazyLock::new
             5,
             vec![
                 EventTable {
-                    mission: 5,
+                    _mission: 5,
                     location: "Mission #5 - Agni and Rudra".to_string(),
                     events: vec![
                         Event {
@@ -334,7 +335,7 @@ pub static EVENT_TABLES: LazyLock<HashMap<i32, Vec<EventTable>>> = LazyLock::new
         (6,
          vec![
              EventTable {
-                 mission: 6,
+                 _mission: 6,
                  location: "Mission #6 - Artemis".to_string(),
                  events: vec![
                      Event {
@@ -417,7 +418,7 @@ pub struct Event {
 }
 
 pub(crate) struct EventTable {
-    pub mission: i32,
+    pub _mission: i32,
     pub location: String,
     pub events: Vec<Event>,
 }

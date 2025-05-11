@@ -1,9 +1,10 @@
 use crate::cache::{CustomGameData, read_cache};
 use crate::check_handler::Location;
-use crate::constants::{GAME_NAME, Status};
+use crate::constants::{EventCode, GAME_NAME, Status};
 use crate::hook::{CONNECTION_STATUS, modify_itm_table};
 use crate::ui::ui::ArchipelagoHud;
-use crate::{cache, constants, generated_locations, hook};
+use crate::utilities::get_mission;
+use crate::{cache, constants, generated_locations, hook, utilities};
 use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
 use archipelago_rs::protocol::{Connected, JSONMessagePart, PrintJSON, ServerMessage};
@@ -15,7 +16,7 @@ use std::io::{BufReader, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
-use std::sync::{Arc, Mutex, OnceLock, RwLock, mpsc};
+use std::sync::{Arc, Mutex, OnceLock, RwLock, mpsc, LockResult};
 
 pub static MAPPING: OnceLock<Mapping> = OnceLock::new();
 pub static CHECKLIST: OnceLock<RwLock<HashMap<String, bool>>> = OnceLock::new();
@@ -90,6 +91,7 @@ pub async fn get_archipelago_client(
             Some(vec![GAME_NAME.parse().expect("Failed to parse string")]),
         )
         .await?;
+        
         match &cl.data_package() {
             // Write the data package to a local cache file
             None => {
@@ -283,7 +285,13 @@ fn use_mappings() {
             for (location_name, item_name) in data.items.iter() {
                 match generated_locations::ITEM_MISSION_MAP.get(location_name as &str) {
                     Some(entry) => match constants::get_item_id(item_name) {
-                        Some(id) => unsafe { modify_itm_table(entry.offset, id) },
+                        Some(id) => unsafe {
+                            if location_is_checked_and_end(location_name) {
+                                modify_itm_table(entry.offset, hook::DUMMY_ID)
+                            } else {
+                                modify_itm_table(entry.offset, id)
+                            }
+                        },
                         None => {
                             log::warn!("Item not found: {}", item_name);
                         }
@@ -296,6 +304,34 @@ fn use_mappings() {
         }
         None => {
             log::error!("No mapping found");
+        }
+    }
+}
+
+fn location_is_checked_and_end(location_key: &String) -> bool {
+    match constants::EVENT_TABLES.get(&get_mission()) {
+        None => false,
+        Some(event_tables) => {
+            for event_table in event_tables {
+                if event_table.location == *location_key {
+                    for event in event_table.events.iter() {
+                        if event.event_type == EventCode::END {
+                            match get_checked_locations().lock() {
+                                Ok(checked_locations) => {
+                                    if checked_locations.contains(location_key) {
+                                        return true;
+                                    }
+                                }
+                                Err(err) => {
+                                    log::error!("Failed to get checked locations: {}", err);
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            false
         }
     }
 }
@@ -335,7 +371,7 @@ pub async fn handle_things(
                 log::error!("Connection refused: {:?}", err.errors);
             }
             Some(ServerMessage::Connected(_)) => {
-                hook::CONNECTION_STATUS.store(Status::Connected.into(), Ordering::Relaxed);
+                CONNECTION_STATUS.store(Status::Connected.into(), Ordering::Relaxed);
             }
             Some(ServerMessage::ReceivedItems(items)) => {
                 // READ https://github.com/ArchipelagoMW/Archipelago/blob/main/docs/network%20protocol.md#synchronizing-items
@@ -442,6 +478,7 @@ async fn handle_item_receive(
                             // Then see if the item picked up matches the specified in the map
                             match dp.location_name_to_id.get(*location_key) {
                                 Some(loc_id) => {
+                                    edit_end_event(*location_key);
                                     client.location_checks(vec![loc_id.clone()]).await?;
                                     if constants::KEY_ITEMS.contains(&&**item_str) {
                                         set_checklist_item(item_str, true);
@@ -465,6 +502,28 @@ async fn handle_item_receive(
         }
     }
     Ok(())
+}
+
+fn edit_end_event(location_key: &str) {
+    match constants::EVENT_TABLES.get(&get_mission()) {
+        None => {}
+        Some(event_tables) => {
+            for event_table in event_tables {
+                if event_table.location == location_key {
+                    for event in event_table.events.iter() {
+                        if event.event_type == EventCode::END {
+                            unsafe {
+                                utilities::replace_single_byte_no_offset(
+                                    constants::EVENT_TABLE_ADDR + event.offset,
+                                    0x00,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn handle_print_json(print_json: PrintJSON) -> String {

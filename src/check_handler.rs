@@ -7,7 +7,7 @@ use crate::{constants, utilities};
 use crate::utilities::get_mission;
 
 /// Hook into item handle method (1b45a0). Handles non-event item pick up locations
-pub fn item_non_event(item_struct: i64) { 
+pub fn item_non_event(item_struct: i64) {
     unsafe {
         let base_ptr = item_struct as *const u8;
         let item_id_ptr = base_ptr.add(0x60) as *const i32;
@@ -26,7 +26,7 @@ pub fn item_non_event(item_struct: i64) {
             log::debug!("Z Addr: {:?}, Z Coord: {}", z_coord, z_coord_val);
             send_off_location_coords(item_id, x_coord_val, y_coord_val, z_coord_val);
         }
-    
+
         if let Some(original) = ORIGINAL_HANDLE_PICKUP.get() {
             original(item_struct);
         }
@@ -38,7 +38,7 @@ fn send_off_location(item_id: i32) {
         tx.send(Location {
             item_id: item_id as u64,
             room: utilities::get_room(),
-            _mission: get_mission(), // About to add a fucking flag for room 5
+            _mission: get_mission(), 
             x_coord: 0,
             y_coord: 0,
             z_coord: 0,

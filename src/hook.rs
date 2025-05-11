@@ -1,4 +1,4 @@
-use crate::archipelago::CHECKLIST;
+use crate::archipelago::{CHECKLIST, ItemEntry, Mapping};
 use crate::archipelago::{
     CONNECT_CHANNEL_SETUP, MAPPING, SLOT_NUMBER, TEAM_NUMBER, connect_archipelago,
 };
@@ -146,6 +146,8 @@ pub unsafe fn set_starting_weapons(melee_id: u8, gun_id: u8) {
     }
 }
 
+pub(crate) const DUMMY_ID: u8 = 0x20;
+
 pub fn edit_event_drop(param_1: i64, param_2: i32, param_3: i64) {
     let (mapping, mission_event_tables, checked_locations) =
         if let (Some(mapping), Some(mission_event_tables), Some(checked_locations)) = (
@@ -168,30 +170,41 @@ pub fn edit_event_drop(param_1: i64, param_2: i32, param_3: i64) {
             for event in &event_table.events {
                 if checked_locations.contains(&event_table.location) {
                     log::debug!("Event loc checked: {}", &event_table.location);
-                    // If the location has been checked, disable it by making the game check for an item the player already has
-                    if event.event_type == EventCode::CHECK {
-                        utilities::replace_single_byte_no_offset(
+                    match event.event_type {
+                        // If the location has already been checked use 0x15 as a dummy item.
+                        EventCode::GIVE => utilities::replace_single_byte_no_offset(
                             constants::EVENT_TABLE_ADDR + event.offset,
-                            0x00,
-                        ) // Use 0x00, trying to use rebellion doesn't work
-                    }
-                    // if (event.event_type == EventCode::GIVE) {
-                    //     replace_single_byte_no_offset(base_table + event.offset, tables::get_item_id(mapping.items.get(&tbl.location).unwrap()).unwrap())
-                    // }
-                    if event.event_type == EventCode::END {
-                        utilities::replace_single_byte_no_offset(
+                            DUMMY_ID,
+                        ),
+                        EventCode::CHECK => utilities::replace_single_byte_no_offset(
                             constants::EVENT_TABLE_ADDR + event.offset,
-                            0x00,
-                        )
+                            DUMMY_ID,
+                        ),
+                        EventCode::END => utilities::replace_single_byte_no_offset(
+                            constants::EVENT_TABLE_ADDR + event.offset,
+                            DUMMY_ID,
+                        ),
                     }
                 } else {
-                    // Location has not been checked off! TODO Make the "check" event, a dummied item
                     log::debug!("Event loc not checked: {}", &event_table.location);
-                    utilities::replace_single_byte_no_offset(
-                        constants::EVENT_TABLE_ADDR + event.offset,
-                        constants::get_item_id(mapping.items.get(&event_table.location).unwrap())
+                    match event.event_type {
+                        // Location has not been checked off! TODO Make the "check" event, a dummied out item
+                        EventCode::GIVE => utilities::replace_single_byte_no_offset(
+                            constants::EVENT_TABLE_ADDR + event.offset,
+                            constants::get_item_id(
+                                mapping.items.get(&event_table.location).unwrap(),
+                            )
                             .unwrap(),
-                    )
+                        ),
+                        EventCode::CHECK => utilities::replace_single_byte_no_offset(
+                            constants::EVENT_TABLE_ADDR + event.offset,
+                            DUMMY_ID,
+                        ),
+                        EventCode::END => utilities::replace_single_byte_no_offset(
+                            constants::EVENT_TABLE_ADDR + event.offset,
+                            DUMMY_ID,
+                        ),
+                    }
                 }
             }
         }
@@ -279,26 +292,14 @@ fn item_spawns_hook(unknown: i64) {
                         *item_ref
                     );
                     for (location_name, entry) in generated_locations::ITEM_MISSION_MAP.iter() {
-                        if entry.room_number == 0 {
-                            // Skipping if location file has room as 0, that means its either event or not done
-                            continue;
-                        }
-                        //log::debug!("Room number X: {} Room number memory: {}, Item ID X: 0x{:x}, Item ID Memory: 0x{:x}", entry.room_number, room_num, entry.item_id, *item_ref);
-                        if entry.room_number == room_num
-                            && entry.item_id as u32 == *item_ref
-                            && !entry.adjudicator
-                        {
-                            let ins_val =
-                                constants::get_item_id(mapping.items.get(*location_name).unwrap()); // Scary
-                            *item_addr = ins_val.unwrap() as i32;
-                            log::info!(
-                                "Replaced item in room {} ({}) with {} 0x{:x}",
-                                entry.room_number,
-                                location_name,
-                                get_item(*item_ref as u64),
-                                ins_val.unwrap() as i32
-                            );
-                        }
+                        check_and_replace_item(
+                            location_name,
+                            entry,
+                            room_num,
+                            mapping,
+                            item_ref,
+                            item_addr,
+                        );
                     }
                     item_addr = item_addr.byte_offset(0x14);
                 }
@@ -313,15 +314,87 @@ fn item_spawns_hook(unknown: i64) {
     }
 }
 
+unsafe fn check_and_replace_item(
+    location_name: &&str,
+    entry: &ItemEntry,
+    room_num: u16,
+    mapping: &Mapping,
+    item_ref: &u32,
+    item_addr: *mut i32,
+) {
+    unsafe {
+        // Skipping if location file has room as 0, that means its either event or not done
+        if entry.room_number == 0 {
+            return;
+        }
+        //log::debug!("Room number X: {} Room number memory: {}, Item ID X: 0x{:x}, Item ID Memory: 0x{:x}", entry.room_number, room_num, entry.item_id, *item_ref);
+        if entry.room_number == room_num && entry.item_id as u32 == *item_ref && !entry.adjudicator
+        {
+            if !dummy_replace(location_name, item_addr, entry.offset) {
+                let ins_val = constants::get_item_id(mapping.items.get(*location_name).unwrap()); // Scary
+                *item_addr = ins_val.unwrap() as i32;
+                log::info!(
+                    "Replaced item in room {} ({}) with {} 0x{:x}",
+                    entry.room_number,
+                    location_name,
+                    get_item(*item_ref as u64),
+                    ins_val.unwrap() as i32
+                );
+            }
+        }
+    }
+}
+
+fn dummy_replace(location_key: &&str, item_addr: *mut i32, offset: usize) -> bool {
+    match constants::EVENT_TABLES.get(&get_mission()) {
+        None => {}
+        Some(event_tables) => {
+            for event_table in event_tables {
+                if event_table.location == *location_key {
+                    for event in event_table.events.iter() {
+                        if event.event_type == EventCode::END {
+                            unsafe {
+                                match archipelago::get_checked_locations().lock() {
+                                    Ok(checked_locations) => {
+                                        if checked_locations.contains(&String::from(*location_key))
+                                        {
+                                            *item_addr = DUMMY_ID as i32;
+                                            // modify_itm_table(offset, DUMMY_ID);
+                                            log::info!("Replaced item in room with dummy item");
+                                            return true;
+                                        }
+                                    }
+                                    Err(err) => {
+                                        log::error!(
+                                            "Failed to lock checked locations vec: {}",
+                                            err
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 fn set_relevant_key_items() {
     let checklist: RwLockWriteGuard<HashMap<String, bool>> =
         CHECKLIST.get().unwrap().write().unwrap();
     let current_inv_addr = utilities::read_usize_from_address(constants::INVENTORY_PTR);
     log::debug!("Current INV Addr: 0x{:x}", current_inv_addr);
     log::debug!("Resetting high roller card");
-    /* let item_addr = current_inv_addr + 0x60 + tables::KEY_ITEMS.iter().position(|&str| str == *item).unwrap();
-    log::debug!("Attempting to replace at address: 0x{:x} with flag 0x{:x}", item_addr, flag);
-    unsafe { utilities::replace_single_byte_no_offset(item_addr, flag) };*/
+    let item_addr =
+        current_inv_addr + 0x60 + constants::KEY_ITEM_OFFSETS.get("High Roller Card").unwrap().clone() as usize;
+    log::debug!(
+        "Attempting to replace at address: 0x{:x} with flag 0x{:x}",
+        item_addr,
+        0x00
+    );
+    unsafe { utilities::replace_single_byte_no_offset(item_addr, 0x00) };
     let mut flag: u8;
     match constants::MISSION_ITEM_MAP.get(&get_mission()) {
         None => {} // No items for the mission
