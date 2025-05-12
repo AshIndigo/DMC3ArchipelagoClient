@@ -13,7 +13,7 @@ const TEXT_DISPLAYED_ADDRESS: usize = 0xCB89A0; // 0x01 if text is being display
 const TEXT_LENGTH_ADDRESS: usize = 0xCB89E0; // X + 30 apparently?
 const TEXT_ADDRESS: usize = 0xCB8A0C; //0xCB8A1E; // Text string
 
-pub unsafe fn display_message(string: String) {
+pub unsafe fn display_message(string: &String) {
     unsafe {
         let final_string = format!("<PS\x2085\x20305><SZ\x2024>{}\x00", string);
         let bytes = final_string.as_ascii().unwrap().as_bytes();

@@ -7,6 +7,9 @@ use std::os::raw::c_short;
 pub const ITEM_PICKED_UP_ADDR: usize = 0x1aa6e0;
 pub static ORIGINAL_ITEM_PICKED_UP: OnceLock<unsafe extern "C" fn(loc_chk_id: c_longlong, param_2: c_short, item_id: c_int)> = OnceLock::new();
 
+pub const RESULT_SCREEN_ADDR: usize = 0x2a0850; //Constructor for result screen
+pub static ORIGINAL_HANDLE_MISSION_COMPLETE: OnceLock<unsafe extern "C" fn(this: c_longlong)> = OnceLock::new();//, param_2: c_longlong, param_3: c_longlong, param_4: c_longlong)> = OnceLock::new();
+
 pub const ITEM_HANDLE_PICKUP_ADDR: usize = 0x1b45a0;
 pub static ORIGINAL_HANDLE_PICKUP: OnceLock<unsafe extern "C" fn(item_struct: c_longlong)> = OnceLock::new();
 
@@ -254,7 +257,7 @@ pub static EVENT_TABLES: LazyLock<HashMap<i32, Vec<EventTable>>> = LazyLock::new
             vec![
                 EventTable {
                     _mission: 3,
-                    location: "Mission #3 - Shotgun".to_string(),
+                    location: "Mission #3 - Shotgun",
                     events: vec![
                         Event {
                             event_type: EventCode::CHECK,
@@ -280,7 +283,7 @@ pub static EVENT_TABLES: LazyLock<HashMap<i32, Vec<EventTable>>> = LazyLock::new
                 },
                 EventTable {
                     _mission: 3,
-                    location: "Mission #3 - Cerberus".to_string(),
+                    location: "Mission #3 - Cerberus",
                     events: vec![
                         Event {
                             event_type: EventCode::CHECK,
@@ -298,7 +301,7 @@ pub static EVENT_TABLES: LazyLock<HashMap<i32, Vec<EventTable>>> = LazyLock::new
             4,
             vec![EventTable {
                 _mission: 4,
-                location: "Mission #4 - Astronomical Board".to_string(),
+                location: "Mission #4 - Astronomical Board",
                 events: vec![Event {
                     event_type: EventCode::END,
                     offset: 0x8D4,
@@ -310,7 +313,7 @@ pub static EVENT_TABLES: LazyLock<HashMap<i32, Vec<EventTable>>> = LazyLock::new
             vec![
                 EventTable {
                     _mission: 5,
-                    location: "Mission #5 - Agni and Rudra".to_string(),
+                    location: "Mission #5 - Agni and Rudra",
                     events: vec![
                         Event {
                             event_type: EventCode::CHECK,
@@ -336,7 +339,7 @@ pub static EVENT_TABLES: LazyLock<HashMap<i32, Vec<EventTable>>> = LazyLock::new
          vec![
              EventTable {
                  _mission: 6,
-                 location: "Mission #6 - Artemis".to_string(),
+                 location: "Mission #6 - Artemis",
                  events: vec![
                      Event {
                          event_type: EventCode::CHECK,
@@ -419,7 +422,7 @@ pub struct Event {
 
 pub(crate) struct EventTable {
     pub _mission: i32,
-    pub location: String,
+    pub location: &'static str,
     pub events: Vec<Event>,
 }
 

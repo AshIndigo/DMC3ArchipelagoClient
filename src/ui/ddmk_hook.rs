@@ -201,7 +201,7 @@ pub unsafe fn archipelago_window(mut instance: MutexGuard<ArchipelagoHud>) { uns
                           &ImVec2 { x: 0.0, y: 0.0 },
     ) {
         thread::spawn(move || {
-            utilities::display_message("Test Message".parse().unwrap());
+            utilities::display_message(&"Test Message".to_string());
         });
     }
     get_imgui_end()();

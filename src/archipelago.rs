@@ -16,7 +16,7 @@ use std::io::{BufReader, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
-use std::sync::{Arc, Mutex, OnceLock, RwLock, mpsc, LockResult};
+use std::sync::{Arc, Mutex, OnceLock, RwLock, mpsc};
 
 pub static MAPPING: OnceLock<Mapping> = OnceLock::new();
 pub static CHECKLIST: OnceLock<RwLock<HashMap<String, bool>>> = OnceLock::new();
@@ -162,7 +162,7 @@ pub async fn connect_archipelago(
                     .map(|(k, v)| (*v, k.clone())),
             );
             connected.checked_locations.iter_mut().for_each(|val| {
-                checked_locations.push(reversed_loc_id.get(val).unwrap().clone());
+                checked_locations.push((&*reversed_loc_id.get(val).unwrap().clone()).parse().unwrap());
             });
             log::info!("Connected info: {:?}", connected);
             SLOT_NUMBER.store(connected.slot, Ordering::SeqCst);
@@ -261,8 +261,14 @@ pub struct Mapping {
     // For mapping JSON
     pub seed: String,
     pub slot: String,
-    pub items: HashMap<String, String>,
+    pub items: HashMap<String, LocationData>,
     pub starter_items: Vec<String>,
+    pub players: Vec<String>
+}
+#[derive(Deserialize, Serialize, Debug)]
+pub struct LocationData {
+    pub name: String,
+    pub description: String,
 }
 
 pub struct ItemEntry {
@@ -282,9 +288,9 @@ fn use_mappings() {
     // TODO Need to see if the provided seed matches up with the world seed or something to ensure mappings are correct
     match MAPPING.get() {
         Some(data) => {
-            for (location_name, item_name) in data.items.iter() {
+            for (location_name, location_data) in data.items.iter() {
                 match generated_locations::ITEM_MISSION_MAP.get(location_name as &str) {
-                    Some(entry) => match constants::get_item_id(item_name) {
+                    Some(entry) => match constants::get_item_id(&*location_data.name) {
                         Some(id) => unsafe {
                             if location_is_checked_and_end(location_name) {
                                 modify_itm_table(entry.offset, hook::DUMMY_ID)
@@ -293,7 +299,7 @@ fn use_mappings() {
                             }
                         },
                         None => {
-                            log::warn!("Item not found: {}", item_name);
+                            log::warn!("Item not found: {}", location_data.name);
                         }
                     },
                     None => {
@@ -308,17 +314,17 @@ fn use_mappings() {
     }
 }
 
-fn location_is_checked_and_end(location_key: &String) -> bool {
+fn location_is_checked_and_end(location_key: &str) -> bool {
     match constants::EVENT_TABLES.get(&get_mission()) {
         None => false,
         Some(event_tables) => {
             for event_table in event_tables {
-                if event_table.location == *location_key {
+                if event_table.location == location_key {
                     for event in event_table.events.iter() {
                         if event.event_type == EventCode::END {
                             match get_checked_locations().lock() {
                                 Ok(checked_locations) => {
-                                    if checked_locations.contains(location_key) {
+                                    if checked_locations.contains(&location_key.to_string()) {
                                         return true;
                                     }
                                 }
@@ -466,29 +472,30 @@ async fn handle_item_receive(
                             && item_entry.y_coord == received_item.y_coord
                             && item_entry.z_coord == received_item.z_coord)
                     {
-                        let item_str = mapping_data.items.get(*location_key).unwrap();
+                        let location_data = mapping_data.items.get(*location_key).unwrap();
                         log::debug!("Believe this to be: {}", location_key);
                         log::debug!(
                             "Checking location items: 0x{:x} vs 0x{:x}",
-                            constants::get_item_id(item_str).unwrap(),
+                            constants::get_item_id(&*location_data.name).unwrap(),
                             received_item.item_id as u8
                         );
-                        if constants::get_item_id(item_str).unwrap() == received_item.item_id as u8
+                        if constants::get_item_id(&*location_data.name).unwrap() == received_item.item_id as u8
                         {
                             // Then see if the item picked up matches the specified in the map
                             match dp.location_name_to_id.get(*location_key) {
                                 Some(loc_id) => {
                                     edit_end_event(*location_key);
+                                    unsafe { utilities::display_message(&location_data.description); }
                                     client.location_checks(vec![loc_id.clone()]).await?;
-                                    if constants::KEY_ITEMS.contains(&&**item_str) {
-                                        set_checklist_item(item_str, true);
-                                        log::debug!("Key Item checked off: {}", item_str);
+                                    if constants::KEY_ITEMS.contains(&&*location_data.name) {
+                                        set_checklist_item(&*location_data.name, true);
+                                        log::debug!("Key Item checked off: {}", location_data.name);
                                     }
                                     log::info!(
                                         "Location check successful: {} ({}), Item: {}",
                                         location_key,
                                         loc_id,
-                                        item_str
+                                        location_data.name
                                     );
                                 }
                                 None => {
@@ -532,8 +539,8 @@ fn handle_print_json(print_json: PrintJSON) -> String {
     match print_json {
         PrintJSON::ItemSend {
             data,
-            receiving,
-            item,
+            receiving: _receiving,
+            item: _item,
         } => {
             for message in data {
                 final_message.push_str(&*handle_message_part(message));
@@ -541,9 +548,9 @@ fn handle_print_json(print_json: PrintJSON) -> String {
         }
         PrintJSON::ItemCheat {
             data,
-            receiving,
-            item,
-            team,
+            receiving: _receiving,
+            item: _item,
+            team: _team,
         } => {
             for message in data {
                 final_message.push_str(&*handle_message_part(message));
@@ -551,9 +558,9 @@ fn handle_print_json(print_json: PrintJSON) -> String {
         }
         PrintJSON::Hint {
             data,
-            receiving,
-            item,
-            found,
+            receiving: _receiving,
+            item: _item,
+            found: _found,
         } => {
             for message in data {
                 final_message.push_str(&*handle_message_part(message));
@@ -561,30 +568,30 @@ fn handle_print_json(print_json: PrintJSON) -> String {
         }
         PrintJSON::Join {
             data,
-            team,
-            slot,
-            tags,
+            team: _team,
+            slot: _slot,
+            tags: _tags,
         } => {
             for message in data {
                 final_message.push_str(&*handle_message_part(message));
             }
         }
-        PrintJSON::Part { data, team, slot } => {
+        PrintJSON::Part { data, team: _team, slot: _slot } => {
             for message in data {
                 final_message.push_str(&*handle_message_part(message));
             }
         }
         PrintJSON::Chat {
             data,
-            team,
-            slot,
-            message,
+            team: _team,
+            slot: _slot,
+            message: _message,
         } => {
             for message in data {
                 final_message.push_str(&*handle_message_part(message));
             }
         }
-        PrintJSON::ServerChat { data, message } => {
+        PrintJSON::ServerChat { data, message: _message } => {
             for message in data {
                 final_message.push_str(&*handle_message_part(message));
             }
@@ -596,9 +603,9 @@ fn handle_print_json(print_json: PrintJSON) -> String {
         }
         PrintJSON::TagsChanged {
             data,
-            team,
-            slot,
-            tags,
+            team: _team,
+            slot: _slot,
+            tags: _tags,
         } => {
             for message in data {
                 final_message.push_str(&*handle_message_part(message));
@@ -614,22 +621,22 @@ fn handle_print_json(print_json: PrintJSON) -> String {
                 final_message.push_str(&*handle_message_part(message));
             }
         }
-        PrintJSON::Goal { data, team, slot } => {
+        PrintJSON::Goal { data, team: _team, slot: _slot } => {
             for message in data {
                 final_message.push_str(&*handle_message_part(message));
             }
         }
-        PrintJSON::Release { data, team, slot } => {
+        PrintJSON::Release { data, team: _team, slot: _slot } => {
             for message in data {
                 final_message.push_str(&*handle_message_part(message));
             }
         }
-        PrintJSON::Collect { data, team, slot } => {
+        PrintJSON::Collect { data, team: _team, slot: _slot } => {
             for message in data {
                 final_message.push_str(&*handle_message_part(message));
             }
         }
-        PrintJSON::Countdown { data, countdown } => {
+        PrintJSON::Countdown { data, countdown: _countdown } => {
             for message in data {
                 final_message.push_str(&*handle_message_part(message));
             }
@@ -649,8 +656,8 @@ fn handle_message_part(message: JSONMessagePart) -> String {
         JSONMessagePart::PlayerName { text } => text,
         JSONMessagePart::ItemId {
             text,
-            flags,
-            player,
+            flags: _flags,
+            player: _player,
         } => constants::get_item(text.parse::<u64>().expect("Unable to parse as u64"))
             .parse()
             .unwrap(),
