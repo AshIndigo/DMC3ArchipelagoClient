@@ -10,6 +10,9 @@ pub static ORIGINAL_ITEM_PICKED_UP: OnceLock<unsafe extern "C" fn(loc_chk_id: c_
 pub const RESULT_SCREEN_ADDR: usize = 0x2a0850; //Constructor for result screen
 pub static ORIGINAL_HANDLE_MISSION_COMPLETE: OnceLock<unsafe extern "C" fn(this: c_longlong)> = OnceLock::new();//, param_2: c_longlong, param_3: c_longlong, param_4: c_longlong)> = OnceLock::new();
 
+pub const RENDER_TEXT_ADDR: usize = 0x2f0440;
+pub static ORIGINAL_RENDER_TEXT: OnceLock<unsafe extern "C" fn(param_1: c_longlong, param_2: c_longlong, param_3: c_longlong, param_4: c_longlong)> = OnceLock::new();
+
 pub const ITEM_HANDLE_PICKUP_ADDR: usize = 0x1b45a0;
 pub static ORIGINAL_HANDLE_PICKUP: OnceLock<unsafe extern "C" fn(item_struct: c_longlong)> = OnceLock::new();
 

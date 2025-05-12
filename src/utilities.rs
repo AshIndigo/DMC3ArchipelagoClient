@@ -10,12 +10,14 @@ use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::FindWindowA;
 
 const TEXT_DISPLAYED_ADDRESS: usize = 0xCB89A0; // 0x01 if text is being displayed
+const TEXT_PTR: usize = 0xCB89B8;
+const PTR_WRITE: usize = 0x00A38C03;
 const TEXT_LENGTH_ADDRESS: usize = 0xCB89E0; // X + 30 apparently?
 const TEXT_ADDRESS: usize = 0xCB8A0C; //0xCB8A1E; // Text string
 
 pub unsafe fn display_message(string: &String) {
     unsafe {
-        let final_string = format!("<PS\x2085\x20305><SZ\x2024>{}\x00", string);
+        let final_string = format!("<PS\x2085\x20305><SZ\x2024>{}\x00\x2E", string);
         let bytes = final_string.as_ascii().unwrap().as_bytes();
         log::debug!("Length: {}", bytes.len());
         log::debug!("String: {}", final_string);
@@ -29,6 +31,10 @@ pub unsafe fn display_message(string: &String) {
             (get_dmc3_base_address() + TEXT_LENGTH_ADDRESS) as *mut u8,
             (bytes.len() + 1 + 30) as u8,
         );
+        // std::ptr::write(
+        //     (get_dmc3_base_address() + TEXT_PTR) as *mut i32,
+        //     PTR_WRITE as i32,
+        // );
         std::ptr::write(
             (get_dmc3_base_address() + TEXT_DISPLAYED_ADDRESS) as *mut u8,
             0x01,
