@@ -60,7 +60,7 @@ pub fn use_mappings() {
 
 pub fn load_mappings_file() -> Result<Mapping, Box<dyn std::error::Error>> {
     if Path::new(MAPPINGS_FILENAME).try_exists()? {
-        log::info!("Mapping file Exists!");
+        log::info!("Mapping file exists, loading");
         let mut json_reader =
             serde_json::Deserializer::from_reader(BufReader::new(File::open(MAPPINGS_FILENAME)?));
         Ok(Mapping::deserialize(&mut json_reader)?)

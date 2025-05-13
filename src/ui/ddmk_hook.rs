@@ -1,6 +1,6 @@
 use crate::archipelago::{ArchipelagoData, CHECKLIST};
 use crate::bank::get_bank;
-use crate::constants::CONSUMABLES;
+use crate::constants::{ItemCategory};
 use crate::constants::Status;
 use crate::ui::imgui_bindings::*;
 use crate::ui::ui::ArchipelagoHud;
@@ -112,7 +112,7 @@ unsafe fn tracking_window() {
             flag as *mut bool,
             imgui_sys::ImGuiWindowFlags_AlwaysAutoResize as ImGuiWindowFlags,
         );
-        for chunk in constants::KEY_ITEMS.chunks(3) {
+        for chunk in constants::get_items_by_category(ItemCategory::Key).chunks(3) {
             let row_text = chunk
                 .iter()
                 .map(|&item| checkbox_text(item))
@@ -137,10 +137,10 @@ unsafe fn bank_window() {
             flag as *mut bool,
             imgui_sys::ImGuiWindowFlags_AlwaysAutoResize as ImGuiWindowFlags,
         );
-
-        for n in 0..CONSUMABLES.len() {
+        let consumables = constants::get_items_by_category(ItemCategory::Consumable);
+        for n in 0..constants::get_items_by_category(ItemCategory::Consumable).len() {
             // Special case for red orbs...
-            let item = CONSUMABLES.get(n).unwrap();
+            let item = consumables.get(n).unwrap();
             text(format!(
                 "{}: {}\0",
                 item,
@@ -152,7 +152,7 @@ unsafe fn bank_window() {
                 "Retrieve 1\0".as_ptr() as *const c_char,
                 &ImVec2 { x: 0.0, y: 0.0 },
             ) {
-                if hook::can_add_item(item) {
+                if bank::can_add_item_to_current_inv(item) {
                     retrieve_button_pressed(item);
                 }
             }

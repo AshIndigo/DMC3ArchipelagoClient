@@ -1,6 +1,6 @@
 use crate::archipelago::{BANK, SLOT_NUMBER, TEAM_NUMBER};
-use crate::constants::CONSUMABLES;
-use crate::{constants, hook};
+use crate::constants::INVENTORY_PTR;
+use crate::{constants, utilities};
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
 use archipelago_rs::protocol::{DataStorageOperation, NetworkItem};
 use serde_json::Value;
@@ -14,7 +14,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 pub(crate) async fn add_item(client: &mut ArchipelagoClient, item: &NetworkItem) {
     client
         .set(
-            get_bank_key(&constants::get_item(item.item as u64).parse().unwrap()),
+            get_bank_key(&constants::get_item(item.item as u8).parse().unwrap()),
             Value::from(1),
             false,
             vec![DataStorageOperation::Add(Value::from(1))],
@@ -27,22 +27,19 @@ pub static TX_BANK: OnceLock<Sender<String>> = OnceLock::new();
 
 pub fn get_bank() -> &'static Mutex<HashMap<&'static str, i32>> {
     BANK.get_or_init(|| {
-        Mutex::new(HashMap::from([
-            (CONSUMABLES[0], 0),
-            (CONSUMABLES[1], 0),
-            (CONSUMABLES[2], 0),
-            (CONSUMABLES[3], 0),
-            (CONSUMABLES[4], 0),
-        ]))
+        Mutex::new(
+            constants::get_items_by_category(constants::ItemCategory::Consumable)
+                .iter()
+                .map(|name| (*name, 0))
+                .collect(),
+        )
     })
 }
 
 pub fn setup_bank_channel() -> Receiver<String> {
-    //Arc<Mutex<Receiver<String>>> {
     let (tx, rx) = mpsc::channel(64);
     TX_BANK.set(tx).expect("TX already initialized");
     rx
-    //Arc::new(Mutex::new(rx))
 }
 
 pub(crate) fn get_bank_key(item: &String) -> String {
@@ -58,7 +55,6 @@ pub(crate) async fn handle_bank(
     client: &mut ArchipelagoClient,
     item: String,
 ) -> Result<(), ArchipelagoError> {
-    //if let Some(item) = bank_rx.recv().await {
     match client.get(vec![get_bank_key(&item)]).await {
         Ok(val) => {
             let item_count = val
@@ -80,7 +76,7 @@ pub(crate) async fn handle_bank(
                 {
                     Ok(_) => {
                         log::debug!("{} subtracted", item);
-                        hook::add_item(&item);
+                        add_item_to_current_inv(&item);
                         get_bank()
                             .lock()
                             .unwrap()
@@ -98,6 +94,15 @@ pub(crate) async fn handle_bank(
             log::error!("Failed to get banker item: {}", err);
         }
     }
-    //}
     Ok(()) // TODO
+}
+
+pub(crate) fn can_add_item_to_current_inv(item_name: &&str) -> bool {
+    let current_inv_addr = utilities::read_usize_from_address(INVENTORY_PTR);
+
+    todo!()
+}
+
+pub(crate) fn add_item_to_current_inv(item_name: &String) {
+    todo!()
 }

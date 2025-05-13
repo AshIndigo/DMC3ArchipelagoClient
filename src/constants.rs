@@ -1,256 +1,574 @@
+use std::cmp::PartialEq;
 use std::collections::HashMap;
-use std::sync::{LazyLock, OnceLock};
 use std::ffi::{c_int, c_longlong};
 use std::os::raw::c_short;
+use std::sync::{LazyLock, OnceLock};
 
 // DMC3 Offsets+Functions - Offsets are from 2022 DDMK's version
 pub const ITEM_PICKED_UP_ADDR: usize = 0x1aa6e0;
-pub static ORIGINAL_ITEM_PICKED_UP: OnceLock<unsafe extern "C" fn(loc_chk_id: c_longlong, param_2: c_short, item_id: c_int)> = OnceLock::new();
+pub static ORIGINAL_ITEM_PICKED_UP: OnceLock<
+    unsafe extern "C" fn(loc_chk_id: c_longlong, param_2: c_short, item_id: c_int),
+> = OnceLock::new();
 
 pub const RESULT_SCREEN_ADDR: usize = 0x2a0850; //Constructor for result screen
-pub static ORIGINAL_HANDLE_MISSION_COMPLETE: OnceLock<unsafe extern "C" fn(this: c_longlong)> = OnceLock::new();//, param_2: c_longlong, param_3: c_longlong, param_4: c_longlong)> = OnceLock::new();
+pub static ORIGINAL_HANDLE_MISSION_COMPLETE: OnceLock<unsafe extern "C" fn(this: c_longlong)> =
+    OnceLock::new(); //, param_2: c_longlong, param_3: c_longlong, param_4: c_longlong)> = OnceLock::new();
 
 pub const RENDER_TEXT_ADDR: usize = 0x2f0440;
-pub static ORIGINAL_RENDER_TEXT: OnceLock<unsafe extern "C" fn(param_1: c_longlong, param_2: c_longlong, param_3: c_longlong, param_4: c_longlong)> = OnceLock::new();
+pub static ORIGINAL_RENDER_TEXT: OnceLock<
+    unsafe extern "C" fn(
+        param_1: c_longlong,
+        param_2: c_longlong,
+        param_3: c_longlong,
+        param_4: c_longlong,
+    ),
+> = OnceLock::new();
 
 pub const ITEM_HANDLE_PICKUP_ADDR: usize = 0x1b45a0;
-pub static ORIGINAL_HANDLE_PICKUP: OnceLock<unsafe extern "C" fn(item_struct: c_longlong)> = OnceLock::new();
+pub static ORIGINAL_HANDLE_PICKUP: OnceLock<unsafe extern "C" fn(item_struct: c_longlong)> =
+    OnceLock::new();
 
-pub const ITEM_SPAWNS_ADDR: usize = 0x1b4440;  // 0x1b4480
-pub static ORIGINAL_ITEM_SPAWNS: OnceLock<unsafe extern "C" fn(loc_chk_id: c_longlong)> = OnceLock::new();
+pub const ITEM_SPAWNS_ADDR: usize = 0x1b4440; // 0x1b4480
+pub static ORIGINAL_ITEM_SPAWNS: OnceLock<unsafe extern "C" fn(loc_chk_id: c_longlong)> =
+    OnceLock::new();
 
 pub const EDIT_EVENT_HOOK: usize = 0x1a9bc0;
-pub static ORIGINAL_EDIT_EVENT: OnceLock<unsafe extern "C" fn(param_1: c_longlong, param_2: c_int, param_3: c_longlong)> = OnceLock::new();
+pub static ORIGINAL_EDIT_EVENT: OnceLock<
+    unsafe extern "C" fn(param_1: c_longlong, param_2: c_int, param_3: c_longlong),
+> = OnceLock::new();
 pub const INVENTORY_PTR: usize = 0xC90E28 + 0x8;
 pub const ADJUDICATOR_ITEM_ID_1: usize = 0x250594;
 pub const ADJUDICATOR_ITEM_ID_2: usize = 0x25040d;
 pub const ITEM_MODE_TABLE: usize = 0x1B4534;
 pub const EVENT_TABLE_ADDR: usize = 0x01A42680; // TODO is this gonna be ok?
 
-pub const STARTING_MELEE: usize = 0xC8F250+0x46; // TODO Think is the "obtained" bool, need the starting weapon inv
-pub const STARTING_GUN: usize = 0xC8F250+0x4C; // TODO
+pub const STARTING_MELEE: usize = 0xC8F250 + 0x46; // TODO Think is the "obtained" bool, need the starting weapon inv
+pub const STARTING_GUN: usize = 0xC8F250 + 0x4C; // TODO
 
-pub(crate) const KEY_ITEMS: [&str; 21] = [
-    "Astronomical Board",          // 0
-    "Vajura",                      // 1
-    "Essence of Intelligence",     // 2
-    "Essence of Technique",        // 3
-    "Essence of Fighting",          // 4
-    "Soul of Steel",               // 5
-    "Full Orihalcon",              // 6
-    "Orihalcon Fragment",          // 7
-    "Orihalcon Fragment (Right)",  // 8
-    "Orihalcon Fragment (Bottom)", // 9
-    "Orihalcon Fragment (Left)",   //10
-    "Siren's Shriek",              //11
-    "Crystal Skull",               //12
-    "Ignis Fatuus",                //13
-    "Ambrosia",                    //14
-    "Stone Mask",                  //15
-    "Neo Generator",               //16
-    "Haywire Neo Generator",       //17
-    "Golden Sun",                  //18
-    "Onyx Moonshard",              //19
-    "Samsara",                     //20
-];
+struct Item {
+    id: u8,
+    name: &'static str,
+    offset: Option<u8>, // Inventory offset
+    category: ItemCategory,
+    mission: Option<u8>, // Mission the key item is used in, typically the same that it is acquired in
+    _value: Option<i32>, // Value of an orb, used only for red orbs
+}
 
-pub(crate) const CONSUMABLES: [&str; 5] = [
-    "Vital Star L",          // 0
-    "Vital Star S",          // 1
-    "Devil Star",            // 2
-    "Holy Water",            // 3
-    "Red Orbs" // Remove? 4
-];
+#[derive(PartialEq)]
+pub(crate) enum ItemCategory {
+    Key,
+    Consumable,
+    Weapon,
+    RedOrb, // Red orbs are special...
+    Misc,
+}
 
-// What item is used in what mission
-pub static ITEM_MISSION_MAP: LazyLock<HashMap<&'static str, i32>> = LazyLock::new(|| {
-    HashMap::from([
-        (KEY_ITEMS[0], 5),   // Astronomical Board, obtained at the end of M4, used in M5
-        (KEY_ITEMS[1], 5),   // Vajura
-        (KEY_ITEMS[2], 6),   // Essence of Intelligence
-        (KEY_ITEMS[3], 6),   // Essence of Technique
-        (KEY_ITEMS[4], 6),   // Essence of Fighting
-        (KEY_ITEMS[5], 5),   // Soul of Steel
-        (KEY_ITEMS[6], 13),  // Full Orihalcon
-        (KEY_ITEMS[7], 7),   // Orihalcon Fragment
-        (KEY_ITEMS[8], 15),  // Orihalcon Fragment (Right)
-        (KEY_ITEMS[9], 15),  // Orihalcon Fragment (Bottom)
-        (KEY_ITEMS[10], 15), // Orihalcon Fragment (Left)
-        (KEY_ITEMS[11], 7),  // Siren's Shriek
-        (KEY_ITEMS[12], 7),  // Crystal Skull
-        (KEY_ITEMS[13], 8),  // Ignis Fatuus
-        (KEY_ITEMS[14], 9),  // Ambrosia
-        (KEY_ITEMS[15], 10), // Stone Mask
-        (KEY_ITEMS[16], 10), // Neo Generator
-        (KEY_ITEMS[17], 12), // Haywire Neo Generator
-        (KEY_ITEMS[18], 16), // Golden Sun
-        (KEY_ITEMS[19], 16), // Onyx Moonshard
-        (KEY_ITEMS[20], 19), // Samsara
-    ])
+static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
+    vec![
+        Item {
+            id: 0x00,
+            name: "Red Orb - 1",
+            offset: Some(0x38),
+            category: ItemCategory::RedOrb,
+            mission: None,
+            _value: Some(1),
+        },
+        Item {
+            id: 0x01,
+            name: "Red Orb - 5",
+            offset: Some(0x38),
+            category: ItemCategory::RedOrb,
+            mission: None,
+            _value: Some(5),
+        },
+        Item {
+            id: 0x02,
+            name: "Red Orb - 20",
+            offset: Some(0x38),
+            category: ItemCategory::RedOrb,
+            mission: None,
+            _value: Some(1),
+        },
+        Item {
+            id: 0x03,
+            name: "Red Orb - 100",
+            offset: Some(0x38),
+            category: ItemCategory::RedOrb,
+            mission: None,
+            _value: Some(100),
+        },
+        Item {
+            id: 0x04,
+            name: "Red Orb - 1000",
+            offset: Some(0x38),
+            category: ItemCategory::RedOrb,
+            mission: None,
+            _value: Some(1000),
+        },
+        Item {
+            id: 0x05,
+            name: "Gold Orb",
+            offset: None,
+            category: ItemCategory::Misc,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x06,
+            name: "Yellow Orb",
+            offset: None,
+            category: ItemCategory::Misc,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x07,
+            name: "Blue Orb",
+            offset: None,
+            category: ItemCategory::Misc,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x08,
+            name: "Purple Orb",
+            offset: None,
+            category: ItemCategory::Misc,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x09,
+            name: "Blue Orb Fragment",
+            offset: None,
+            category: ItemCategory::Misc,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x0A,
+            name: "Green Orb - Small",
+            offset: None,
+            category: ItemCategory::Misc,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x0B,
+            name: "Green Orb - Medium",
+            offset: None,
+            category: ItemCategory::Misc,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x0C,
+            name: "Green Orb - Large",
+            offset: None,
+            category: ItemCategory::Misc,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x0D,
+            name: "Unknown D",
+            offset: None,
+            category: ItemCategory::Misc,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x0E,
+            name: "Unknown E",
+            offset: None,
+            category: ItemCategory::Misc,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x0F,
+            name: "Unknown F",
+            offset: None,
+            category: ItemCategory::Misc,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x10,
+            name: "Vital Star L",
+            offset: Some(0x4C),
+            category: ItemCategory::Consumable,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x11,
+            name: "Vital Star S",
+            offset: Some(0x4D),
+            category: ItemCategory::Consumable,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x12,
+            name: "Devil Star",
+            offset: Some(0x4E),
+            category: ItemCategory::Consumable,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x13,
+            name: "Holy Water",
+            offset: Some(0x4F),
+            category: ItemCategory::Consumable,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x14,
+            name: "Dummy", // Scent of Fear test item
+            offset: None,
+            category: ItemCategory::Misc,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x15,
+            name: "Amulet (Casino Coins)",
+            offset: None,
+            category: ItemCategory::Misc,
+            mission: None,
+            _value: None,
+        },
+        // TODO Weapon offsets
+        Item {
+            id: 0x16,
+            name: "Rebellion (Normal)",
+            offset: None,
+            category: ItemCategory::Weapon,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x17,
+            name: "Cerberus",
+            offset: None,
+            category: ItemCategory::Weapon,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x18,
+            name: "Agni and Rudra",
+            offset: None,
+            category: ItemCategory::Weapon,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x19,
+            name: "Rebellion (Awakened)",
+            offset: None,
+            category: ItemCategory::Weapon,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x1A,
+            name: "Nevan",
+            offset: None,
+            category: ItemCategory::Weapon,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x1B,
+            name: "Beowulf",
+            offset: None,
+            category: ItemCategory::Weapon,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x1C,
+            name: "Ebony & Ivory",
+            offset: None,
+            category: ItemCategory::Weapon,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x1D,
+            name: "Shotgun",
+            offset: None,
+            category: ItemCategory::Weapon,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x1E,
+            name: "Artemis",
+            offset: None,
+            category: ItemCategory::Weapon,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x1F,
+            name: "Spiral",
+            offset: None,
+            category: ItemCategory::Weapon,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x20,
+            name: "Dummy", // Bomb!
+            offset: None,
+            category: ItemCategory::Misc,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x21,
+            name: "Kalina Ann",
+            offset: None,
+            category: ItemCategory::Weapon,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x22,
+            name: "Quicksilver Style",
+            offset: None,
+            category: ItemCategory::Weapon,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x23,
+            name: "Doppelganger Style",
+            offset: None,
+            category: ItemCategory::Weapon,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x24,
+            name: "Astronomical Board",
+            offset: Some(0x60),
+            category: ItemCategory::Key,
+            mission: Some(5),
+            _value: None,
+        },
+        Item {
+            id: 0x25,
+            name: "Vajura",
+            offset: Some(0x61),
+            category: ItemCategory::Key,
+            mission: Some(5),
+            _value: None,
+        },
+        Item {
+            id: 0x26,
+            name: "Remote", // High Roller Card!
+            offset: Some(0x62),
+            category: ItemCategory::Misc,
+            mission: None,
+            _value: None,
+        },
+        Item {
+            id: 0x27,
+            name: "Soul of Steel",
+            offset: Some(0x63),
+            category: ItemCategory::Key,
+            mission: Some(5),
+            _value: None,
+        },
+        Item {
+            id: 0x28,
+            name: "Essence of Fighting",
+            offset: Some(0x64),
+            category: ItemCategory::Key,
+            mission: Some(6),
+            _value: None,
+        },
+        Item {
+            id: 0x29,
+            name: "Essence of Technique",
+            offset: Some(0x65),
+            category: ItemCategory::Key,
+            mission: Some(6),
+            _value: None,
+        },
+        Item {
+            id: 0x2A,
+            name: "Essence of Intelligence",
+            offset: Some(0x66),
+            category: ItemCategory::Key,
+            mission: Some(6),
+            _value: None,
+        },
+        Item {
+            id: 0x2B,
+            name: "Orihalcon Fragment",
+            offset: Some(0x67),
+            category: ItemCategory::Key,
+            mission: Some(7),
+            _value: None,
+        },
+        Item {
+            id: 0x2C,
+            name: "Siren's Shriek",
+            offset: Some(0x68),
+            category: ItemCategory::Key,
+            mission: Some(7),
+            _value: None,
+        },
+        Item {
+            id: 0x2D,
+            name: "Crystal Skull",
+            offset: Some(0x69),
+            category: ItemCategory::Key,
+            mission: Some(7),
+            _value: None,
+        },
+        Item {
+            id: 0x2E,
+            name: "Ignis Fatuus",
+            offset: Some(0x6A),
+            category: ItemCategory::Key,
+            mission: Some(8),
+            _value: None,
+        },
+        Item {
+            id: 0x2F,
+            name: "Ambrosia",
+            offset: Some(0x6B),
+            category: ItemCategory::Key,
+            mission: Some(9),
+            _value: None,
+        },
+        Item {
+            id: 0x30,
+            name: "Stone Mask",
+            offset: Some(0x6C),
+            category: ItemCategory::Key,
+            mission: Some(10),
+            _value: None,
+        },
+        Item {
+            id: 0x31,
+            name: "Neo Generator",
+            offset: Some(0x6D),
+            category: ItemCategory::Key,
+            mission: Some(10),
+            _value: None,
+        },
+        Item {
+            id: 0x32,
+            name: "Haywire Neo Generator",
+            offset: Some(0x6E),
+            category: ItemCategory::Key,
+            mission: Some(12),
+            _value: None,
+        },
+        Item {
+            id: 0x33,
+            name: "Full Orihalcon",
+            offset: Some(0x6F),
+            category: ItemCategory::Key,
+            mission: Some(13),
+            _value: None,
+        },
+        Item {
+            id: 0x34,
+            name: "Orihalcon Fragment (Right)",
+            offset: Some(0x70),
+            category: ItemCategory::Key,
+            mission: Some(15),
+            _value: None,
+        },
+        Item {
+            id: 0x35,
+            name: "Orihalcon Fragment (Bottom)",
+            offset: Some(0x71),
+            category: ItemCategory::Key,
+            mission: Some(15),
+            _value: None,
+        },
+        Item {
+            id: 0x36,
+            name: "Orihalcon Fragment (Left)",
+            offset: Some(0x72),
+            category: ItemCategory::Key,
+            mission: Some(15),
+            _value: None,
+        },
+        Item {
+            id: 0x37,
+            name: "Golden Sun",
+            offset: Some(0x73),
+            category: ItemCategory::Key,
+            mission: Some(16),
+            _value: None,
+        },
+        Item {
+            id: 0x38,
+            name: "Onyx Moonshard",
+            offset: Some(0x74),
+            category: ItemCategory::Key,
+            mission: Some(16),
+            _value: None,
+        },
+        Item {
+            id: 0x38,
+            name: "Samsara",
+            offset: Some(0x75),
+            category: ItemCategory::Key,
+            mission: Some(19),
+            _value: None,
+        },
+    ]
 });
 
-pub static MISSION_ITEM_MAP: LazyLock<HashMap<i32, Vec<&'static str>>> = LazyLock::new(|| {
-    let mut map: HashMap<i32, Vec<&'static str>> = HashMap::new();
-    for (&item, &mission) in ITEM_MISSION_MAP.iter() {
-        map.entry(mission).or_default().push(item);
+pub static ITEM_OFFSET_MAP: LazyLock<HashMap<&'static str, u8>> = LazyLock::new(|| {
+    ALL_ITEMS
+        .iter()
+        .filter_map(|item| item.offset.map(|o| (item.name, o)))
+        .collect()
+});
+
+pub static MISSION_ITEM_MAP: LazyLock<HashMap<u8, Vec<&'static str>>> = LazyLock::new(|| {
+    let mut map: HashMap<u8, Vec<&'static str>> = HashMap::new();
+    for item in ALL_ITEMS.iter() {
+        if let Some(mission) = item.mission {
+            map.entry(mission).or_default().push(item.name);
+        }
     }
     map
 });
 
-pub static KEY_ITEM_OFFSETS: LazyLock<HashMap<&'static str, u8>> = LazyLock::new(|| {
-    // Unknown: 3 (High roller card most likely)
-    HashMap::from([
-        (KEY_ITEMS[0], 0x0),   // Astronomical Board
-        (KEY_ITEMS[1], 0x1),   // Vajura
-        ("High Roller Card", 0x2),   // High Roller Card
-        (KEY_ITEMS[2], 0x6),   // Essence of Intelligence
-        (KEY_ITEMS[3], 0x5),   // Essence of Technique
-        (KEY_ITEMS[4], 0x4),   // Essence of Fighting
-        (KEY_ITEMS[5], 0x3),   // Soul of Steel
-        (KEY_ITEMS[6], 15),  // Full Orihalcon
-        (KEY_ITEMS[7], 7),   // Orihalcon Fragment
-        (KEY_ITEMS[8], 16),  // Orihalcon Fragment (Right)
-        (KEY_ITEMS[9], 17),  // Orihalcon Fragment (Bottom)
-        (KEY_ITEMS[10], 18), // Orihalcon Fragment (Left)
-        (KEY_ITEMS[11], 8),  // Siren's Shriek
-        (KEY_ITEMS[12], 9),  // Crystal Skull
-        (KEY_ITEMS[13], 10),  // Ignis Fatuus
-        (KEY_ITEMS[14], 11),  // Ambrosia
-        (KEY_ITEMS[15], 12), // Stone Mask
-        (KEY_ITEMS[16], 13), // Neo Generator
-        (KEY_ITEMS[17], 14), // Haywire Neo Generator
-        (KEY_ITEMS[18], 19), // Golden Sun
-        (KEY_ITEMS[19], 20), // Onyx Moonshard
-        (KEY_ITEMS[20], 21), // Samsara
-    ])
-});
+pub static ITEM_ID_MAP: LazyLock<HashMap<&'static str, u8>> =
+    LazyLock::new(|| ALL_ITEMS.iter().map(|item| (item.name, item.id)).collect());
 
-pub fn get_item_id(item_name: &str) -> Option<u8> {
-    match item_name {
-        "Red Orb - 1" => Some(0x00),
-        "Red Orb - 5" => Some(0x01),
-        "Red Orb - 20" => Some(0x02),
-        "Red Orb - 100" => Some(0x03),
-        "Red Orb - 1000" => Some(0x04),
-        "Gold Orb" => Some(0x05),
-        "Yellow Orb" => Some(0x06),
-        "Blue Orb" => Some(0x07),
-        "Purple Orb" => Some(0x08),
-        "Blue Orb Fragment" => Some(0x09),
-        "Green Orb" => Some(0x0A),
-        "Grorb" => Some(0x0B),
-        "Big Green Orb" => Some(0x0C),
-        "TODO" => Some(0x0D), // Applies to multiple TODO cases
-        "Vital Star L" => Some(0x10),
-        "Vital Star S" => Some(0x11),
-        "Devil Star" => Some(0x12),
-        "Holy Water" => Some(0x13),
-        "Reb Orb (Fear Test Test)" => Some(0x14),
-        "Amulet (Casino Coins)" => Some(0x15),
-        "Rebellion (Normal)" => Some(0x16),
-        "Cerberus" => Some(0x17),
-        "Agni and Rudra" => Some(0x18),
-        "Rebellion (Awakened)" => Some(0x19),
-        "Nevan" => Some(0x1A),
-        "Beowulf" => Some(0x1B),
-        "Ebony & Ivory" => Some(0x1C),
-        "Shotgun" => Some(0x1D),
-        "Artemis" => Some(0x1E), //?
-        "Spiral" => Some(0x1F),  // ?
-        "Red Orb...? (Bomb!)" => Some(0x20),
-        "Kalina Ann" => Some(0x21),
-        "Quicksilver" => Some(0x22),
-        "Dopl Style" => Some(0x23),
-        "Astronomical Board" => Some(0x24),
-        "Vajura" => Some(0x25),
-        "High Roller Card" => Some(0x26),
-        "Soul of Steel" => Some(0x27),
-        "Essence of Fighting" => Some(0x28),
-        "Essence of Technique" => Some(0x29),
-        "Essence of Intelligence" => Some(0x2A),
-        "Orihalcon Fragment" => Some(0x2B),
-        "Siren's Shriek" => Some(0x2C),
-        "Crystal Skull" => Some(0x2D),
-        "Ignis Fatuus" => Some(0x2E),
-        "Ambrosia" => Some(0x2F),
-        "Stone Mask" => Some(0x30),
-        "Neo Generator" => Some(0x31),
-        "Haywire Neo Generator" => Some(0x32),
-        "Full Orihalcon" => Some(0x33),
-        "Orihalcon Fragment (Right)" => Some(0x34),
-        "Orihalcon Fragment (Bottom)" => Some(0x35),
-        "Orihalcon Fragment (Left)" => Some(0x36),
-        "Golden Sun" => Some(0x37),
-        "Onyx Moonshard" => Some(0x38),
-        "Samsara" => Some(0x39),
-        "Remote" => Some(0x26),
-        _ => None, // Handle undefined items
-    }
+pub static ID_ITEM_MAP: LazyLock<HashMap<u8, &'static str>> =
+    LazyLock::new(|| ALL_ITEMS.iter().map(|item| (item.id, item.name)).collect());
+
+pub fn get_item(item_id: u8) -> &'static str {
+    ID_ITEM_MAP.get(&item_id).copied().unwrap_or("Unknown")
 }
-pub fn get_item(item_id: u64) -> &'static str {
-    // TODO Update the strings in this
-    match item_id {
-        0x00 => "Red Orb - 1",
-        0x01 => "Red Orb - 5",
-        0x02 => "Red Orb - 20",
-        0x03 => "Red Orb - 100",
-        0x04 => "Red Orb - 1000",
-        0x05 => "Gold Orb",
-        0x06 => "Yellow Orb",
-        0x07 => "Blue Orb (No Work)",
-        0x08 => "Purple Orb (No Work)",
-        0x09 => "Blue Orb Frag",
-        0x0A => "Green Orb",
-        0x0B => "Grorb",
-        0x0C => "Big Green Orb",
-        0x0D => "TODO",
-        0x0E => "TODO",
-        0x0F => "TODO",
-        0x10 => "Vital Star L",
-        0x11 => "Vital Star S",
-        0x12 => "Devil Star",
-        0x13 => "Holy Water",
-        0x14 => "Reb Orb (Fear Test Test)",
-        0x15 => "Amulet (Casino Coins)",
-        0x16 => "Rebellion (Normal)",
-        0x17 => "Cerberus",
-        0x18 => "Agni?",
-        0x19 => "Rebellion Awakened",
-        0x1A => "Nevan",
-        0x1B => "Beowulf",
-        0x1C => "E&I",
-        0x1D => "Shotgun",
-        0x1E => "Artemis(?)",
-        0x1F => "Spiral(?)",
-        0x20 => "Red Orb...? (Bomb!)",
-        0x21 => "Kalina Ann",
-        0x22 => "Quicksilver",
-        0x23 => "Dopl Style",
-        0x24 => "Astro Board",
-        0x25 => "Vajura",
-        //0x26 => "High Roller Card",
-        0x27 => "Soul of Steel",
-        0x28 => "Essence of Fighting",
-        0x29 => "Essence of Technique",
-        0x2A => "Essence of Intelligence",
-        0x2B => "Orihalcon Frag",
-        0x2C => "TODO",
-        0x2D => "TODO",
-        0x2E => "TODO",
-        0x2F => "TODO",
-        0x30 => "Stone Mask",
-        0x31 => "Neo Gen",
-        0x32 => "Haywire Neo",
-        0x33 => "Full Orihalcon",
-        0x34 => "Orihalcon Fragment (Right)",
-        0x35 => "Orihalcon Fragment (Bottom)",
-        0x36 => "Orihalcon Fragment (Left)",
-        0x37 => "Golden Sun",
-        0x38 => "Onyx Moonshard",
-        0x39 => "Samsara",
-        0x26 => "Remote",
-        _ => "Undefined Item",
-    }
+
+pub fn get_item_id(name: &str) -> Option<u8> {
+    ITEM_ID_MAP.get(name).copied()
+}
+pub fn get_items_by_category(category: ItemCategory) -> Vec<&'static str> {
+    ALL_ITEMS
+        .iter()
+        .filter(|item| item.category == category)
+        .map(|item| item.name)
+        .collect()
 }
 
 pub static EVENT_TABLES: LazyLock<HashMap<i32, Vec<EventTable>>> = LazyLock::new(|| {
@@ -338,76 +656,26 @@ pub static EVENT_TABLES: LazyLock<HashMap<i32, Vec<EventTable>>> = LazyLock::new
                 // }
             ],
         ),
-        (6,
-         vec![
-             EventTable {
-                 _mission: 6,
-                 location: "Mission #6 - Artemis",
-                 events: vec![
-                     Event {
-                         event_type: EventCode::CHECK,
-                         offset: 0x13CC,
-                     },
-                     Event {
-                         event_type: EventCode::GIVE,
-                         offset: 0x13D0,
-                     },
-                 ],
-             },
-        ]),
+        (
+            6,
+            vec![EventTable {
+                _mission: 6,
+                location: "Mission #6 - Artemis",
+                events: vec![
+                    Event {
+                        event_type: EventCode::CHECK,
+                        offset: 0x13CC,
+                    },
+                    Event {
+                        event_type: EventCode::GIVE,
+                        offset: 0x13D0,
+                    },
+                ],
+            }],
+        ),
     ])
 });
 
-/*pub fn set_event_tables() -> HashMap<i32, Vec<EventTable>> {
-    let mut tables = HashMap::new(); // TODO FILL OUT
-    tables.insert(
-        3,
-        vec![
-            EventTable {
-                mission: 3,
-                location: "Mission #3 - Shotgun".to_string(),
-                events: vec![
-                    Event {
-                        event_type: EventCode::CHECK,
-                        offset: 0x450,
-                    },
-                    Event {
-                        event_type: EventCode::CHECK,
-                        offset: 0x6A4,
-                    },
-                    Event {
-                        event_type: EventCode::GIVE,
-                        offset: 0x6DC,
-                    },
-                    Event {
-                        event_type: EventCode::CHECK,
-                        offset: 0x72C,
-                    },
-                    Event {
-                        event_type: EventCode::GIVE,
-                        offset: 0x77C,
-                    },
-                ],
-            },
-            EventTable {
-                mission: 3,
-                location: "Mission #3 - Cerberus".to_string(),
-                events: vec![
-                    Event {
-                        event_type: EventCode::CHECK,
-                        offset: 0xEE4,
-                    },
-                    Event {
-                        event_type: EventCode::GIVE,
-                        offset: 0xEFC,
-                    },
-                ],
-            },
-        ],
-    );
-    tables
-}
-*/
 #[derive(PartialEq)]
 pub enum EventCode {
     /// Give the provided item (5c 02)

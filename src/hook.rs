@@ -286,7 +286,7 @@ fn item_spawns_hook(unknown: i64) {
                     let item_ref: &u32 = &*(item_addr as *const u32);
                     log::debug!(
                         "Item ID: {} (0x{:x})",
-                        get_item(*item_ref as u64),
+                        get_item(*item_ref as u8),
                         *item_ref
                     );
                     for (location_name, entry) in generated_locations::ITEM_MISSION_MAP.iter() {
@@ -335,7 +335,7 @@ unsafe fn check_and_replace_item(
                     "Replaced item in room {} ({}) with {} 0x{:x}",
                     entry.room_number,
                     location_name,
-                    get_item(*item_ref as u64),
+                    get_item(*item_ref as u8),
                     ins_val.unwrap() as i32
                 );
             }
@@ -385,7 +385,7 @@ fn set_relevant_key_items() {
     let current_inv_addr = utilities::read_usize_from_address(INVENTORY_PTR);
     log::debug!("Current INV Addr: 0x{:x}", current_inv_addr);
     let mut flag: u8;
-    match MISSION_ITEM_MAP.get(&get_mission()) {
+    match MISSION_ITEM_MAP.get(&(get_mission() as u8)) {
         None => {} // No items for the mission
         Some(item_list) => {
             for item in item_list.into_iter() {
@@ -396,7 +396,7 @@ fn set_relevant_key_items() {
                     flag = 0x00;
                 }
                 let item_addr =
-                    current_inv_addr + 0x60 + KEY_ITEM_OFFSETS.get(item).unwrap().clone() as usize;
+                    current_inv_addr + ITEM_OFFSET_MAP.get(item).unwrap().clone() as usize;
                 log::debug!(
                     "Attempting to replace at address: 0x{:x} with flag 0x{:x}",
                     item_addr,
@@ -527,10 +527,3 @@ pub unsafe fn modify_itm_table(offset: usize, id: u8) {
     }
 }
 
-pub(crate) fn can_add_item(item_name: &&str) -> bool {
-    todo!();
-}
-
-pub(crate) fn add_item(item_name: &String) {
-    todo!()
-}

@@ -1,4 +1,4 @@
-use crate::constants::{INVENTORY_PTR, KEY_ITEM_OFFSETS, ORIGINAL_HANDLE_MISSION_COMPLETE, ORIGINAL_HANDLE_PICKUP, ORIGINAL_ITEM_PICKED_UP};
+use crate::constants::{INVENTORY_PTR, ITEM_OFFSET_MAP, ORIGINAL_HANDLE_MISSION_COMPLETE, ORIGINAL_HANDLE_PICKUP, ORIGINAL_ITEM_PICKED_UP};
 use crate::utilities::get_mission;
 use crate::{constants, utilities};
 use once_cell::sync::OnceCell;
@@ -17,7 +17,7 @@ pub fn item_non_event(item_struct: i64) {
             if item_id < 0x3A {
                 log::debug!(
                     "Item ID is: {} (0x{:x})",
-                    constants::get_item(item_id as u64),
+                    constants::get_item(item_id as u8),
                     item_id
                 );
                 log::debug!("Item ID PTR is: {:?}", item_id_ptr);
@@ -84,8 +84,7 @@ fn clear_high_roller() {
     let current_inv_addr = utilities::read_usize_from_address(INVENTORY_PTR);
     log::debug!("Resetting high roller card");
     let item_addr = current_inv_addr
-        + 0x60
-        + KEY_ITEM_OFFSETS.get("High Roller Card").unwrap().clone() as usize;
+        + ITEM_OFFSET_MAP.get("Remote").unwrap().clone() as usize;
     log::debug!(
         "Attempting to replace at address: 0x{:x} with flag 0x{:x}",
         item_addr,
@@ -103,7 +102,7 @@ pub fn item_event(loc_chk_flg: i64, item_id: i16, unknown: i32) {
                 log::debug!("Loc CHK Flg is: {:x}", loc_chk_flg);
                 log::debug!(
                     "Item ID is: {} (0x{:x})",
-                    constants::get_item(item_id as u64),
+                    constants::get_item(item_id as u8),
                     item_id
                 );
                 log::debug!("Unknown is: {:x}", unknown); // Don't know what to make of this just yet

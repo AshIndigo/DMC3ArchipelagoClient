@@ -1,11 +1,11 @@
 use crate::cache::read_cache;
 use crate::check_handler::Location;
-use crate::constants::{EventCode, GAME_NAME, Status};
+use crate::constants::{EventCode, GAME_NAME, Status, ItemCategory};
 use crate::hook::CONNECTION_STATUS;
 use crate::mapping::MAPPING;
 use crate::ui::ui::ArchipelagoHud;
 use crate::utilities::get_mission;
-use crate::{bank, cache, constants, generated_locations, hook, mapping, utilities};
+use crate::{bank, cache, constants, generated_locations, hook, item_sync, mapping, utilities};
 use anyhow::{anyhow};
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
 use archipelago_rs::protocol::{
@@ -339,21 +339,7 @@ async fn handle_client_messages(
                 Ok(())
             }
             Some(ServerMessage::ReceivedItems(items)) => {
-                // READ https://github.com/ArchipelagoMW/Archipelago/blob/main/docs/network%20protocol.md#synchronizing-items
-                for item in items.items.iter() {
-                    /*    unsafe { // TODO This will crash due to a bug with display_message (Needs another "vanilla" message to prep)
-                        utilities::display_message(format!(
-                            "Received {}!",
-                            constants::get_item(item.item as u64)
-                        ));
-                    }*/
-                    if item.item < 0x14 { // TODO Bank stuff broken
-                        // Consumables/orbs TODO
-                        //bank::add_item(client, item).await;
-                    }
-                }
-                log::debug!("Received items: {:?}", items.items);
-                Ok(())
+                item_sync::handle_received_items_packet(items)
             }
             Some(ServerMessage::LocationInfo(_)) => Ok(()),
             Some(ServerMessage::RoomUpdate(_)) => Ok(()),
@@ -472,7 +458,7 @@ async fn handle_item_receive(
                                     });
                                     hook::CANCEL_TEXT.store(true, Ordering::Relaxed);
                                     client.location_checks(vec![loc_id.clone()]).await?;
-                                    if constants::KEY_ITEMS.contains(&&*location_data.name) {
+                                    if constants::get_items_by_category(ItemCategory::Key).contains(&&*location_data.name) {
                                         set_checklist_item(&*location_data.name, true);
                                         log::debug!("Key Item checked off: {}", location_data.name);
                                     }
