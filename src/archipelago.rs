@@ -1,11 +1,12 @@
 use crate::cache::read_cache;
 use crate::check_handler::Location;
-use crate::constants::{EventCode, Status, GAME_NAME};
-use crate::hook::{CONNECTION_STATUS};
+use crate::constants::{EventCode, GAME_NAME, Status};
+use crate::hook::CONNECTION_STATUS;
+use crate::mapping::MAPPING;
 use crate::ui::ui::ArchipelagoHud;
 use crate::utilities::get_mission;
 use crate::{bank, cache, constants, generated_locations, hook, mapping, utilities};
-use anyhow::anyhow;
+use anyhow::{anyhow};
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
 use archipelago_rs::protocol::{
     Connected, DataPackageObject, JSONMessagePart, PrintJSON, ServerMessage,
@@ -14,14 +15,13 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::fs::{remove_file, File};
-use std::io::{Write};
+use std::fs::{File, remove_file};
+use std::io::Write;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Mutex, OnceLock, RwLock, RwLockReadGuard};
 use std::time::Duration;
 use tokio::sync;
 use tokio::sync::mpsc::Receiver;
-use crate::mapping::MAPPING;
 
 static DATA_PACKAGE: Lazy<RwLock<Option<DataPackageObject>>> = Lazy::new(|| RwLock::new(None));
 
@@ -135,7 +135,7 @@ pub async fn connect_archipelago(
 ) -> Result<ArchipelagoClient, ArchipelagoError> {
     log::info!("Attempting room connection");
     let mut cl = get_archipelago_client(&login_data).await?;
-    let mut connected = cl
+    let connected = cl
         .connect(
             GAME_NAME,
             &login_data.name,
@@ -144,6 +144,8 @@ pub async fn connect_archipelago(
             vec!["AP".to_string()],
         )
         .await?;
+    get_connected().replace(connected).expect("Unable to replace CONNECTED");
+    let mut connected = get_connected().lock().unwrap();
     let Ok(mut checked_locations) = get_checked_locations().lock() else {
         log::error!("Failed to get checked locations");
         return Err(ArchipelagoError::ConnectionClosed);
@@ -339,7 +341,7 @@ async fn handle_client_messages(
             Some(ServerMessage::ReceivedItems(items)) => {
                 // READ https://github.com/ArchipelagoMW/Archipelago/blob/main/docs/network%20protocol.md#synchronizing-items
                 for item in items.items.iter() {
-                    /*    unsafe { // TODO This will crash if its on the main menu? or not prepared properly?
+                    /*    unsafe { // TODO This will crash due to a bug with display_message (Needs another "vanilla" message to prep)
                         utilities::display_message(format!(
                             "Received {}!",
                             constants::get_item(item.item as u64)
@@ -646,27 +648,45 @@ fn handle_print_json(print_json: PrintJSON) -> String {
                 final_message.push_str(&*handle_message_part(message));
             }
         }
+        PrintJSON::Text { data } => {
+            for message in data {
+                final_message.push_str(&*handle_message_part(message));
+            }
+        }
     }
     final_message
 }
 
 fn handle_message_part(message: JSONMessagePart) -> String {
     match message {
-        JSONMessagePart::PlayerId { text, player } => {
-            log::debug!("PlayerId: {} i32: {}", text, player);
-            get_connected().lock().unwrap().players[player as usize]
+        JSONMessagePart::PlayerId { text } => {
+            get_connected().lock().unwrap().players[text.parse::<usize>().unwrap()-1]
                 .name
-                .clone() // TODO I think I need to parse text as string?
+                .clone()
         }
         JSONMessagePart::PlayerName { text } => text,
         JSONMessagePart::ItemId {
-            // TODO This is for Archipelago Item ID's
             text,
             flags: _flags,
-            player: _player,
-        } => constants::get_item(text.parse::<u64>().expect("Unable to parse as u64"))
-            .parse()
-            .unwrap(),
+            player,
+        } => match read_cache() {
+            Ok(cache) => {
+                let id_to_name: HashMap<i64, String> = cache
+                    .games
+                    .get(
+                        &get_connected().lock().unwrap().slot_info[&player.to_string()]
+                            .game
+                            .clone(),
+                    )
+                    .unwrap()
+                    .item_name_to_id.clone()
+                    .into_iter()
+                    .map(|(k, v)| (v, k))
+                    .collect();
+                id_to_name.get(&text.parse::<i64>().unwrap()).unwrap().clone()
+            }
+            Err(err) => format!("Unable to read cache file: {}", err),
+        },
         JSONMessagePart::ItemName {
             text,
             flags,
@@ -676,9 +696,24 @@ fn handle_message_part(message: JSONMessagePart) -> String {
             text
         }
         JSONMessagePart::LocationId { text, player } => {
-            //let map: HashMap<i32, String> = DATA_PACKAGE.get().unwrap().location_name_to_id.iter().map(|(k, v)| (v, k)).collect();
-            log::debug!("LocationId: {:?} Player: {}", text, player);
-            text
+            match read_cache() {
+                Ok(cache) => {
+                    let id_to_name: HashMap<i64, String> = cache
+                        .games
+                        .get(
+                            &get_connected().lock().unwrap().slot_info[&player.to_string()]
+                                .game
+                                .clone(),
+                        )
+                        .unwrap()
+                        .location_name_to_id.clone()
+                        .into_iter()
+                        .map(|(k, v)| (v, k))
+                        .collect();
+                    id_to_name.get(&text.parse::<i64>().unwrap()).unwrap().clone()
+                }
+                Err(err) => format!("Unable to read cache file: {}", err),
+            }
         }
         JSONMessagePart::LocationName { text, player } => {
             log::debug!("LocationName: {:?}, Player: {}", text, player);
@@ -692,20 +727,6 @@ fn handle_message_part(message: JSONMessagePart) -> String {
         JSONMessagePart::Text { text } => text,
     }
 }
-// An ungodly mess, TODO Remove?
-/*pub async fn connect_archipelago_get_url() -> Result<ArchipelagoClient, ArchipelagoError> {
-    let url = input("Archipelago URL: ")?;
-    let name = input("Name: ")?;
-    let password = input("Password (Leave blank if unneeded): ")?;
-    log::info!("url: {}", url);
-
-    connect_archipelago(ArchipelagoData {
-        url,
-        name,
-        password,
-    })
-    .await
-}*/
 
 /*fn input(text: &str) -> Result<String, anyhow::Error> {
     log::info!("{}", text);
