@@ -383,16 +383,6 @@ fn set_relevant_key_items() {
         CHECKLIST.get().unwrap().write().unwrap();
     let current_inv_addr = utilities::read_usize_from_address(INVENTORY_PTR);
     log::debug!("Current INV Addr: 0x{:x}", current_inv_addr);
-    log::debug!("Resetting high roller card");
-    let item_addr = current_inv_addr
-        + 0x60
-        + KEY_ITEM_OFFSETS.get("High Roller Card").unwrap().clone() as usize;
-    log::debug!(
-        "Attempting to replace at address: 0x{:x} with flag 0x{:x}",
-        item_addr,
-        0x00
-    );
-    unsafe { utilities::replace_single_byte_no_offset(item_addr, 0x00) };
     let mut flag: u8;
     match MISSION_ITEM_MAP.get(&get_mission()) {
         None => {} // No items for the mission

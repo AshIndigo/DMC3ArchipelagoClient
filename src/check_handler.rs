@@ -1,6 +1,4 @@
-use crate::constants::{
-    ORIGINAL_HANDLE_MISSION_COMPLETE, ORIGINAL_HANDLE_PICKUP, ORIGINAL_ITEM_PICKED_UP,
-};
+use crate::constants::{INVENTORY_PTR, KEY_ITEM_OFFSETS, ORIGINAL_HANDLE_MISSION_COMPLETE, ORIGINAL_HANDLE_PICKUP, ORIGINAL_ITEM_PICKED_UP};
 use crate::utilities::get_mission;
 use crate::{constants, utilities};
 use once_cell::sync::OnceCell;
@@ -61,6 +59,7 @@ async fn send_off_location(item_id: i32) {
         })
         .await
         .expect("Failed to send Location!");
+        clear_high_roller();
     }
 }
 
@@ -77,7 +76,22 @@ async fn send_off_location_coords(item_id: i32, x_coord: u32, y_coord: u32, z_co
         })
         .await
         .expect("Failed to send Location!");
+        clear_high_roller();
     }
+}
+
+fn clear_high_roller() {
+    let current_inv_addr = utilities::read_usize_from_address(INVENTORY_PTR);
+    log::debug!("Resetting high roller card");
+    let item_addr = current_inv_addr
+        + 0x60
+        + KEY_ITEM_OFFSETS.get("High Roller Card").unwrap().clone() as usize;
+    log::debug!(
+        "Attempting to replace at address: 0x{:x} with flag 0x{:x}",
+        item_addr,
+        0x00
+    );
+    unsafe { utilities::replace_single_byte_no_offset(item_addr, 0x00) };
 }
 
 /// Hook into item picked up method (1aa6e0). Handles item pick up locations
