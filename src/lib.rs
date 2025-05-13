@@ -111,65 +111,6 @@ extern "system" fn exception_handler(exception_info: *mut EXCEPTION_POINTERS) ->
     EXCEPTION_CONTINUE_SEARCH
 }
 
-/*unsafe fn log_stack_trace(ctx: *mut CONTEXT) {
-    let process = GetCurrentProcess();
-    let thread = GetCurrentThread();
-
-    if SymInitialize(process, None, true).is_err() {
-        log::error!("SymInitialize failed");
-        return;
-    }
-
-    SymSetOptions(SYMOPT_LOAD_LINES | SYMOPT_UNDNAME);
-
-    let mut stack: STACKFRAME64 = zeroed();
-    stack.AddrPC.Offset = (*ctx).Rip;
-    stack.AddrPC.Mode = AddrModeFlat;
-    stack.AddrFrame.Offset = (*ctx).Rbp;
-    stack.AddrFrame.Mode = AddrModeFlat;
-    stack.AddrStack.Offset = (*ctx).Rsp;
-    stack.AddrStack.Mode = AddrModeFlat;
-
-    const MAX_FRAMES: usize = 64;
-    for _ in 0..MAX_FRAMES {
-        // let backtrace = Backtrace::capture();
-        // // let ok = StackWalk64(
-        // //     IMAGE_FILE_MACHINE_AMD64 as u32,
-        // //     process,
-        // //     thread,
-        // //     &mut stack,
-        // //     ctx as *mut _,
-        // //     None,
-        // //     Some(func_table_access),
-        // //     Some(module_base),
-        // //     None,
-        // // );
-        // 
-        // if ok == FALSE || stack.AddrPC.Offset == 0 {
-        //     break;
-        // }
-
-        let addr = stack.AddrPC.Offset;
-
-        let mut buffer = [0u8; size_of::<SYMBOL_INFO>() + 256];
-        let sym_info = buffer.as_mut_ptr() as *mut SYMBOL_INFO;
-        (*sym_info).SizeOfStruct = size_of::<SYMBOL_INFO>() as u32;
-        (*sym_info).MaxNameLen = 255;
-
-        unsafe {
-            if SymFromAddr(process, addr, None, sym_info).is_ok() {
-                let name = CStr::from_ptr((*sym_info).Name.as_ptr());
-                let name_str = name.to_string_lossy();
-                log::error!("📦 Other: {} - 0x{:X}", name_str, addr);
-            } else {
-                log::error!("❓ Unknown - 0x{:X}", addr);
-            }
-        }
-    }
-
-    unsafe { SymCleanup(process).expect("Failed to Sym Cleanup"); }
-}*/
-
 fn install_exception_handler() {
     unsafe {
         AddVectoredExceptionHandler(1, Some(exception_handler));

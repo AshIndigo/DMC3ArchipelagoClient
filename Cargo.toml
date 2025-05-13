@@ -42,13 +42,13 @@ egui-winit = { version = "0.31.1" }
 egui_demo_lib = "0.31.1"
 egui_logger = "0.7.0"
 egui-directx11 = "0.8.0"
-egui_overlay = { git = "https://github.com/PlugOvr-ai/egui_overlay" }
-egui_render_three_d = "0.9.0"
+#egui_overlay = { git = "https://github.com/PlugOvr-ai/egui_overlay" }
+#egui_render_three_d = "0.9.0"
 winit = { version = "0.30.10" }
 #egui_d3d11 = {path = "egui_d3d11"}
 #egui-d3d11 = {git = "https://github.com/janis-bhm/egui-d3d11.git"}
-faithe = "0.8.0"
-shroud = { version = "0.2.3", features = ["directx11"] }
+#faithe = "0.8.0"
+#shroud = { version = "0.2.3", features = ["directx11"] }
 #imgui = "0.11.0"
 #imgui-dx11-renderer = "0.8.0"
 #imgui-dx11-renderer = {git = "https://github.com/cohaereo/imgui-dx11-renderer"}

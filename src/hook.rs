@@ -1,11 +1,9 @@
 use crate::archipelago::{CHECKLIST, ItemEntry, Mapping};
-use crate::archipelago::{
-    CONNECT_CHANNEL_SETUP, MAPPING, SLOT_NUMBER, TEAM_NUMBER, connect_archipelago,
-};
+use crate::archipelago::{MAPPING, SLOT_NUMBER, TEAM_NUMBER, connect_archipelago};
 use crate::bank::setup_bank_channel;
 use crate::constants::*;
 use crate::utilities::get_mission;
-use crate::{archipelago, check_handler, constants, generated_locations, utilities};
+use crate::{archipelago, check_handler, generated_locations, utilities};
 use anyhow::{Error, anyhow};
 use archipelago_rs::client::ArchipelagoClient;
 use archipelago_rs::protocol::ClientStatus;
@@ -13,9 +11,11 @@ use minhook::{MH_STATUS, MinHook};
 use std::arch::asm;
 use std::collections::HashMap;
 use std::convert::Into;
-use std::sync::atomic::{AtomicIsize, Ordering};
-use std::sync::{LazyLock, Mutex, RwLockWriteGuard};
+use std::ffi::c_longlong;
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use std::sync::{LazyLock, RwLockWriteGuard};
 use std::{ptr, slice};
+use tokio::sync::Mutex;
 use winapi::um::libloaderapi::{FreeLibrary, GetModuleHandleW};
 use winapi::um::memoryapi::VirtualProtect;
 use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
@@ -80,56 +80,60 @@ pub(crate) static CLIENT: LazyLock<Mutex<Option<ArchipelagoClient>>> =
 
 pub(crate) static CONNECTION_STATUS: AtomicIsize = AtomicIsize::new(0); // Disconnected
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 pub(crate) async fn spawn_arch_thread() {
-    let mut setup = false; // ??
     log::info!("Archipelago Thread started");
-    // For handling connection requests from the UI
-    let rx_locations = check_handler::setup_items_channel().try_lock().expect("Could not lock RX_CONNECT");;
-    let rx_connect = archipelago::setup_connect_channel().try_lock().expect("Could not lock RX_CONNECT");
-    let rx_bank = setup_bank_channel().try_lock().expect("Could not lock RX_BANK");
-    CONNECT_CHANNEL_SETUP.store(true, Ordering::SeqCst); // Unneeded?
+
+    let mut setup = false;
+    let mut rx_locations = check_handler::setup_items_channel();
+    let mut rx_connect = archipelago::setup_connect_channel();
+    let mut rx_bank = setup_bank_channel();
 
     loop {
-        if CONNECT_CHANNEL_SETUP.load(Ordering::SeqCst) {
-            if let Ok(rec) = rx_connect.lock() {
-                while let Ok(item) = rec.try_recv() {
-                    log::info!("Processing data: {}", item);
-                    match connect_archipelago(item).await {
-                        Ok(cl) => {
-                            CLIENT.lock().unwrap().replace(cl);
-                            CONNECTION_STATUS.store(Status::Connected.into(), Ordering::SeqCst);
-                        }
-                        Err(err) => {
-                            log::error!("Failed to connect to archipelago: {}", err);
-                            CLIENT.lock().unwrap().take(); // Clear out the CLIENT field
-                            CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::SeqCst);
-                            SLOT_NUMBER.store(-1, Ordering::SeqCst);
-                            TEAM_NUMBER.store(-1, Ordering::SeqCst);
-                        }
-                    }
-                }
+        // Wait for a connection request
+        let Some(item) = rx_connect.recv().await else {
+            log::warn!("Connect channel closed, exiting Archipelago thread.");
+            break;
+        };
+
+        log::info!("Processing connection request: {}", item);
+        let mut client_lock = CLIENT.lock().await;
+
+        match connect_archipelago(item).await {
+            Ok(cl) => {
+                client_lock.replace(cl);
+                CONNECTION_STATUS.store(Status::Connected.into(), Ordering::SeqCst);
             }
-        }
-        match CLIENT.lock().unwrap().as_mut() {
-            // If the client exists and is usable, then try to initially set things up and then handle messages
-            Some(ref mut cl) => {
-                if setup == false {
-                    cl.status_update(ClientStatus::ClientReady)
-                        .await
-                        .expect("Status update failed?");
-                    archipelago::run_setup(cl).await;
-                    log::info!("Synchronizing items");
-                    archipelago::sync_items(cl).await;
-                    setup = true;
-                }
-                archipelago::handle_things(cl, &rx_locations, &rx_bank).await;
-            }
-            None => {
+            Err(err) => {
+                log::error!("Failed to connect to Archipelago: {}", err);
+                client_lock.take(); // Clear the client
                 CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::SeqCst);
-                setup = false;
+                SLOT_NUMBER.store(-1, Ordering::SeqCst);
+                TEAM_NUMBER.store(-1, Ordering::SeqCst);
+                continue; // Try again on next connection request
             }
         }
+
+        // Client is successfully connected
+        if let Some(ref mut client) = client_lock.as_mut() {
+            if let Err(e) = client.status_update(ClientStatus::ClientReady).await {
+                log::error!("Status update failed: {}", e);
+            }
+            if !setup {
+                archipelago::run_setup(client).await;
+                log::info!("Synchronizing items");
+                archipelago::sync_items(client).await;
+                setup = true;
+            }
+
+            // This blocks until a reconnect or disconnect is triggered
+            archipelago::handle_things(client, &mut rx_locations, &mut rx_bank, &mut rx_connect)
+                .await;
+        }
+
+        CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::SeqCst);
+        setup = false;
+        // Allow reconnect immediately without delay
     }
 }
 
@@ -187,10 +191,8 @@ pub fn edit_event_drop(param_1: i64, param_2: i32, param_3: i64) {
                         // Location has not been checked off! TODO Make the "check" event, a dummied out item
                         EventCode::GIVE => utilities::replace_single_byte_no_offset(
                             EVENT_TABLE_ADDR + event.offset,
-                            get_item_id(
-                                &*mapping.items.get(event_table.location).unwrap().name,
-                            )
-                            .unwrap(),
+                            get_item_id(&*mapping.items.get(event_table.location).unwrap().name)
+                                .unwrap(),
                         ),
                         EventCode::CHECK => utilities::replace_single_byte_no_offset(
                             EVENT_TABLE_ADDR + event.offset,
@@ -247,8 +249,7 @@ pub(crate) unsafe fn modify_adjudicator_drop() {
                     if entry.adjudicator && entry.mission == get_mission() as u8 {
                         // If Location is adjudicator and mission numbers match
                         let item_id =
-                            get_item_id(&*mapping.items.get(*location_name).unwrap().name)
-                                .unwrap(); // Get the item ID and replace
+                            get_item_id(&*mapping.items.get(*location_name).unwrap().name).unwrap(); // Get the item ID and replace
                         utilities::replace_single_byte(ADJUDICATOR_ITEM_ID_1, item_id);
                         utilities::replace_single_byte(ADJUDICATOR_ITEM_ID_2, item_id);
                     }
@@ -383,8 +384,9 @@ fn set_relevant_key_items() {
     let current_inv_addr = utilities::read_usize_from_address(INVENTORY_PTR);
     log::debug!("Current INV Addr: 0x{:x}", current_inv_addr);
     log::debug!("Resetting high roller card");
-    let item_addr =
-        current_inv_addr + 0x60 + KEY_ITEM_OFFSETS.get("High Roller Card").unwrap().clone() as usize;
+    let item_addr = current_inv_addr
+        + 0x60
+        + KEY_ITEM_OFFSETS.get("High Roller Card").unwrap().clone() as usize;
     log::debug!(
         "Attempting to replace at address: 0x{:x} with flag 0x{:x}",
         item_addr,
@@ -402,9 +404,8 @@ fn set_relevant_key_items() {
                 } else {
                     flag = 0x00;
                 }
-                let item_addr = current_inv_addr
-                    + 0x60
-                    + KEY_ITEM_OFFSETS.get(item).unwrap().clone() as usize;
+                let item_addr =
+                    current_inv_addr + 0x60 + KEY_ITEM_OFFSETS.get(item).unwrap().clone() as usize;
                 log::debug!(
                     "Attempting to replace at address: 0x{:x} with flag 0x{:x}",
                     item_addr,
@@ -450,7 +451,7 @@ fn setup_hooks() -> Result<(), MH_STATUS> {
             ORIGINAL_HANDLE_MISSION_COMPLETE,
             "Mission complete"
         );
-        
+
         install_hook!(
             ITEM_SPAWNS_ADDR,
             item_spawns_hook,
@@ -463,7 +464,44 @@ fn setup_hooks() -> Result<(), MH_STATUS> {
             ORIGINAL_EDIT_EVENT,
             "Event table"
         );
+        // install_hook!(
+        //     RENDER_TEXT_ADDR,
+        //     parry_text,
+        //     ORIGINAL_RENDER_TEXT,
+        //     "Render Text"
+        // );
         Ok(())
+    }
+}
+
+pub static CANCEL_TEXT: AtomicBool = AtomicBool::new(false);
+
+pub unsafe fn parry_text(
+    param_1: c_longlong,
+    param_2: c_longlong,
+    param_3: c_longlong,
+    param_4: c_longlong,
+) {
+    //Parry text: param_1: 7ff7648d89a0, param_2: 120, param_3: 4140, param_4: 10000,
+    // Parry text: param_1: 7ff7648d89a0, param_2: 120, param_3: 140, param_4: 10000,
+    if param_1 == (utilities::get_dmc3_base_address() + 0xCB89A0) as c_longlong {
+        // This might only be compatible with ENG?
+        log::debug!(
+            "Parry text: param_1: {:x}, param_2: {:x}, param_3: {:x}, param_4: {:x},",
+            param_1,
+            param_2,
+            param_3,
+            param_4
+        );
+        if CANCEL_TEXT.load(Ordering::Relaxed) {
+            CANCEL_TEXT.store(false, Ordering::Relaxed);
+            return;
+        }
+    }
+    unsafe {
+        if let Some(original) = ORIGINAL_RENDER_TEXT.get() {
+            original(param_1, param_2, param_3, param_4);
+        }
     }
 }
 
@@ -489,12 +527,12 @@ pub unsafe fn modify_itm_table(offset: usize, id: u8) {
         table[3] = id;
 
         VirtualProtect(true_offset as *mut _, 4, old_protect, &mut old_protect);
-        log::debug!(
-            "Modified Item Table: Address: 0x{:x}, ID: 0x{:x}, Offset: 0x{:x}",
-            true_offset,
-            id,
-            offset
-        );
+        // log::trace!(
+        //     "Modified Item Table: Address: 0x{:x}, ID: 0x{:x}, Offset: 0x{:x}",
+        //     true_offset,
+        //     id,
+        //     offset
+        // ); // Shushing this for now
     }
 }
 

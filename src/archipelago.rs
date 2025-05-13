@@ -4,7 +4,7 @@ use crate::constants::{EventCode, GAME_NAME, Status};
 use crate::hook::{CONNECTION_STATUS, modify_itm_table};
 use crate::ui::ui::ArchipelagoHud;
 use crate::utilities::get_mission;
-use crate::{cache, constants, generated_locations, hook, utilities};
+use crate::{bank, cache, constants, generated_locations, hook, utilities};
 use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
 use archipelago_rs::protocol::{Connected, JSONMessagePart, PrintJSON, ServerMessage};
@@ -14,22 +14,23 @@ use std::fmt::{Display, Formatter};
 use std::fs::{File, remove_file};
 use std::io::{BufReader, Write};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-use std::sync::mpsc::{Receiver, Sender};
-use std::sync::{Arc, Mutex, OnceLock, RwLock, mpsc};
+use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::{Mutex, OnceLock, RwLock, RwLockReadGuard};
+use std::time::Duration;
+use tokio::sync;
+use tokio::sync::mpsc::Receiver;
 
 pub static MAPPING: OnceLock<Mapping> = OnceLock::new();
 pub static CHECKLIST: OnceLock<RwLock<HashMap<String, bool>>> = OnceLock::new();
-pub static DATA_PACKAGE: OnceLock<CustomGameData> = OnceLock::new();
+
 pub static CHECKED_LOCATIONS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
 pub static HUD_INSTANCE: OnceLock<Mutex<ArchipelagoHud>> = OnceLock::new();
 pub static CONNECTED: OnceLock<Mutex<Connected>> = OnceLock::new();
 
 pub static BANK: OnceLock<Mutex<HashMap<&'static str, i32>>> = OnceLock::new();
 
-pub static TX_ARCH: OnceLock<Sender<ArchipelagoData>> = OnceLock::new();
+pub static TX_ARCH: OnceLock<sync::mpsc::Sender<ArchipelagoData>> = OnceLock::new();
 
-pub static CONNECT_CHANNEL_SETUP: AtomicBool = AtomicBool::new(false);
 pub static SLOT_NUMBER: AtomicI32 = AtomicI32::new(-1);
 pub static TEAM_NUMBER: AtomicI32 = AtomicI32::new(-1);
 
@@ -75,10 +76,10 @@ impl Display for ArchipelagoData {
     }
 }
 
-pub fn setup_connect_channel() -> Arc<Mutex<Receiver<ArchipelagoData>>> {
-    let (tx, rx) = mpsc::channel();
+pub fn setup_connect_channel() -> Receiver<ArchipelagoData> {
+    let (tx, rx) = sync::mpsc::channel(8);
     TX_ARCH.set(tx).expect("TX already initialized");
-    Arc::new(Mutex::new(rx))
+    rx
 }
 
 pub async fn get_archipelago_client(
@@ -91,7 +92,7 @@ pub async fn get_archipelago_client(
             Some(vec![GAME_NAME.parse().expect("Failed to parse string")]),
         )
         .await?;
-        
+
         match &cl.data_package() {
             // Write the data package to a local cache file
             None => {
@@ -162,7 +163,11 @@ pub async fn connect_archipelago(
                     .map(|(k, v)| (*v, k.clone())),
             );
             connected.checked_locations.iter_mut().for_each(|val| {
-                checked_locations.push((&*reversed_loc_id.get(val).unwrap().clone()).parse().unwrap());
+                checked_locations.push(
+                    (&*reversed_loc_id.get(val).unwrap().clone())
+                        .parse()
+                        .unwrap(),
+                );
             });
             log::info!("Connected info: {:?}", connected);
             SLOT_NUMBER.store(connected.slot, Ordering::SeqCst);
@@ -221,32 +226,28 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) {
     match cl.data_package() {
         Some(_dat) => {
             log::info!("Using received data package");
-            DATA_PACKAGE
-                .set(CustomGameData {
-                    item_name_to_id: cl
-                        .data_package()
-                        .unwrap()
-                        .games
-                        .get(GAME_NAME)
-                        .unwrap()
-                        .item_name_to_id
-                        .clone(),
-                    location_name_to_id: cl
-                        .data_package()
-                        .unwrap()
-                        .games
-                        .get(GAME_NAME)
-                        .unwrap()
-                        .location_name_to_id
-                        .clone(),
-                })
-                .expect("DATA_PACKAGE already set");
+            set_data_package(CustomGameData {
+                item_name_to_id: cl
+                    .data_package()
+                    .unwrap()
+                    .games
+                    .get(GAME_NAME)
+                    .unwrap()
+                    .item_name_to_id
+                    .clone(),
+                location_name_to_id: cl
+                    .data_package()
+                    .unwrap()
+                    .games
+                    .get(GAME_NAME)
+                    .unwrap()
+                    .location_name_to_id
+                    .clone(),
+            });
         }
         None => {
             log::info!("No data package found, using cached data");
-            DATA_PACKAGE
-                .set(read_cache().expect("Expected cache file"))
-                .expect("DATA_PACKAGE already set");
+            set_data_package(read_cache().expect("Expected cache file"));
         }
     }
     // TODO Refactor the error handling + Use seed as some kind verification system? Ensure right mappings are being used?
@@ -263,7 +264,7 @@ pub struct Mapping {
     pub slot: String,
     pub items: HashMap<String, LocationData>,
     pub starter_items: Vec<String>,
-    pub players: Vec<String>
+    pub players: Vec<String>,
 }
 #[derive(Deserialize, Serialize, Debug)]
 pub struct LocationData {
@@ -355,29 +356,56 @@ pub fn load_mappings_file() -> Result<Mapping, Box<dyn std::error::Error>> {
 
 pub async fn handle_things(
     client: &mut ArchipelagoClient,
-    loc_rx: &Arc<Mutex<Receiver<Location>>>,
-    bank_rx: &Arc<Mutex<Receiver<String>>>,
+    loc_rx: &mut Receiver<Location>,
+    bank_rx: &mut Receiver<String>,
+    connect_rx: &mut Receiver<ArchipelagoData>, // <- new
 ) {
-    match handle_item_receive(client, loc_rx).await {
-        Ok(_) => {}
-        Err(err) => {
-            log::error!("Failed to check location: {}", err);
+    loop {
+        tokio::select! {
+            Some(message) = loc_rx.recv() => {
+                if let Err(err) = handle_item_receive(client, message).await {
+                    log::error!("Failed to handle item receive: {}", err);
+                }
+            }
+            Some(message) = bank_rx.recv() => {
+                if let Err(err) = bank::handle_bank(client, message).await {
+                    log::error!("Failed to handle bank: {}", err);
+                }
+            }
+            Some(reconnect_request) = connect_rx.recv() => {
+                log::warn!("Reconnect requested while connected: {}", reconnect_request);
+                break; // Exit to trigger reconnect in spawn_arch_thread
+            }
+            message = client.recv() => {
+                if let Err(err) = handle_client_messages(message, client).await {
+                    log::error!("Client error or disconnect: {}", err);
+                    break; // Exit to allow clean reconnect
+                }
+            }
         }
-    };
-    //bank::handle_bank(bank_rx); // TODO Bank
-    match client.recv().await {
+    }
+}
+
+async fn handle_client_messages(
+    result: Result<Option<ServerMessage>, ArchipelagoError>,
+    client: &mut ArchipelagoClient,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match result {
         Ok(opt_msg) => match opt_msg {
-            None => {}
+            None => Ok(()),
             Some(ServerMessage::PrintJSON(json_msg)) => {
                 log::info!("{}", handle_print_json(json_msg));
+                Ok(())
             }
-            Some(ServerMessage::RoomInfo(_)) => {}
+            Some(ServerMessage::RoomInfo(_)) => Ok(()),
             Some(ServerMessage::ConnectionRefused(err)) => {
                 // TODO Update UI status to mark as refused+reason
                 log::error!("Connection refused: {:?}", err.errors);
+                Ok(())
             }
             Some(ServerMessage::Connected(_)) => {
                 CONNECTION_STATUS.store(Status::Connected.into(), Ordering::Relaxed);
+                Ok(())
             }
             Some(ServerMessage::ReceivedItems(items)) => {
                 // READ https://github.com/ArchipelagoMW/Archipelago/blob/main/docs/network%20protocol.md#synchronizing-items
@@ -394,41 +422,39 @@ pub async fn handle_things(
                     }
                 }
                 log::debug!("Received items: {:?}", items.items);
+                Ok(())
             }
-            Some(ServerMessage::LocationInfo(_)) => {}
-            Some(ServerMessage::RoomUpdate(_)) => {}
+            Some(ServerMessage::LocationInfo(_)) => Ok(()),
+            Some(ServerMessage::RoomUpdate(_)) => Ok(()),
             Some(ServerMessage::Print(msg)) => {
                 log::info!("Printing message: {}", msg.text);
+                Ok(())
             }
-            Some(ServerMessage::DataPackage(_)) => {} // Ignore
+            Some(ServerMessage::DataPackage(_)) => Ok(()), // Ignore
             Some(ServerMessage::Bounced(_)) => {
-                log::debug!("Boing!")
+                log::debug!("Boing!");
+                Ok(())
             }
             Some(ServerMessage::InvalidPacket(invalid_packet)) => {
                 log::error!("Invalid packet: {:?}", invalid_packet);
+                Ok(())
             }
-            Some(ServerMessage::Retrieved(_)) => {}
+            Some(ServerMessage::Retrieved(_)) => Ok(()),
             Some(ServerMessage::SetReply(reply)) => {
                 log::debug!("SetReply: {:?}", reply); // TODO Use this for the bank...
+                Ok(())
             }
         },
         Err(ArchipelagoError::NetworkError(err)) => {
             log::info!("Failed to receive data, reconnecting: {}", err);
-            match get_hud_data().lock() {
-                Ok(data) => match connect_archipelago(ArchipelagoData {
-                    url: data.arch_url.clone(),
-                    name: data.username.clone(),
-                    password: data.username.clone(),
-                })
-                .await
-                {
-                    Ok(cl) => *client = cl,
-                    Err(err) => log::error!("Failed to connect: {}", err),
-                },
-                Err(err) => {
-                    log::error!("Failed to get hud data: {}", err);
-                }
-            }
+            let data = get_hud_data().lock()?;
+            *client = connect_archipelago(ArchipelagoData {
+                url: data.arch_url.clone(),
+                name: data.username.clone(),
+                password: data.username.clone(),
+            })
+            .await?;
+            Ok(())
         }
         Err(ArchipelagoError::IllegalResponse { received, expected }) => {
             log::error!(
@@ -436,41 +462,60 @@ pub async fn handle_things(
                 expected,
                 received
             );
+            Err(ArchipelagoError::IllegalResponse { received, expected }.into())
         }
         Err(ArchipelagoError::ConnectionClosed) => {
             CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::Relaxed);
             log::info!("Connection closed"); // TODO Update status?
+            Err(ArchipelagoError::ConnectionClosed.into())
         }
         Err(ArchipelagoError::FailedSerialize(err)) => {
             log::error!("Failed to serialize message: {}", err);
+            Err(ArchipelagoError::FailedSerialize(err).into())
         }
         Err(ArchipelagoError::NonTextWebsocketResult(msg)) => {
-            log::error!("Non-text websocket result: {:?}", msg.into_data());
+            log::error!("Non-text websocket result: {:?}", msg);
+            Err(ArchipelagoError::NonTextWebsocketResult(msg).into())
         }
+    }
+}
+
+use once_cell::sync::Lazy;
+
+static DATA_PACKAGE: Lazy<RwLock<Option<CustomGameData>>> = Lazy::new(|| RwLock::new(None));
+
+pub fn set_data_package(value: CustomGameData) {
+    let mut lock = DATA_PACKAGE.write().unwrap();
+    *lock = Some(value);
+}
+
+pub fn get_data_package() -> Option<RwLockReadGuard<'static, Option<CustomGameData>>> {
+    let guard = DATA_PACKAGE.read().unwrap();
+    if guard.is_some() {
+        Some(guard) // caller will need to deref and unwrap
+    } else {
+        None
     }
 }
 
 async fn handle_item_receive(
     client: &mut ArchipelagoClient,
-    loc_rx: &Arc<Mutex<Receiver<Location>>>,
+    received_item: Location,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if let Ok(item_rec) = loc_rx.lock() {
-        while let Ok(received_item) = item_rec.try_recv() {
-            // See if there's an item!
-            log::info!("Processing item: {}", received_item); // TODO Need to handle offline storage... if the item cant be sent it needs to be buffered
-            let Some(mapping_data) = MAPPING.get() else {
-                return Err(Box::from(anyhow!("No mapping found")));
-            };
-            let Some(dp) = DATA_PACKAGE.get() else {
-                return Err(Box::from(anyhow!("Data package not found!")));
-            };
+    // See if there's an item!
+    log::info!("Processing item: {}", received_item); // TODO Need to handle offline storage... if the item cant be sent it needs to be buffered
+    let Some(mapping_data) = MAPPING.get() else {
+        return Err(Box::from(anyhow!("No mapping found")));
+    };
+    if let Some(data_guard) = get_data_package() {
+        if let Some(data) = data_guard.as_ref() {
             for (location_key, item_entry) in generated_locations::ITEM_MISSION_MAP.iter() {
                 //log::debug!("Checking room {} vs {} and mission {} vs {}", v.room_number as i32, item.room, v.mission as i32, item.mission);
                 if item_entry.room_number as i32 == received_item.room {
                     if item_entry.x_coord == 0
                         || (item_entry.x_coord == received_item.x_coord
-                            && item_entry.y_coord == received_item.y_coord
-                            && item_entry.z_coord == received_item.z_coord)
+                        && item_entry.y_coord == received_item.y_coord
+                        && item_entry.z_coord == received_item.z_coord)
                     {
                         let location_data = mapping_data.items.get(*location_key).unwrap();
                         log::debug!("Believe this to be: {}", location_key);
@@ -479,13 +524,20 @@ async fn handle_item_receive(
                             constants::get_item_id(&*location_data.name).unwrap(),
                             received_item.item_id as u8
                         );
-                        if constants::get_item_id(&*location_data.name).unwrap() == received_item.item_id as u8
+                        if constants::get_item_id(&*location_data.name).unwrap()
+                            == received_item.item_id as u8
                         {
                             // Then see if the item picked up matches the specified in the map
-                            match dp.location_name_to_id.get(*location_key) {
+                            match data.location_name_to_id.get(*location_key) {
                                 Some(loc_id) => {
                                     edit_end_event(*location_key);
-                                    unsafe { utilities::display_message(&location_data.description); }
+                                    tokio::spawn(async move {
+                                        tokio::time::sleep(Duration::from_millis(1500)).await;
+                                        unsafe {
+                                            utilities::display_message(&location_data.description);
+                                        }
+                                    });
+                                    hook::CANCEL_TEXT.store(true, Ordering::Relaxed);
                                     client.location_checks(vec![loc_id.clone()]).await?;
                                     if constants::KEY_ITEMS.contains(&&*location_data.name) {
                                         set_checklist_item(&*location_data.name, true);
@@ -498,9 +550,7 @@ async fn handle_item_receive(
                                         location_data.name
                                     );
                                 }
-                                None => {
-                                    Err(anyhow::anyhow!("Location not found: {}", location_key))?
-                                }
+                                None => Err(anyhow::anyhow!("Location not found: {}", location_key))?,
                             }
                         }
                     }
@@ -576,7 +626,11 @@ fn handle_print_json(print_json: PrintJSON) -> String {
                 final_message.push_str(&*handle_message_part(message));
             }
         }
-        PrintJSON::Part { data, team: _team, slot: _slot } => {
+        PrintJSON::Part {
+            data,
+            team: _team,
+            slot: _slot,
+        } => {
             for message in data {
                 final_message.push_str(&*handle_message_part(message));
             }
@@ -591,7 +645,10 @@ fn handle_print_json(print_json: PrintJSON) -> String {
                 final_message.push_str(&*handle_message_part(message));
             }
         }
-        PrintJSON::ServerChat { data, message: _message } => {
+        PrintJSON::ServerChat {
+            data,
+            message: _message,
+        } => {
             for message in data {
                 final_message.push_str(&*handle_message_part(message));
             }
@@ -621,22 +678,37 @@ fn handle_print_json(print_json: PrintJSON) -> String {
                 final_message.push_str(&*handle_message_part(message));
             }
         }
-        PrintJSON::Goal { data, team: _team, slot: _slot } => {
+        PrintJSON::Goal {
+            data,
+            team: _team,
+            slot: _slot,
+        } => {
             for message in data {
                 final_message.push_str(&*handle_message_part(message));
             }
         }
-        PrintJSON::Release { data, team: _team, slot: _slot } => {
+        PrintJSON::Release {
+            data,
+            team: _team,
+            slot: _slot,
+        } => {
             for message in data {
                 final_message.push_str(&*handle_message_part(message));
             }
         }
-        PrintJSON::Collect { data, team: _team, slot: _slot } => {
+        PrintJSON::Collect {
+            data,
+            team: _team,
+            slot: _slot,
+        } => {
             for message in data {
                 final_message.push_str(&*handle_message_part(message));
             }
         }
-        PrintJSON::Countdown { data, countdown: _countdown } => {
+        PrintJSON::Countdown {
+            data,
+            countdown: _countdown,
+        } => {
             for message in data {
                 final_message.push_str(&*handle_message_part(message));
             }
