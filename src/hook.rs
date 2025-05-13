@@ -1,13 +1,13 @@
-use crate::archipelago::{CHECKLIST, ItemEntry, Mapping};
-use crate::archipelago::{MAPPING, SLOT_NUMBER, TEAM_NUMBER, connect_archipelago};
+use crate::archipelago::{ItemEntry, CHECKLIST};
+use crate::archipelago::{connect_archipelago, SLOT_NUMBER, TEAM_NUMBER};
 use crate::bank::setup_bank_channel;
 use crate::constants::*;
 use crate::utilities::get_mission;
 use crate::{archipelago, check_handler, generated_locations, utilities};
-use anyhow::{Error, anyhow};
+use anyhow::{anyhow, Error};
 use archipelago_rs::client::ArchipelagoClient;
 use archipelago_rs::protocol::ClientStatus;
-use minhook::{MH_STATUS, MinHook};
+use minhook::{MinHook, MH_STATUS};
 use std::arch::asm;
 use std::collections::HashMap;
 use std::convert::Into;
@@ -21,9 +21,10 @@ use winapi::um::memoryapi::VirtualProtect;
 use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::System::Console::{
-    AllocConsole, ENABLE_VIRTUAL_TERMINAL_PROCESSING, FreeConsole, GetConsoleMode, GetStdHandle,
-    STD_OUTPUT_HANDLE, SetConsoleMode,
+    AllocConsole, FreeConsole, GetConsoleMode, GetStdHandle, SetConsoleMode,
+    ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_OUTPUT_HANDLE,
 };
+use crate::mapping::{Mapping, MAPPING};
 
 pub fn create_console() {
     unsafe {

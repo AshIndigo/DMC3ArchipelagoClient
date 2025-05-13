@@ -1,10 +1,10 @@
 use crate::cache::read_cache;
 use crate::check_handler::Location;
-use crate::constants::{EventCode, GAME_NAME, Status};
-use crate::hook::{CONNECTION_STATUS, modify_itm_table};
+use crate::constants::{EventCode, Status, GAME_NAME};
+use crate::hook::{CONNECTION_STATUS};
 use crate::ui::ui::ArchipelagoHud;
 use crate::utilities::get_mission;
-use crate::{bank, cache, constants, generated_locations, hook, utilities};
+use crate::{bank, cache, constants, generated_locations, hook, mapping, utilities};
 use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
 use archipelago_rs::protocol::{
@@ -14,18 +14,17 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::fs::{File, remove_file};
-use std::io::{BufReader, Write};
-use std::path::Path;
+use std::fs::{remove_file, File};
+use std::io::{Write};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Mutex, OnceLock, RwLock, RwLockReadGuard};
 use std::time::Duration;
 use tokio::sync;
 use tokio::sync::mpsc::Receiver;
+use crate::mapping::MAPPING;
 
 static DATA_PACKAGE: Lazy<RwLock<Option<DataPackageObject>>> = Lazy::new(|| RwLock::new(None));
 
-pub static MAPPING: OnceLock<Mapping> = OnceLock::new();
 pub static CHECKLIST: OnceLock<RwLock<HashMap<String, bool>>> = OnceLock::new();
 
 pub static CHECKED_LOCATIONS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
@@ -210,9 +209,11 @@ fn set_checklist_item(item: &str, value: bool) {
     }
 }
 
+pub(crate) const LOGIN_DATA_FILE: &str = "login_data.json";
+
 fn save_connection_info(login_data: ArchipelagoData) -> Result<(), Box<dyn std::error::Error>> {
     let res = serde_json::to_string(&login_data)?;
-    let mut file = File::create("login_data.json")?;
+    let mut file = File::create(LOGIN_DATA_FILE)?;
     file.write_all(res.as_bytes())?;
     Ok(())
 }
@@ -235,25 +236,10 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) {
     // TODO Refactor the error handling + Use seed as some kind verification system? Ensure right mappings are being used?
     if MAPPING.get().is_none() {
         MAPPING
-            .set(load_mappings_file().unwrap())
+            .set(mapping::load_mappings_file().unwrap())
             .expect("MAPPING already set");
     }
-    use_mappings();
-}
-
-#[derive(Deserialize, Serialize, Debug)]
-pub struct Mapping {
-    // For mapping JSON
-    pub seed: String,
-    pub slot: String,
-    pub items: HashMap<String, LocationData>,
-    pub starter_items: Vec<String>,
-    pub players: Vec<String>,
-}
-#[derive(Deserialize, Serialize, Debug)]
-pub struct LocationData {
-    pub name: String,
-    pub description: String,
+    mapping::use_mappings();
 }
 
 pub struct ItemEntry {
@@ -269,37 +255,7 @@ pub struct ItemEntry {
     // TODO Secret
 }
 
-fn use_mappings() {
-    // TODO Need to see if the provided seed matches up with the world seed or something to ensure mappings are correct
-    match MAPPING.get() {
-        Some(data) => {
-            for (location_name, location_data) in data.items.iter() {
-                match generated_locations::ITEM_MISSION_MAP.get(location_name as &str) {
-                    Some(entry) => match constants::get_item_id(&*location_data.name) {
-                        Some(id) => unsafe {
-                            if location_is_checked_and_end(location_name) {
-                                modify_itm_table(entry.offset, hook::DUMMY_ID)
-                            } else {
-                                modify_itm_table(entry.offset, id)
-                            }
-                        },
-                        None => {
-                            log::warn!("Item not found: {}", location_data.name);
-                        }
-                    },
-                    None => {
-                        log::warn!("Location not found: {}", location_name);
-                    }
-                }
-            }
-        }
-        None => {
-            log::error!("No mapping found");
-        }
-    }
-}
-
-fn location_is_checked_and_end(location_key: &str) -> bool {
+pub(crate) fn location_is_checked_and_end(location_key: &str) -> bool {
     match constants::EVENT_TABLES.get(&get_mission()) {
         None => false,
         Some(event_tables) => {
@@ -324,17 +280,6 @@ fn location_is_checked_and_end(location_key: &str) -> bool {
             }
             false
         }
-    }
-}
-
-pub fn load_mappings_file() -> Result<Mapping, Box<dyn std::error::Error>> {
-    if Path::new("mappings.json").try_exists()? {
-        log::info!("Mapping file Exists!");
-        let mut json_reader =
-            serde_json::Deserializer::from_reader(BufReader::new(File::open("mappings.json")?));
-        Ok(Mapping::deserialize(&mut json_reader)?)
-    } else {
-        Err(Box::from(anyhow!("Mapping file doesn't exist")))
     }
 }
 

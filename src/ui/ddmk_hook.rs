@@ -31,8 +31,8 @@ unsafe extern "C" fn hooked_timestep() {
             MinHook::enable_hook((get_mary_base_address() + MAIN_FUNC_ADDR) as _)
                 .expect("Failed to enable hook");
             SETUP.store(true, Ordering::SeqCst);
-            if path::Path::new("login_data.json").exists() {
-                match fs::File::open("login_data.json") {
+            if path::Path::new(archipelago::LOGIN_DATA_FILE).exists() {
+                match fs::File::open(archipelago::LOGIN_DATA_FILE) {
                     Ok(login_data_file) => {
                         let reader = BufReader::new(login_data_file);
                         let mut json_reader = serde_json::Deserializer::from_reader(reader);
@@ -52,7 +52,7 @@ unsafe extern "C" fn hooked_timestep() {
                         }
                     }
                     Err(err) => {
-                        log::error!("Failed to open login_data.json: {}", err);
+                        log::error!("Failed to open {}: {}", archipelago::LOGIN_DATA_FILE, err);
                     }
                 }
             }
@@ -241,7 +241,8 @@ async fn connect_button_pressed(url: String, name: String, password: String) {
                 name,
                 password,
             })
-                .await.expect("Failed to send data");
+            .await
+            .expect("Failed to send data");
         }
     }
 }
@@ -252,7 +253,8 @@ async fn retrieve_button_pressed(item_name: &&str) {
         None => log::error!("Connect TX doesn't exist"),
         Some(tx) => {
             tx.send(item_name.parse().unwrap())
-                .await.expect("Failed to send data");
+                .await
+                .expect("Failed to send data");
         }
     }
     todo!()
