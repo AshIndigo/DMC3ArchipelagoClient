@@ -3,7 +3,8 @@ use std::error::Error;
 use std::fs::File;
 use std::io::{BufReader, Write};
 use std::path::Path;
-use archipelago_rs::protocol::{DataPackageObject, ReceivedItems};
+use std::sync::atomic::AtomicI32;
+use archipelago_rs::protocol::{ReceivedItems};
 use serde::{Deserialize, Serialize};
 
 const SAVE_FILE: &str = "archipelago.json";
@@ -12,6 +13,7 @@ const SAVE_FILE: &str = "archipelago.json";
 pub struct SaveData {
     save_indices: HashMap<String, i32>
 }
+static CURRENT_INDEX: AtomicI32 = AtomicI32::new(0);
 
 pub async fn write_save_data(data: SaveData) -> Result<(), Box<dyn Error>> {
     let mut file = File::create(SAVE_FILE)?;
@@ -20,16 +22,16 @@ pub async fn write_save_data(data: SaveData) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-pub(crate) fn read_save_data() -> Result<DataPackageObject, anyhow::Error> {
-    let cache = DataPackageObject::deserialize(&mut serde_json::Deserializer::from_reader(
+pub(crate) fn read_save_data() -> Result<SaveData, anyhow::Error> {
+    let save_data = SaveData::deserialize(&mut serde_json::Deserializer::from_reader(
         BufReader::new(File::open(SAVE_FILE)?),
     ))?;
-    Ok(cache)
+    Ok(save_data)
 }
 
 pub fn check_for_save_data() -> bool {
     Path::new(SAVE_FILE).try_exists().unwrap_or_else(|err| {
-        log::info!("Failed to check for cache file: {}", err);
+        log::info!("Failed to check for save file: {}", err);
         false
     })
 }

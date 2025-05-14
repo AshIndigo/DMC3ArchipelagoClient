@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::convert::Into;
 use std::ffi::c_longlong;
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
-use std::sync::{LazyLock, RwLockWriteGuard};
+use std::sync::{LazyLock, RwLock, RwLockWriteGuard};
 use std::{ptr, slice};
 use tokio::sync::Mutex;
 use winapi::um::libloaderapi::{FreeLibrary, GetModuleHandleW};
@@ -68,6 +68,9 @@ pub unsafe extern "system" fn free_self() -> bool {
 }
 
 pub(crate) fn install_initial_functions() {
+    CHECKLIST
+        .set(RwLock::new(HashMap::new()))
+        .expect("Unable to create the Checklist HashMap"); // Didn't really have a better place to put this
     setup_hooks().unwrap_or_else(|status| {
         panic!(
             "Unable to initialize hooks, randomizer is unable to function: {:?}",
@@ -286,7 +289,7 @@ fn item_spawns_hook(unknown: i64) {
                     let item_ref: &u32 = &*(item_addr as *const u32);
                     log::debug!(
                         "Item ID: {} (0x{:x})",
-                        get_item(*item_ref as u8),
+                        get_item_name(*item_ref as u8),
                         *item_ref
                     );
                     for (location_name, entry) in generated_locations::ITEM_MISSION_MAP.iter() {
@@ -335,7 +338,7 @@ unsafe fn check_and_replace_item(
                     "Replaced item in room {} ({}) with {} 0x{:x}",
                     entry.room_number,
                     location_name,
-                    get_item(*item_ref as u8),
+                    get_item_name(*item_ref as u8),
                     ins_val.unwrap() as i32
                 );
             }

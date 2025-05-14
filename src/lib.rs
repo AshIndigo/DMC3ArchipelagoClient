@@ -2,11 +2,11 @@
 #![feature(ascii_char)]
 #![recursion_limit = "512"]
 
+use std::env::current_exe;
 use crate::hook::create_console;
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
 use std::ffi::c_void;
-use std::sync::OnceLock;
 use std::thread;
 use winapi::shared::guiddef::REFIID;
 use winapi::shared::minwindef::{DWORD, LPVOID};
@@ -60,8 +60,6 @@ fn load_real_dinput8() {
     });
 }
 
-pub static DLL_HINST: OnceLock<isize> = OnceLock::new();
-
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
 pub extern "system" fn DllMain(
@@ -76,13 +74,12 @@ pub extern "system" fn DllMain(
 
     match fdw_reason {
         DLL_PROCESS_ATTACH => {
-            DLL_HINST
-                .set(_hinst_dll.0 as isize)
-                .expect("Failed to set hinst dll");
             thread::spawn(|| {
                 load_real_dinput8();
-                load_other_dlls();
-                main_setup();
+                if current_exe().unwrap().ends_with("dmc3.exe") {
+                    load_other_dlls();
+                    main_setup();
+                }
             });
         }
         DLL_PROCESS_DETACH => {
@@ -120,7 +117,9 @@ fn install_exception_handler() {
 }
 
 fn load_other_dlls() {
+    // The game will immolate if both of these try to load
     let _ = unsafe { LoadLibraryA(b"Mary.dll\0".as_ptr() as _) };
+    let _ = unsafe { LoadLibraryA(b"Crimson.dll\0".as_ptr() as _) };
 }
 
 fn main_setup() {
@@ -142,7 +141,8 @@ fn main_setup() {
         ui::ddmk_hook::setup_ddmk_hook();
     } else {
         log::info!("DDMK is not loaded!");
-        //experiments::egui::start_egui();
+        egui_logger::builder().init().unwrap();
+        ui::egui_ui::start_egui();
         // thread::Builder::new()
         //     .name("Archipelago HUD".to_string())
         //     .spawn(move || {

@@ -35,7 +35,7 @@ pub fn start_egui() {
         event_loop_builder.with_any_thread(true);
     }));
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([320.0, 240.0]),
+        viewport: egui::ViewportBuilder::default().with_inner_size([640.0, 480.0]),
         event_loop_builder,
         ..Default::default()
     };

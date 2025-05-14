@@ -10,13 +10,12 @@ use hook::CONNECTION_STATUS;
 use imgui_sys::{ImGuiCond, ImGuiCond_Always, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
 use minhook::MinHook;
 use serde::Deserialize;
-use std::collections::HashMap;
 use std::ffi::c_int;
 use std::io::BufReader;
 use std::ops::{Deref, DerefMut};
 use std::os::raw::c_char;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{MutexGuard, OnceLock, RwLock};
+use std::sync::{MutexGuard, OnceLock};
 use std::{fs, path, thread};
 
 static SETUP: AtomicBool = AtomicBool::new(false);
@@ -257,22 +256,13 @@ async fn retrieve_button_pressed(item_name: &&str) {
                 .expect("Failed to send data");
         }
     }
-    todo!()
 }
 
 pub fn setup_ddmk_hook() {
     log::info!("Starting up DDMK hook");
-    // let orig_main = get_mary_base_address() + MAIN_FUNC_ADDR;
-    //let orig_main = get_mary_base_address() + 0xC17B0; // I think this is main() in DDMK? For 2022 DDMK
-    //let orig_timestep = get_mary_base_address() + TIMESTEP_FUNC_ADDR;
-    CHECKLIST
-        .set(RwLock::new(HashMap::new()))
-        .expect("To be create the Checklist HashMap");
     log::info!("Mary base ADDR: {:x}", get_mary_base_address());
     init_render_func();
     init_timestep_func();
-    //ORIG_RENDER_FUNC.set(Some(std::mem::transmute::<_, BasicNothingFunc>(MinHook::create_hook(orig_main as _, hooked_render as _).expect("Failed to create hook"))));
-    //ORIG_TIMESTEP_FUNC.set(Some(std::mem::transmute::<_, BasicNothingFunc>(MinHook::create_hook(orig_timestep as _, hooked_timestep as _).expect("Failed to create timestep hook"))));
     unsafe {
         MinHook::enable_hook((get_mary_base_address() + TIMESTEP_FUNC_ADDR) as _)
             .expect("Failed to enable timestep hook");

@@ -47,6 +47,11 @@ pub fn read_int_from_address(address: usize) -> i32 {
     unsafe { *((address + get_dmc3_base_address()) as *const i32) }
 }
 
+pub fn read_byte_from_address(address: usize) -> u8 {
+    unsafe { *((address + get_dmc3_base_address()) as *const u8) }
+}
+
+
 pub fn read_usize_from_address(address: usize) -> usize {
     unsafe { *((address + get_dmc3_base_address()) as *const usize) }
 }
@@ -73,9 +78,17 @@ pub fn get_dmc3_base_address() -> usize {
 }
 
 /// Checks to see if DDMK is loaded
-// TODO Could be shortened?
 pub fn is_ddmk_loaded() -> bool {
-    let wide_name: Vec<u16> = OsStr::new("Mary.dll")
+    is_library_loaded("Mary.dll")
+}
+
+/// Checks to see if Crimson is loaded
+pub fn is_crimson_loaded() -> bool {
+    is_library_loaded("Crimson.dll")
+}
+
+pub fn is_library_loaded(name: &str) -> bool {
+    let wide_name: Vec<u16> = OsStr::new(name)
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
@@ -83,6 +96,10 @@ pub fn is_ddmk_loaded() -> bool {
         let module_handle: HINSTANCE = GetModuleHandleW(wide_name.as_ptr());
         !module_handle.is_null()
     }
+}
+
+pub fn is_addon_mod_loaded() -> bool {
+    is_library_loaded("Mary.dll") || is_library_loaded("Crimson.dll")
 }
 
 pub unsafe fn replace_single_byte(offset: usize, new_val: u8) {
@@ -134,8 +151,8 @@ pub unsafe fn replace_single_byte_no_offset(offset: usize, new_val: u8) {
 }
 
 /// Get current mission
-pub fn get_mission() -> i32 {
-    read_int_from_address(0xC8F250usize)
+pub fn get_mission() -> u8 {
+    read_byte_from_address(0xC8F250usize)
 }
 
 /// Get current room

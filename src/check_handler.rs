@@ -17,7 +17,7 @@ pub fn item_non_event(item_struct: i64) {
             if item_id < 0x3A {
                 log::debug!(
                     "Item ID is: {} (0x{:x})",
-                    constants::get_item(item_id as u8),
+                    constants::get_item_name(item_id as u8),
                     item_id
                 );
                 log::debug!("Item ID PTR is: {:?}", item_id_ptr);
@@ -102,7 +102,7 @@ pub fn item_event(loc_chk_flg: i64, item_id: i16, unknown: i32) {
                 log::debug!("Loc CHK Flg is: {:x}", loc_chk_flg);
                 log::debug!(
                     "Item ID is: {} (0x{:x})",
-                    constants::get_item(item_id as u8),
+                    constants::get_item_name(item_id as u8),
                     item_id
                 );
                 log::debug!("Unknown is: {:x}", unknown); // Don't know what to make of this just yet
@@ -150,7 +150,7 @@ pub(crate) static LOCATION_CHECK_TX: OnceCell<Sender<Location>> = OnceCell::new(
 pub(crate) struct Location {
     pub(crate) item_id: u64,
     pub(crate) room: i32,
-    pub(crate) _mission: i32,
+    pub(crate) _mission: u8,
     pub(crate) x_coord: u32,
     pub(crate) y_coord: u32,
     pub(crate) z_coord: u32,

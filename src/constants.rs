@@ -51,6 +51,7 @@ struct Item {
     offset: Option<u8>, // Inventory offset
     category: ItemCategory,
     mission: Option<u8>, // Mission the key item is used in, typically the same that it is acquired in
+    max_amount: Option<i32>, // Max amount of a consumable
     _value: Option<i32>, // Value of an orb, used only for red orbs
 }
 
@@ -71,6 +72,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x38),
             category: ItemCategory::RedOrb,
             mission: None,
+            max_amount: Some(999999), // Is what fits on screen, could theoretically go up to MAX_INT
             _value: Some(1),
         },
         Item {
@@ -79,6 +81,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x38),
             category: ItemCategory::RedOrb,
             mission: None,
+            max_amount: Some(999999),
             _value: Some(5),
         },
         Item {
@@ -87,6 +90,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x38),
             category: ItemCategory::RedOrb,
             mission: None,
+            max_amount: Some(999999),
             _value: Some(1),
         },
         Item {
@@ -95,6 +99,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x38),
             category: ItemCategory::RedOrb,
             mission: None,
+            max_amount: Some(999999),
             _value: Some(100),
         },
         Item {
@@ -103,6 +108,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x38),
             category: ItemCategory::RedOrb,
             mission: None,
+            max_amount: Some(999999),
             _value: Some(1000),
         },
         Item {
@@ -111,6 +117,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Misc,
             mission: None,
+            max_amount: Some(3),
             _value: None,
         },
         Item {
@@ -119,6 +126,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Misc,
             mission: None,
+            max_amount: Some(99),
             _value: None,
         },
         Item {
@@ -127,6 +135,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Misc,
             mission: None,
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -135,6 +144,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Misc,
             mission: None,
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -143,6 +153,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Misc,
             mission: None,
+            max_amount: Some(4),
             _value: None,
         },
         Item {
@@ -151,6 +162,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Misc,
             mission: None,
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -159,6 +171,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Misc,
             mission: None,
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -167,6 +180,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Misc,
             mission: None,
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -175,6 +189,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Misc,
             mission: None,
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -183,6 +198,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Misc,
             mission: None,
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -191,6 +207,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Misc,
             mission: None,
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -199,6 +216,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x4C),
             category: ItemCategory::Consumable,
             mission: None,
+            max_amount: Some(30),
             _value: None,
         },
         Item {
@@ -207,6 +225,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x4D),
             category: ItemCategory::Consumable,
             mission: None,
+            max_amount: Some(30),
             _value: None,
         },
         Item {
@@ -215,6 +234,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x4E),
             category: ItemCategory::Consumable,
             mission: None,
+            max_amount: Some(10),
             _value: None,
         },
         Item {
@@ -223,6 +243,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x4F),
             category: ItemCategory::Consumable,
             mission: None,
+            max_amount: Some(30),
             _value: None,
         },
         Item {
@@ -231,6 +252,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Misc,
             mission: None,
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -239,6 +261,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Misc,
             mission: None,
+            max_amount: None,
             _value: None,
         },
         // TODO Weapon offsets
@@ -248,6 +271,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Weapon,
             mission: None,
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -256,6 +280,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Weapon,
             mission: None,
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -264,6 +289,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Weapon,
             mission: None,
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -272,6 +298,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Weapon,
             mission: None,
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -280,6 +307,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Weapon,
             mission: None,
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -288,6 +316,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Weapon,
             mission: None,
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -296,6 +325,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Weapon,
             mission: None,
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -304,6 +334,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Weapon,
             mission: None,
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -312,6 +343,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Weapon,
             mission: None,
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -320,6 +352,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Weapon,
             mission: None,
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -328,6 +361,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Misc,
             mission: None,
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -336,6 +370,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Weapon,
             mission: None,
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -344,6 +379,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Weapon,
             mission: None,
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -352,6 +388,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: None,
             category: ItemCategory::Weapon,
             mission: None,
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -360,6 +397,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x60),
             category: ItemCategory::Key,
             mission: Some(5),
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -368,6 +406,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x61),
             category: ItemCategory::Key,
             mission: Some(5),
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -376,6 +415,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x62),
             category: ItemCategory::Misc,
             mission: None,
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -384,6 +424,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x63),
             category: ItemCategory::Key,
             mission: Some(5),
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -392,6 +433,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x64),
             category: ItemCategory::Key,
             mission: Some(6),
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -400,6 +442,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x65),
             category: ItemCategory::Key,
             mission: Some(6),
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -408,6 +451,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x66),
             category: ItemCategory::Key,
             mission: Some(6),
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -416,6 +460,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x67),
             category: ItemCategory::Key,
             mission: Some(7),
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -424,6 +469,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x68),
             category: ItemCategory::Key,
             mission: Some(7),
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -432,6 +478,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x69),
             category: ItemCategory::Key,
             mission: Some(7),
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -440,6 +487,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x6A),
             category: ItemCategory::Key,
             mission: Some(8),
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -448,6 +496,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x6B),
             category: ItemCategory::Key,
             mission: Some(9),
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -456,6 +505,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x6C),
             category: ItemCategory::Key,
             mission: Some(10),
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -464,6 +514,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x6D),
             category: ItemCategory::Key,
             mission: Some(10),
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -472,6 +523,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x6E),
             category: ItemCategory::Key,
             mission: Some(12),
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -480,6 +532,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x6F),
             category: ItemCategory::Key,
             mission: Some(13),
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -488,6 +541,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x70),
             category: ItemCategory::Key,
             mission: Some(15),
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -496,6 +550,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x71),
             category: ItemCategory::Key,
             mission: Some(15),
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -504,6 +559,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x72),
             category: ItemCategory::Key,
             mission: Some(15),
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -512,6 +568,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x73),
             category: ItemCategory::Key,
             mission: Some(16),
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -520,6 +577,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x74),
             category: ItemCategory::Key,
             mission: Some(16),
+            max_amount: None,
             _value: None,
         },
         Item {
@@ -528,6 +586,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             offset: Some(0x75),
             category: ItemCategory::Key,
             mission: Some(19),
+            max_amount: None,
             _value: None,
         },
     ]
@@ -553,11 +612,17 @@ pub static MISSION_ITEM_MAP: LazyLock<HashMap<u8, Vec<&'static str>>> = LazyLock
 pub static ITEM_ID_MAP: LazyLock<HashMap<&'static str, u8>> =
     LazyLock::new(|| ALL_ITEMS.iter().map(|item| (item.name, item.id)).collect());
 
+pub static ITEM_MAX_COUNT_MAP: LazyLock<HashMap<&'static str, Option<i32>>> =
+    LazyLock::new(|| ALL_ITEMS.iter().map(|item| (item.name, item.max_amount)).collect());
+
 pub static ID_ITEM_MAP: LazyLock<HashMap<u8, &'static str>> =
     LazyLock::new(|| ALL_ITEMS.iter().map(|item| (item.id, item.name)).collect());
 
-pub fn get_item(item_id: u8) -> &'static str {
-    ID_ITEM_MAP.get(&item_id).copied().unwrap_or("Unknown")
+pub fn get_item_name(item_id: u8) -> &'static str {
+    ID_ITEM_MAP.get(&item_id).copied().unwrap_or_else(|| {
+        log::error!("No item found with id {}", item_id);
+        "Unknown"
+    })
 }
 
 pub fn get_item_id(name: &str) -> Option<u8> {
@@ -571,7 +636,7 @@ pub fn get_items_by_category(category: ItemCategory) -> Vec<&'static str> {
         .collect()
 }
 
-pub static EVENT_TABLES: LazyLock<HashMap<i32, Vec<EventTable>>> = LazyLock::new(|| {
+pub static EVENT_TABLES: LazyLock<HashMap<u8, Vec<EventTable>>> = LazyLock::new(|| {
     HashMap::from([
         (
             3,

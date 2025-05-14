@@ -14,7 +14,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 pub(crate) async fn add_item(client: &mut ArchipelagoClient, item: &NetworkItem) {
     client
         .set(
-            get_bank_key(&constants::get_item(item.item as u8).parse().unwrap()),
+            get_bank_key(&constants::get_item_name(item.item as u8).parse().unwrap()),
             Value::from(1),
             false,
             vec![DataStorageOperation::Add(Value::from(1))],
@@ -99,10 +99,28 @@ pub(crate) async fn handle_bank(
 
 pub(crate) fn can_add_item_to_current_inv(item_name: &&str) -> bool {
     let current_inv_addr = utilities::read_usize_from_address(INVENTORY_PTR);
-
-    todo!()
+    let offset = constants::ITEM_OFFSET_MAP
+        .get(item_name)
+        .unwrap_or_else(|| panic!("Item offset not found: {}", item_name));
+    utilities::read_byte_from_address(current_inv_addr + *offset as usize)+1 // This won't work for red orbs+consumables... int vs byte
+        > constants::ITEM_MAX_COUNT_MAP
+            .get(item_name)
+            .unwrap_or_else(|| {
+                log::error!("Item does not have a count: {}", item_name);
+                &Some(0)
+            })
+            .unwrap() as u8
 }
 
 pub(crate) fn add_item_to_current_inv(item_name: &String) {
-    todo!()
+    let current_inv_addr = utilities::read_usize_from_address(INVENTORY_PTR);
+    let offset = constants::ITEM_OFFSET_MAP
+        .get(item_name.as_str())
+        .unwrap_or_else(|| panic!("Item offset not found: {}", item_name));
+    unsafe {
+        utilities::replace_single_byte_no_offset(
+            current_inv_addr + *offset as usize,
+            utilities::read_byte_from_address(current_inv_addr + *offset as usize) + 1,
+        );
+    }
 }
