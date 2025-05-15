@@ -366,7 +366,7 @@ async fn handle_client_messages(
             log::info!("Failed to receive data, reconnecting: {}", err);
             let data = get_hud_data().lock()?;
             *client = connect_archipelago(ArchipelagoData {
-                url: data.arch_url.clone(),
+                url: data.archipelago_url.clone(),
                 name: data.username.clone(),
                 password: data.username.clone(),
             })

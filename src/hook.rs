@@ -1,4 +1,4 @@
-use crate::archipelago::{ItemEntry, CHECKLIST};
+use crate::archipelago::{ArchipelagoData, ItemEntry, CHECKLIST};
 use crate::archipelago::{connect_archipelago, SLOT_NUMBER, TEAM_NUMBER};
 use crate::bank::setup_bank_channel;
 use crate::constants::*;
@@ -14,7 +14,9 @@ use std::convert::Into;
 use std::ffi::c_longlong;
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{LazyLock, RwLock, RwLockWriteGuard};
-use std::{ptr, slice};
+use std::{fs, path, ptr, slice};
+use std::io::BufReader;
+use serde::Deserialize;
 use tokio::sync::Mutex;
 use winapi::um::libloaderapi::{FreeLibrary, GetModuleHandleW};
 use winapi::um::memoryapi::VirtualProtect;
@@ -92,7 +94,10 @@ pub(crate) async fn spawn_arch_thread() {
     let mut rx_locations = check_handler::setup_items_channel();
     let mut rx_connect = archipelago::setup_connect_channel();
     let mut rx_bank = setup_bank_channel();
-
+    match load_login_data() {
+        Ok(_) => {}
+        Err(err) => log::error!("{}", err),
+    }
     loop {
         // Wait for a connection request
         let Some(item) = rx_connect.recv().await else {
@@ -138,6 +143,25 @@ pub(crate) async fn spawn_arch_thread() {
         CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::SeqCst);
         setup = false;
         // Allow reconnect immediately without delay
+    }
+}
+
+fn load_login_data() -> Result<(), Box<dyn std::error::Error>> {
+    if path::Path::new(archipelago::LOGIN_DATA_FILE).exists() {
+        let login_data_file = fs::File::open(archipelago::LOGIN_DATA_FILE)?;
+        let reader = BufReader::new(login_data_file);
+        let mut json_reader = serde_json::Deserializer::from_reader(reader);
+        let data = ArchipelagoData::deserialize(&mut json_reader)?;
+        match archipelago::get_hud_data().lock() {
+            Ok(mut instance) => {
+                instance.archipelago_url = data.url;
+                instance.username = data.name;
+                Ok(())
+            }
+            Err(err) => Err(err.into()),
+        }
+    } else {
+        Err("Failed to find login data".into())
     }
 }
 

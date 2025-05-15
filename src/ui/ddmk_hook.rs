@@ -1,22 +1,18 @@
-use crate::archipelago::{ArchipelagoData, CHECKLIST};
-use crate::bank::get_bank;
-use crate::constants::{ItemCategory};
-use crate::constants::Status;
+use crate::archipelago::{CHECKLIST};
+use crate::constants::ItemCategory;
 use crate::ui::imgui_bindings::*;
-use crate::ui::ui::ArchipelagoHud;
+use crate::ui::ui;
+use crate::ui::ui::{get_status_text, ArchipelagoHud};
 use crate::utilities::get_mary_base_address;
-use crate::{archipelago, bank, constants, hook, utilities};
-use hook::CONNECTION_STATUS;
+use crate::{archipelago, bank, constants, utilities};
 use imgui_sys::{ImGuiCond, ImGuiCond_Always, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
 use minhook::MinHook;
-use serde::Deserialize;
 use std::ffi::c_int;
-use std::io::BufReader;
-use std::ops::{Deref, DerefMut};
+use std::ops::{DerefMut};
 use std::os::raw::c_char;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{MutexGuard, OnceLock};
-use std::{fs, path, thread};
+use std::{thread};
 
 static SETUP: AtomicBool = AtomicBool::new(false);
 
@@ -30,31 +26,6 @@ unsafe extern "C" fn hooked_timestep() {
             MinHook::enable_hook((get_mary_base_address() + MAIN_FUNC_ADDR) as _)
                 .expect("Failed to enable hook");
             SETUP.store(true, Ordering::SeqCst);
-            if path::Path::new(archipelago::LOGIN_DATA_FILE).exists() {
-                match fs::File::open(archipelago::LOGIN_DATA_FILE) {
-                    Ok(login_data_file) => {
-                        let reader = BufReader::new(login_data_file);
-                        let mut json_reader = serde_json::Deserializer::from_reader(reader);
-                        match ArchipelagoData::deserialize(&mut json_reader) {
-                            Ok(data) => match archipelago::get_hud_data().lock() {
-                                Ok(mut instance) => {
-                                    instance.arch_url = data.url;
-                                    instance.username = data.name;
-                                }
-                                Err(err) => {
-                                    log::error!("{}", err);
-                                }
-                            },
-                            Err(err) => {
-                                log::error!("{}", err);
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        log::error!("Failed to open {}: {}", archipelago::LOGIN_DATA_FILE, err);
-                    }
-                }
-            }
         }
         match get_orig_timestep_func() {
             None => {
@@ -143,7 +114,7 @@ unsafe fn bank_window() {
             text(format!(
                 "{}: {}\0",
                 item,
-                get_bank().lock().unwrap().get(item).unwrap()
+                bank::get_bank().lock().unwrap().get(item).unwrap()
             ));
             get_imgui_same_line()(0f32, 5f32); // TODO Figure out how to align properly
             get_imgui_push_id()(n as c_int);
@@ -152,7 +123,7 @@ unsafe fn bank_window() {
                 &ImVec2 { x: 0.0, y: 0.0 },
             ) {
                 if bank::can_add_item_to_current_inv(item) {
-                    retrieve_button_pressed(item);
+                    ui::retrieve_button_pressed(item);
                 }
             }
             get_imgui_pop_id()();
@@ -173,7 +144,6 @@ fn checkbox_text(item: &str) -> String {
 pub unsafe fn archipelago_window(mut instance: MutexGuard<ArchipelagoHud>) {
     unsafe {
         let flag = &mut true;
-        //let mut instance = instance_cell;
         get_imgui_next_pos()(
             &ImVec2 { x: 800.0, y: 100.0 },
             ImGuiCond_Appearing as ImGuiCond,
@@ -184,9 +154,9 @@ pub unsafe fn archipelago_window(mut instance: MutexGuard<ArchipelagoHud>) {
             flag as *mut bool,
             imgui_sys::ImGuiWindowFlags_AlwaysAutoResize as ImGuiWindowFlags,
         );
-        set_status_text();
+        text(format!("Status: {}\0", get_status_text()));
         text("Connection:\0");
-        input_rs("URL\0", &mut instance.arch_url, false); // TODO: Slight issue where some letters arent being cleared properly?
+        input_rs("URL\0", &mut instance.archipelago_url, false); // TODO: Slight issue where some letters arent being cleared properly?
         input_rs("Username\0", &mut instance.username, false);
         input_rs("Password\0", &mut instance.password, true);
         if get_imgui_button()(
@@ -195,12 +165,13 @@ pub unsafe fn archipelago_window(mut instance: MutexGuard<ArchipelagoHud>) {
         ) {
             log::debug!(
                 "Given URL: {}\0",
-                &mut instance.deref_mut().arch_url.trim().to_string()
+                &mut instance.deref_mut().archipelago_url.trim().to_string()
             );
-            let url = instance.deref().arch_url.clone().trim().to_string();
-            let name = instance.deref().username.clone().trim().to_string();
-            let password = instance.deref().password.clone().trim().to_string();
-            connect_button_pressed(url, name, password);
+            ui::connect_button_pressed(
+                instance.archipelago_url.clone().trim().to_string(),
+                instance.username.clone().trim().to_string(),
+                instance.password.clone().trim().to_string(),
+            );
         }
 
         if get_imgui_button()(
@@ -212,49 +183,6 @@ pub unsafe fn archipelago_window(mut instance: MutexGuard<ArchipelagoHud>) {
             });
         }
         get_imgui_end()();
-    }
-}
-
-fn set_status_text() {
-    text(format!(
-        "Status: {}\0",
-        match CONNECTION_STATUS.load(Ordering::SeqCst).into() {
-            Status::Connected => "Connected",
-            Status::Disconnected => "Disconnected",
-            Status::InvalidSlot => "Invalid slot (Check name)",
-            Status::InvalidGame => "Invalid game (Wrong url/port or name?)",
-            Status::IncompatibleVersion => "Incompatible Version, post on GitHub or Discord",
-            Status::InvalidPassword => "Invalid password",
-            Status::InvalidItemHandling => "Invalid item handling, post on Github or Discord",
-        }
-    ));
-}
-
-#[tokio::main(flavor = "multi_thread", worker_threads = 1)]
-async fn connect_button_pressed(url: String, name: String, password: String) {
-    match archipelago::TX_ARCH.get() {
-        None => log::error!("Connect TX doesn't exist"),
-        Some(tx) => {
-            tx.send(ArchipelagoData {
-                url,
-                name,
-                password,
-            })
-            .await
-            .expect("Failed to send data");
-        }
-    }
-}
-
-#[tokio::main(flavor = "multi_thread", worker_threads = 2)]
-async fn retrieve_button_pressed(item_name: &&str) {
-    match bank::TX_BANK.get() {
-        None => log::error!("Connect TX doesn't exist"),
-        Some(tx) => {
-            tx.send(item_name.parse().unwrap())
-                .await
-                .expect("Failed to send data");
-        }
     }
 }
 

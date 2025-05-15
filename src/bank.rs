@@ -97,7 +97,7 @@ pub(crate) async fn handle_bank(
     Ok(()) // TODO
 }
 
-pub(crate) fn can_add_item_to_current_inv(item_name: &&str) -> bool {
+pub(crate) fn can_add_item_to_current_inv(item_name: &str) -> bool {
     let current_inv_addr = utilities::read_usize_from_address(INVENTORY_PTR);
     let offset = constants::ITEM_OFFSET_MAP
         .get(item_name)

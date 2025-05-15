@@ -4,7 +4,7 @@
 
 use std::env::current_exe;
 use crate::hook::create_console;
-use log::LevelFilter;
+use log::{LevelFilter, Log};
 use simple_logger::SimpleLogger;
 use std::ffi::c_void;
 use std::thread;
@@ -123,7 +123,7 @@ fn load_other_dlls() {
 }
 
 fn main_setup() {
-    SimpleLogger::new()
+    let simple_logger = Box::new(SimpleLogger::new()
         .with_module_level("tokio", LevelFilter::Warn)
         .with_module_level("tungstenite::protocol", LevelFilter::Warn)
         .with_module_level("hudhook::hooks::dx11", LevelFilter::Warn)
@@ -131,9 +131,12 @@ fn main_setup() {
         .with_module_level("winit::window", LevelFilter::Warn)
         .with_module_level("eframe::native::run", LevelFilter::Warn)
         .with_module_level("eframe::native::glow_integration", LevelFilter::Warn)
-        .with_threads(true)
-        .init()
-        .unwrap();
+        .with_threads(true));
+    let mut loggers: Vec<Box<dyn Log>> = vec![simple_logger];
+    if !utilities::is_ddmk_loaded() {
+        loggers.push(Box::new(egui_logger::builder().max_level(LevelFilter::Info).build())); // EGui will melt if this is anything higher
+    }
+    multi_log::MultiLogger::init(loggers, log::Level::Debug).unwrap();
     create_console();
     install_exception_handler();
     if utilities::is_ddmk_loaded() {
@@ -141,8 +144,7 @@ fn main_setup() {
         ui::ddmk_hook::setup_ddmk_hook();
     } else {
         log::info!("DDMK is not loaded!");
-        egui_logger::builder().init().unwrap();
-        ui::egui_ui::start_egui();
+        thread::spawn(move || ui::egui_ui::start_egui());
         // thread::Builder::new()
         //     .name("Archipelago HUD".to_string())
         //     .spawn(move || {

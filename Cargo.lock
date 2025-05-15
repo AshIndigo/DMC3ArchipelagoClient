@@ -891,6 +891,7 @@ dependencies = [
  "libloading",
  "log",
  "minhook",
+ "multi_log",
  "once_cell",
  "serde",
  "serde_json",
@@ -2037,6 +2038,15 @@ dependencies = [
  "libc",
  "wasi 0.11.0+wasi-snapshot-preview1",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "multi_log"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad56bb3c7c7c15b4e25de86c9123e886e5f80a0c03ace219b453b081c2bf20d7"
+dependencies = [
+ "log",
 ]
 
 [[package]]
