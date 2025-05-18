@@ -1,10 +1,10 @@
 // Nothing wrong with this. Runs as a separate window so would have to alt-tab if full screen. Could at least be a backup HUD if DDMK isn't available
 
-use crate::archipelago::CHECKLIST;
+use crate::ui::ui::CHECKLIST;
 use crate::constants::{ItemCategory, Status};
-use crate::hook::CONNECTION_STATUS;
+use crate::hook::{CONNECTION_STATUS};
 use crate::ui::ui;
-use crate::{archipelago, bank, constants};
+use crate::{bank, constants, item_sync};
 use eframe::epaint::Color32;
 use eframe::{EventLoopBuilderHook, Frame};
 use egui::{Context, Theme, Ui};
@@ -34,7 +34,7 @@ impl eframe::App for ArchipelagoClient {
                 ui.label("Status:");
                 ui.colored_label(get_status_color(), ui::get_status_text());
             });
-            match archipelago::get_hud_data().lock() {
+            match ui::get_hud_data().lock() {
                 Ok(mut instance) => {
                     ui.horizontal(|ui| {
                         ui.label("URL:");
@@ -60,6 +60,11 @@ impl eframe::App for ArchipelagoClient {
                 Err(err) => {
                     log::error!("Unable to lock HUD Data: {}", err);
                 }
+            }
+            if ui.button("Sync").clicked() {
+                item_sync::sync_items(); 
+            };
+            if ui.button("Debug: Add Vit Star S").clicked() {
             }
         });
 

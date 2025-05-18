@@ -1,18 +1,17 @@
-use crate::archipelago::{CHECKLIST};
 use crate::constants::ItemCategory;
 use crate::ui::imgui_bindings::*;
 use crate::ui::ui;
-use crate::ui::ui::{get_status_text, ArchipelagoHud};
+use crate::ui::ui::{get_status_text, ArchipelagoHud, CHECKLIST};
 use crate::utilities::get_mary_base_address;
-use crate::{archipelago, bank, constants, utilities};
+use crate::{bank, constants, utilities};
 use imgui_sys::{ImGuiCond, ImGuiCond_Always, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
 use minhook::MinHook;
 use std::ffi::c_int;
-use std::ops::{DerefMut};
+use std::ops::DerefMut;
 use std::os::raw::c_char;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{MutexGuard, OnceLock};
-use std::{thread};
+use std::thread;
 
 static SETUP: AtomicBool = AtomicBool::new(false);
 
@@ -43,7 +42,7 @@ unsafe extern "C" fn hooked_render() {
         if !SETUP.load(Ordering::SeqCst) {
             return;
         }
-        match archipelago::get_hud_data().lock() {
+        match ui::get_hud_data().lock() {
             Ok(instance) => {
                 if false {
                     // TODO: Hud for pause menu and main menu

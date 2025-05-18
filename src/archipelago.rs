@@ -1,38 +1,31 @@
 use crate::cache::read_cache;
 use crate::check_handler::Location;
-use crate::constants::{EventCode, GAME_NAME, Status, ItemCategory};
+use crate::constants::{EventCode, ItemCategory, Status, GAME_NAME};
 use crate::hook::CONNECTION_STATUS;
 use crate::mapping::MAPPING;
-use crate::ui::ui::ArchipelagoHud;
+use crate::ui::ui;
 use crate::utilities::get_mission;
 use crate::{bank, cache, constants, generated_locations, hook, item_sync, mapping, utilities};
-use anyhow::{anyhow};
+use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
-use archipelago_rs::protocol::{
-    Connected, DataPackageObject, JSONMessagePart, PrintJSON, ServerMessage,
-};
+use archipelago_rs::protocol::{Connected, DataPackageObject, JSONColor, JSONMessagePart, NetworkItem, PrintJSON, ServerMessage};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::fs::{File, remove_file};
+use std::fs::{remove_file, File};
 use std::io::Write;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Mutex, OnceLock, RwLock, RwLockReadGuard};
 use std::time::Duration;
+use owo_colors::OwoColorize;
 use tokio::sync;
 use tokio::sync::mpsc::Receiver;
 
 static DATA_PACKAGE: Lazy<RwLock<Option<DataPackageObject>>> = Lazy::new(|| RwLock::new(None));
 
-pub static CHECKLIST: OnceLock<RwLock<HashMap<String, bool>>> = OnceLock::new();
-
 pub static CHECKED_LOCATIONS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
-pub static HUD_INSTANCE: OnceLock<Mutex<ArchipelagoHud>> = OnceLock::new();
 pub static CONNECTED: OnceLock<Mutex<Connected>> = OnceLock::new();
-
-pub static BANK: OnceLock<Mutex<HashMap<&'static str, i32>>> = OnceLock::new();
-
 pub static TX_ARCH: OnceLock<sync::mpsc::Sender<ArchipelagoData>> = OnceLock::new();
 
 pub static SLOT_NUMBER: AtomicI32 = AtomicI32::new(-1);
@@ -40,10 +33,6 @@ pub static TEAM_NUMBER: AtomicI32 = AtomicI32::new(-1);
 
 pub fn get_checked_locations() -> &'static Mutex<Vec<String>> {
     CHECKED_LOCATIONS.get_or_init(|| Mutex::new(vec![]))
-}
-
-pub fn get_hud_data() -> &'static Mutex<ArchipelagoHud> {
-    HUD_INSTANCE.get_or_init(|| Mutex::new(ArchipelagoHud::new()))
 }
 
 pub fn get_connected() -> &'static Mutex<Connected> {
@@ -61,6 +50,15 @@ pub fn get_connected() -> &'static Mutex<Connected> {
     })
 }
 
+pub(crate) const LOGIN_DATA_FILE: &str = "login_data.json";
+
+fn save_connection_info(login_data: ArchipelagoData) -> Result<(), Box<dyn std::error::Error>> {
+    let res = serde_json::to_string(&login_data)?;
+    let mut file = File::create(LOGIN_DATA_FILE)?;
+    file.write_all(res.as_bytes())?;
+    Ok(())
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct ArchipelagoData {
     pub url: String,
@@ -71,12 +69,8 @@ pub struct ArchipelagoData {
 
 impl Display for ArchipelagoData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        Ok(write!(
-            f,
-            "URL: {:#} Name: {:#} Password: {:#}",
-            self.url, self.name, self.password
-        )
-        .expect("Failed to print connection data"))
+        Ok(write!(f, "URL: {:#} Name: {:#}", self.url, self.name,)
+            .expect("Failed to print connection data"))
     }
 }
 
@@ -144,7 +138,9 @@ pub async fn connect_archipelago(
             vec!["AP".to_string()],
         )
         .await?;
-    get_connected().replace(connected).expect("Unable to replace CONNECTED");
+    get_connected()
+        .replace(connected)
+        .expect("Unable to replace CONNECTED");
     let mut connected = get_connected().lock().unwrap();
     let Ok(mut checked_locations) = get_checked_locations().lock() else {
         log::error!("Failed to get checked locations");
@@ -176,50 +172,6 @@ pub async fn connect_archipelago(
     Ok(cl)
 }
 
-pub(crate) async fn sync_items(client: &mut ArchipelagoClient) {
-    let id_to_name: HashMap<i64, String> = read_cache()
-        .unwrap()
-        .games
-        .get(GAME_NAME)
-        .unwrap()
-        .item_name_to_id
-        .clone()
-        .into_iter()
-        .map(|(k, v)| (v, k))
-        .collect();
-    CHECKLIST.get().unwrap().write().unwrap().clear();
-    match client.sync().await {
-        Ok(received_items) => {
-            for item in received_items.items {
-                log::debug!("Network item: {:?}", item);
-                set_checklist_item(id_to_name.get(&item.item).unwrap(), true);
-            }
-        }
-        Err(err) => {
-            log::error!("Failed to sync items: {}", err);
-        }
-    }
-}
-
-fn set_checklist_item(item: &str, value: bool) {
-    if let Some(rwlock) = CHECKLIST.get() {
-        {
-            let mut checklist = rwlock.write().unwrap();
-            checklist.insert(item.to_string(), value);
-        }
-        if let Ok(_checklist) = rwlock.read() {}
-    }
-}
-
-pub(crate) const LOGIN_DATA_FILE: &str = "login_data.json";
-
-fn save_connection_info(login_data: ArchipelagoData) -> Result<(), Box<dyn std::error::Error>> {
-    let res = serde_json::to_string(&login_data)?;
-    let mut file = File::create(LOGIN_DATA_FILE)?;
-    file.write_all(res.as_bytes())?;
-    Ok(())
-}
-
 pub async fn run_setup(cl: &mut ArchipelagoClient) {
     log::info!("Running setup");
     unsafe {
@@ -235,26 +187,27 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) {
             set_data_package(read_cache().expect("Expected cache file"));
         }
     }
+    item_sync::get_sync_data()
+        .replace(item_sync::read_save_data().unwrap())
+        .expect("Failed to get Sync Data");
+
+    item_sync::CURRENT_INDEX.store(
+        *item_sync::get_sync_data()
+            .lock()
+            .unwrap()
+            .sync_indices
+            .get(&item_sync::get_index(&cl))
+            .unwrap_or(&0),
+        Ordering::SeqCst,
+    );
+
     // TODO Refactor the error handling + Use seed as some kind verification system? Ensure right mappings are being used?
     if MAPPING.get().is_none() {
         MAPPING
             .set(mapping::load_mappings_file().unwrap())
-            .expect("MAPPING already set");
+            .expect("Sync Data already set");
     }
     mapping::use_mappings();
-}
-
-pub struct ItemEntry {
-    // Represents an item on the ground
-    pub offset: usize,     // Offset for the item table
-    pub room_number: u16,  // Room number
-    pub item_id: u8,       // Default Item ID
-    pub mission: u8,       // Mission Number
-    pub adjudicator: bool, // Adjudicator
-    pub x_coord: u32,
-    pub y_coord: u32,
-    pub z_coord: u32,
-    // TODO Secret
 }
 
 pub(crate) fn location_is_checked_and_end(location_key: &str) -> bool {
@@ -289,7 +242,8 @@ pub async fn handle_things(
     client: &mut ArchipelagoClient,
     loc_rx: &mut Receiver<Location>,
     bank_rx: &mut Receiver<String>,
-    connect_rx: &mut Receiver<ArchipelagoData>, // <- new
+    connect_rx: &mut Receiver<ArchipelagoData>,
+    x: &mut Receiver<NetworkItem>,
 ) {
     loop {
         tokio::select! {
@@ -301,6 +255,11 @@ pub async fn handle_things(
             Some(message) = bank_rx.recv() => {
                 if let Err(err) = bank::handle_bank(client, message).await {
                     log::error!("Failed to handle bank: {}", err);
+                }
+            }
+            Some(message) = x.recv() => {
+                 if let Err(err) = bank::add_item(client, &message).await {
+                    log::error!("Failed to add item to bank: {}", err);
                 }
             }
             Some(reconnect_request) = connect_rx.recv() => {
@@ -339,7 +298,7 @@ async fn handle_client_messages(
                 Ok(())
             }
             Some(ServerMessage::ReceivedItems(items)) => {
-                item_sync::handle_received_items_packet(items)
+                item_sync::handle_received_items_packet(items, client).await
             }
             Some(ServerMessage::LocationInfo(_)) => Ok(()),
             Some(ServerMessage::RoomUpdate(_)) => Ok(()),
@@ -364,7 +323,7 @@ async fn handle_client_messages(
         },
         Err(ArchipelagoError::NetworkError(err)) => {
             log::info!("Failed to receive data, reconnecting: {}", err);
-            let data = get_hud_data().lock()?;
+            let data = ui::get_hud_data().lock()?;
             *client = connect_archipelago(ArchipelagoData {
                 url: data.archipelago_url.clone(),
                 name: data.username.clone(),
@@ -458,8 +417,10 @@ async fn handle_item_receive(
                                     });
                                     hook::CANCEL_TEXT.store(true, Ordering::Relaxed);
                                     client.location_checks(vec![loc_id.clone()]).await?;
-                                    if constants::get_items_by_category(ItemCategory::Key).contains(&&*location_data.name) {
-                                        set_checklist_item(&*location_data.name, true);
+                                    if constants::get_items_by_category(ItemCategory::Key)
+                                        .contains(&&*location_data.name)
+                                    {
+                                        ui::set_checklist_item(&*location_data.name, true);
                                         log::debug!("Key Item checked off: {}", location_data.name);
                                     }
                                     log::info!(
@@ -645,11 +606,10 @@ fn handle_print_json(print_json: PrintJSON) -> String {
 
 fn handle_message_part(message: JSONMessagePart) -> String {
     match message {
-        JSONMessagePart::PlayerId { text } => {
-            get_connected().lock().unwrap().players[text.parse::<usize>().unwrap()-1]
-                .name
-                .clone()
-        }
+        JSONMessagePart::PlayerId { text } => get_connected().lock().unwrap().players
+            [text.parse::<usize>().unwrap() - 1]
+            .name
+            .clone(),
         JSONMessagePart::PlayerName { text } => text,
         JSONMessagePart::ItemId {
             text,
@@ -665,11 +625,15 @@ fn handle_message_part(message: JSONMessagePart) -> String {
                             .clone(),
                     )
                     .unwrap()
-                    .item_name_to_id.clone()
+                    .item_name_to_id
+                    .clone()
                     .into_iter()
                     .map(|(k, v)| (v, k))
                     .collect();
-                id_to_name.get(&text.parse::<i64>().unwrap()).unwrap().clone()
+                id_to_name
+                    .get(&text.parse::<i64>().unwrap())
+                    .unwrap()
+                    .clone()
             }
             Err(err) => format!("Unable to read cache file: {}", err),
         },
@@ -681,38 +645,59 @@ fn handle_message_part(message: JSONMessagePart) -> String {
             log::debug!("ItemName: {:?} Flags: {}, Player: {}", text, flags, player);
             text
         }
-        JSONMessagePart::LocationId { text, player } => {
-            match read_cache() {
-                Ok(cache) => {
-                    let id_to_name: HashMap<i64, String> = cache
-                        .games
-                        .get(
-                            &get_connected().lock().unwrap().slot_info[&player.to_string()]
-                                .game
-                                .clone(),
-                        )
-                        .unwrap()
-                        .location_name_to_id.clone()
-                        .into_iter()
-                        .map(|(k, v)| (v, k))
-                        .collect();
-                    id_to_name.get(&text.parse::<i64>().unwrap()).unwrap().clone()
-                }
-                Err(err) => format!("Unable to read cache file: {}", err),
+        JSONMessagePart::LocationId { text, player } => match read_cache() {
+            Ok(cache) => {
+                let id_to_name: HashMap<i64, String> = cache
+                    .games
+                    .get(
+                        &get_connected().lock().unwrap().slot_info[&player.to_string()]
+                            .game
+                            .clone(),
+                    )
+                    .unwrap()
+                    .location_name_to_id
+                    .clone()
+                    .into_iter()
+                    .map(|(k, v)| (v, k))
+                    .collect();
+                id_to_name
+                    .get(&text.parse::<i64>().unwrap())
+                    .unwrap()
+                    .clone()
             }
-        }
+            Err(err) => format!("Unable to read cache file: {}", err),
+        },
         JSONMessagePart::LocationName { text, player } => {
             log::debug!("LocationName: {:?}, Player: {}", text, player);
             text
         }
         JSONMessagePart::EntranceName { text } => text,
         JSONMessagePart::Color { text, color } => {
-            log::debug!("Received color: txt:{}, color: {:?}", text, color);
-            "".parse().unwrap()
+            match color { // This looks ugly, but I'm too lazy to have a better idea
+                JSONColor::Bold => text.bold().to_string(),
+                JSONColor::Underline => text.underline().to_string(),
+                JSONColor::Black => text.black().to_string(),
+                JSONColor::Red => text.red().to_string(),
+                JSONColor::Green => text.green().to_string(),
+                JSONColor::Yellow => text.yellow().to_string(),
+                JSONColor::Blue => text.blue().to_string(),
+                JSONColor::Magenta => text.magenta().to_string(),
+                JSONColor::Cyan => text.cyan().to_string(),
+                JSONColor::White => text.white().to_string(),
+                JSONColor::BlackBg => text.on_black().to_string(),
+                JSONColor::RedBg => text.on_red().to_string(),
+                JSONColor::GreenBg => text.on_green().to_string(),
+                JSONColor::YellowBg => text.on_yellow().to_string(),
+                JSONColor::BlueBg => text.on_blue().to_string(),
+                JSONColor::MagentaBg => text.on_magenta().to_string(),
+                JSONColor::CyanBg => text.on_cyan().to_string(),
+                JSONColor::WhiteBg => text.on_white().to_string(),
+            }
         }
         JSONMessagePart::Text { text } => text,
     }
 }
+
 
 /*fn input(text: &str) -> Result<String, anyhow::Error> {
     log::info!("{}", text);

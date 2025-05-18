@@ -1,4 +1,4 @@
-use crate::archipelago::{BANK, SLOT_NUMBER, TEAM_NUMBER};
+use crate::archipelago::{SLOT_NUMBER, TEAM_NUMBER};
 use crate::constants::INVENTORY_PTR;
 use crate::{constants, utilities};
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
@@ -11,19 +11,28 @@ use std::sync::{Mutex, OnceLock};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-pub(crate) async fn add_item(client: &mut ArchipelagoClient, item: &NetworkItem) {
-    client
+pub(crate) async fn add_item(client: &mut ArchipelagoClient, item: &NetworkItem) -> Result<(), ArchipelagoError> {
+    log::debug!("Adding item to bank {:?}", item);
+    match client
         .set(
             get_bank_key(&constants::get_item_name(item.item as u8).parse().unwrap()),
             Value::from(1),
             false,
             vec![DataStorageOperation::Add(Value::from(1))],
         )
-        .await
-        .unwrap();
+        .await {
+        Ok(reply) => {
+            log::debug!("Added item to bank: {:?}", reply);
+            Ok(())
+        },
+        Err(err) => {
+            Err(err)
+        }
+    }
 }
 
-pub static TX_BANK: OnceLock<Sender<String>> = OnceLock::new();
+pub static TX_BANK_TO_INV: OnceLock<Sender<String>> = OnceLock::new();
+pub static TX_BANK_ADD: OnceLock<Sender<NetworkItem>> = OnceLock::new();
 
 pub fn get_bank() -> &'static Mutex<HashMap<&'static str, i32>> {
     BANK.get_or_init(|| {
@@ -36,9 +45,15 @@ pub fn get_bank() -> &'static Mutex<HashMap<&'static str, i32>> {
     })
 }
 
-pub fn setup_bank_channel() -> Receiver<String> {
+pub fn setup_bank_to_inv_channel() -> Receiver<String> {
     let (tx, rx) = mpsc::channel(64);
-    TX_BANK.set(tx).expect("TX already initialized");
+    TX_BANK_TO_INV.set(tx).expect("TX already initialized");
+    rx
+}
+
+pub fn setup_bank_add_channel() -> Receiver<NetworkItem> {
+    let (tx, rx) = mpsc::channel(64);
+    TX_BANK_ADD.set(tx).expect("TX already initialized");
     rx
 }
 
@@ -124,3 +139,5 @@ pub(crate) fn add_item_to_current_inv(item_name: &String) {
         );
     }
 }
+
+pub static BANK: OnceLock<Mutex<HashMap<&'static str, i32>>> = OnceLock::new();

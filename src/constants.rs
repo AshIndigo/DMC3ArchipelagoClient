@@ -802,3 +802,16 @@ impl From<isize> for Status {
         }
     }
 }
+
+pub struct ItemEntry {
+    // Represents an item on the ground
+    pub offset: usize,     // Offset for the item table
+    pub room_number: u16,  // Room number
+    pub item_id: u8,       // Default Item ID
+    pub mission: u8,       // Mission Number
+    pub adjudicator: bool, // Adjudicator
+    pub x_coord: u32,
+    pub y_coord: u32,
+    pub z_coord: u32,
+    // TODO Secret
+}

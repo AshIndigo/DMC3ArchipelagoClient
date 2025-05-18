@@ -1,6 +1,6 @@
-use crate::archipelago::{ArchipelagoData, ItemEntry, CHECKLIST};
+use crate::archipelago::ArchipelagoData;
 use crate::archipelago::{connect_archipelago, SLOT_NUMBER, TEAM_NUMBER};
-use crate::bank::setup_bank_channel;
+use crate::bank::{setup_bank_add_channel, setup_bank_to_inv_channel};
 use crate::constants::*;
 use crate::utilities::get_mission;
 use crate::{archipelago, check_handler, generated_locations, utilities};
@@ -26,7 +26,10 @@ use windows::Win32::System::Console::{
     AllocConsole, FreeConsole, GetConsoleMode, GetStdHandle, SetConsoleMode,
     ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_OUTPUT_HANDLE,
 };
+use crate::constants::ItemEntry;
 use crate::mapping::{Mapping, MAPPING};
+use crate::ui::ui;
+use crate::ui::ui::CHECKLIST;
 
 pub fn create_console() {
     unsafe {
@@ -93,7 +96,8 @@ pub(crate) async fn spawn_arch_thread() {
     let mut setup = false;
     let mut rx_locations = check_handler::setup_items_channel();
     let mut rx_connect = archipelago::setup_connect_channel();
-    let mut rx_bank = setup_bank_channel();
+    let mut rx_bank_to_inv = setup_bank_to_inv_channel();
+    let mut rx_bank_add = setup_bank_add_channel();
     match load_login_data() {
         Ok(_) => {}
         Err(err) => log::error!("{}", err),
@@ -112,6 +116,7 @@ pub(crate) async fn spawn_arch_thread() {
             Ok(cl) => {
                 client_lock.replace(cl);
                 CONNECTION_STATUS.store(Status::Connected.into(), Ordering::SeqCst);
+                CHECKLIST.get().unwrap().write().unwrap().clear();
             }
             Err(err) => {
                 log::error!("Failed to connect to Archipelago: {}", err);
@@ -125,18 +130,16 @@ pub(crate) async fn spawn_arch_thread() {
 
         // Client is successfully connected
         if let Some(ref mut client) = client_lock.as_mut() {
+            if !setup {
+                archipelago::run_setup(client).await;
+                //item_sync::sync_items(client).await;
+                setup = true;
+            }
             if let Err(e) = client.status_update(ClientStatus::ClientReady).await {
                 log::error!("Status update failed: {}", e);
             }
-            if !setup {
-                archipelago::run_setup(client).await;
-                log::info!("Synchronizing items");
-                archipelago::sync_items(client).await;
-                setup = true;
-            }
-
             // This blocks until a reconnect or disconnect is triggered
-            archipelago::handle_things(client, &mut rx_locations, &mut rx_bank, &mut rx_connect)
+            archipelago::handle_things(client, &mut rx_locations, &mut rx_bank_to_inv, &mut rx_connect, &mut rx_bank_add)
                 .await;
         }
 
@@ -152,7 +155,7 @@ fn load_login_data() -> Result<(), Box<dyn std::error::Error>> {
         let reader = BufReader::new(login_data_file);
         let mut json_reader = serde_json::Deserializer::from_reader(reader);
         let data = ArchipelagoData::deserialize(&mut json_reader)?;
-        match archipelago::get_hud_data().lock() {
+        match ui::get_hud_data().lock() {
             Ok(mut instance) => {
                 instance.archipelago_url = data.url;
                 instance.username = data.name;
