@@ -77,6 +77,9 @@ pub(crate) async fn handle_received_items_packet(
         ui::set_checklist_item(id_to_name.get(&item.item).unwrap(), true);
     }
     log::debug!("Received Items Packet: {:?}", received_items_packet);
+    /*
+    So maybe add all NetworkItems to SyncData as well? Then compare with packet?
+     */
     if received_items_packet.index == 0
         || received_items_packet.index > CURRENT_INDEX.load(Ordering::SeqCst)
     {
@@ -96,7 +99,8 @@ pub(crate) async fn handle_received_items_packet(
                         location: item.location,
                         player: item.player,
                         flags: item.flags,
-                    }).await?;
+                    })
+                    .await?;
                 }
                 //bank::add_item(client, item).await; // TODO Somethings fucked with this
             }
@@ -140,12 +144,14 @@ pub(crate) async fn sync_items() {
         log::info!("Synchronizing items");
         CHECKLIST.get().unwrap().write().unwrap().clear();
         match client.sync().await {
-            Ok(received_items) => match handle_received_items_packet(received_items, client).await {
-                Ok(_) => {}
-                Err(err) => {
-                    log::error!("Failed to sync items: {}", err);
+            Ok(received_items) => {
+                match handle_received_items_packet(received_items, client).await {
+                    Ok(_) => {}
+                    Err(err) => {
+                        log::error!("Failed to sync items: {}", err);
+                    }
                 }
-            },
+            }
             Err(err) => {
                 log::error!("Failed to sync items: {}", err);
             }

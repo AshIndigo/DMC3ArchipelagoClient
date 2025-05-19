@@ -21,6 +21,7 @@ use std::time::Duration;
 use owo_colors::OwoColorize;
 use tokio::sync;
 use tokio::sync::mpsc::Receiver;
+use crate::bank::get_bank;
 
 static DATA_PACKAGE: Lazy<RwLock<Option<DataPackageObject>>> = Lazy::new(|| RwLock::new(None));
 
@@ -243,7 +244,7 @@ pub async fn handle_things(
     loc_rx: &mut Receiver<Location>,
     bank_rx: &mut Receiver<String>,
     connect_rx: &mut Receiver<ArchipelagoData>,
-    x: &mut Receiver<NetworkItem>,
+    add_bank_rx: &mut Receiver<NetworkItem>,
 ) {
     loop {
         tokio::select! {
@@ -257,8 +258,8 @@ pub async fn handle_things(
                     log::error!("Failed to handle bank: {}", err);
                 }
             }
-            Some(message) = x.recv() => {
-                 if let Err(err) = bank::add_item(client, &message).await {
+            Some(message) = add_bank_rx.recv() => {
+                 if let Err(err) = bank::add_item_to_bank(client, &message).await {
                     log::error!("Failed to add item to bank: {}", err);
                 }
             }
@@ -318,6 +319,12 @@ async fn handle_client_messages(
             Some(ServerMessage::Retrieved(_)) => Ok(()),
             Some(ServerMessage::SetReply(reply)) => {
                 log::debug!("SetReply: {:?}", reply); // TODO Use this for the bank...
+                for item in constants::get_items_by_category(ItemCategory::Consumable).iter() {
+                    if item.eq(&reply.key.split("_").collect::<Vec<_>>()[2]) { // This is stupid
+                        let mut bank = get_bank().lock().unwrap();
+                        bank.insert(item, reply.value.as_i64().unwrap() as i32);
+                    }
+                }
                 Ok(())
             }
         },

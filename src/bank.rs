@@ -2,33 +2,26 @@ use crate::archipelago::{SLOT_NUMBER, TEAM_NUMBER};
 use crate::constants::INVENTORY_PTR;
 use crate::{constants, utilities};
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
-use archipelago_rs::protocol::{DataStorageOperation, NetworkItem};
+use archipelago_rs::protocol::{ClientMessage, DataStorageOperation, NetworkItem, Set};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::ops::SubAssign;
 use std::sync::atomic::Ordering;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-pub(crate) async fn add_item(client: &mut ArchipelagoClient, item: &NetworkItem) -> Result<(), ArchipelagoError> {
-    log::debug!("Adding item to bank {:?}", item);
-    match client
-        .set(
-            get_bank_key(&constants::get_item_name(item.item as u8).parse().unwrap()),
-            Value::from(1),
-            false,
-            vec![DataStorageOperation::Add(Value::from(1))],
-        )
-        .await {
-        Ok(reply) => {
-            log::debug!("Added item to bank: {:?}", reply);
-            Ok(())
-        },
-        Err(err) => {
-            Err(err)
-        }
-    }
+pub(crate) async fn add_item_to_bank(
+    client: &mut ArchipelagoClient,
+    item: &NetworkItem,
+) -> Result<(), ArchipelagoError> {
+    client
+        .send(ClientMessage::Set(Set {
+            key: get_bank_key(&constants::get_item_name(item.item as u8).parse().unwrap()),
+            default: Value::from(1),
+            want_reply: true,
+            operations: vec![DataStorageOperation::Add(Value::from(1))],
+        }))
+        .await
 }
 
 pub static TX_BANK_TO_INV: OnceLock<Sender<String>> = OnceLock::new();
@@ -70,61 +63,39 @@ pub(crate) async fn handle_bank(
     client: &mut ArchipelagoClient,
     item: String,
 ) -> Result<(), ArchipelagoError> {
-    match client.get(vec![get_bank_key(&item)]).await {
-        Ok(val) => {
-            let item_count = val
-                .keys
-                .get(&get_bank_key(&item))
-                .unwrap()
-                .as_i64()
-                .unwrap();
-            log::info!("{} is {}", item, item_count);
-            if item_count > 0 {
-                match client
-                    .set(
-                        get_bank_key(&item),
-                        Value::from(1),
-                        false,
-                        vec![DataStorageOperation::Add(Value::from(-1))],
-                    )
-                    .await
-                {
-                    Ok(_) => {
-                        log::debug!("{} subtracted", item);
-                        add_item_to_current_inv(&item);
-                        get_bank()
-                            .lock()
-                            .unwrap()
-                            .get_mut(&*item.clone())
-                            .unwrap()
-                            .sub_assign(1);
-                    }
-                    Err(err) => {
-                        log::error!("Failed to subtract item: {}", err);
-                    }
-                }
-            }
-        }
-        Err(err) => {
-            log::error!("Failed to get banker item: {}", err);
-        }
+    log::debug!("Handling message from bank {:?}", item);
+    let bank: MutexGuard<HashMap<&str, i32>> = get_bank().lock().unwrap();
+    if  *bank.get(item.as_str()).unwrap() > 0 {
+        client
+            .send(ClientMessage::Set(Set {
+                key: get_bank_key(&item),
+                default: Value::from(1),
+                want_reply: true,
+                operations: vec![DataStorageOperation::Add(Value::from(-1))],
+            }))
+            .await?;
+        add_item_to_current_inv(&item);
     }
-    Ok(()) // TODO
+    Ok(())
 }
 
 pub(crate) fn can_add_item_to_current_inv(item_name: &str) -> bool {
     let current_inv_addr = utilities::read_usize_from_address(INVENTORY_PTR);
+    if current_inv_addr == 0 {
+        return false;
+    }
     let offset = constants::ITEM_OFFSET_MAP
         .get(item_name)
         .unwrap_or_else(|| panic!("Item offset not found: {}", item_name));
-    utilities::read_byte_from_address(current_inv_addr + *offset as usize)+1 // This won't work for red orbs+consumables... int vs byte
-        > constants::ITEM_MAX_COUNT_MAP
+    let val = utilities::read_byte_from_address_no_offset(current_inv_addr + *offset as usize)+1 // This won't work for red orbs+consumables... int vs byte
+        < constants::ITEM_MAX_COUNT_MAP
             .get(item_name)
             .unwrap_or_else(|| {
                 log::error!("Item does not have a count: {}", item_name);
                 &Some(0)
             })
-            .unwrap() as u8
+            .unwrap() as u8;
+    val
 }
 
 pub(crate) fn add_item_to_current_inv(item_name: &String) {
@@ -135,7 +106,7 @@ pub(crate) fn add_item_to_current_inv(item_name: &String) {
     unsafe {
         utilities::replace_single_byte_no_offset(
             current_inv_addr + *offset as usize,
-            utilities::read_byte_from_address(current_inv_addr + *offset as usize) + 1,
+            utilities::read_byte_from_address_no_offset(current_inv_addr + *offset as usize) + 1,
         );
     }
 }

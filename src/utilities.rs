@@ -51,6 +51,10 @@ pub fn read_byte_from_address(address: usize) -> u8 {
     unsafe { *((address + get_dmc3_base_address()) as *const u8) }
 }
 
+pub fn read_byte_from_address_no_offset(address: usize) -> u8 {
+    unsafe { *(address as *const u8) }
+}
+
 
 pub fn read_usize_from_address(address: usize) -> usize {
     unsafe { *((address + get_dmc3_base_address()) as *const usize) }
