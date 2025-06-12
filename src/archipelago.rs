@@ -1,6 +1,7 @@
+use crate::bank::get_bank;
 use crate::cache::read_cache;
 use crate::check_handler::Location;
-use crate::constants::{EventCode, ItemCategory, Status, GAME_NAME};
+use crate::constants::{EventCode, GAME_NAME, ItemCategory, Status};
 use crate::hook::CONNECTION_STATUS;
 use crate::mapping::MAPPING;
 use crate::ui::ui;
@@ -8,20 +9,21 @@ use crate::utilities::get_mission;
 use crate::{bank, cache, constants, generated_locations, hook, item_sync, mapping, utilities};
 use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
-use archipelago_rs::protocol::{Connected, DataPackageObject, JSONColor, JSONMessagePart, NetworkItem, PrintJSON, ServerMessage};
+use archipelago_rs::protocol::{
+    Connected, DataPackageObject, JSONColor, JSONMessagePart, NetworkItem, PrintJSON, ServerMessage,
+};
 use once_cell::sync::Lazy;
+use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::fs::{remove_file, File};
+use std::fs::{File, remove_file};
 use std::io::Write;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Mutex, OnceLock, RwLock, RwLockReadGuard};
 use std::time::Duration;
-use owo_colors::OwoColorize;
 use tokio::sync;
 use tokio::sync::mpsc::Receiver;
-use crate::bank::get_bank;
 
 static DATA_PACKAGE: Lazy<RwLock<Option<DataPackageObject>>> = Lazy::new(|| RwLock::new(None));
 
@@ -320,7 +322,8 @@ async fn handle_client_messages(
             Some(ServerMessage::SetReply(reply)) => {
                 log::debug!("SetReply: {:?}", reply); // TODO Use this for the bank...
                 for item in constants::get_items_by_category(ItemCategory::Consumable).iter() {
-                    if item.eq(&reply.key.split("_").collect::<Vec<_>>()[2]) { // This is stupid
+                    if item.eq(&reply.key.split("_").collect::<Vec<_>>()[2]) {
+                        // This is stupid
                         let mut bank = get_bank().lock().unwrap();
                         bank.insert(item, reply.value.as_i64().unwrap() as i32);
                     }
@@ -377,6 +380,39 @@ pub fn get_data_package() -> Option<RwLockReadGuard<'static, Option<DataPackageO
     }
 }
 
+pub fn get_location_item_name(received_item: &Location) -> Result<&'static str, anyhow::Error> {
+    let Some(mapping_data) = MAPPING.get() else {
+        return Err(anyhow!("No mapping found"));
+    };
+    for (location_key, item_entry) in generated_locations::ITEM_MISSION_MAP.iter() {
+        //log::debug!("Checking room {} vs {} and mission {} vs {}", item_entry.room_number as i32, received_item.room, item_entry.mission as i32, received_item._mission);
+        if item_entry.room_number as i32 == received_item.room {
+            if item_entry.x_coord == 0
+                || (item_entry.x_coord == received_item.x_coord
+                    && item_entry.y_coord == received_item.y_coord
+                    && item_entry.z_coord == received_item.z_coord)
+            {
+                let location_data = mapping_data.items.get(*location_key).unwrap();
+                log::debug!("Believe this to be: {}", location_key);
+                log::debug!(
+                    "Checking location items: 0x{:x} vs 0x{:x}",
+                    constants::get_item_id(&*location_data.name).unwrap(),
+                    received_item.item_id as u8
+                );
+                if constants::get_item_id(&*location_data.name).unwrap()
+                    == received_item.item_id as u8
+                {
+                    // Then see if the item picked up matches the specified in the map
+                    return Ok(location_key);
+                } else if received_item.item_id == 0x26 { // TODO This may be stupid
+                    return Ok(location_key);
+                }
+            }
+        }
+    }
+    Err(anyhow!("No location found"))
+}
+
 async fn handle_item_receive(
     client: &mut ArchipelagoClient,
     received_item: Location,
@@ -388,68 +424,45 @@ async fn handle_item_receive(
     };
     if let Some(data_guard) = get_data_package() {
         if let Some(data) = data_guard.as_ref() {
-            for (location_key, item_entry) in generated_locations::ITEM_MISSION_MAP.iter() {
-                //log::debug!("Checking room {} vs {} and mission {} vs {}", v.room_number as i32, item.room, v.mission as i32, item.mission);
-                if item_entry.room_number as i32 == received_item.room {
-                    if item_entry.x_coord == 0
-                        || (item_entry.x_coord == received_item.x_coord
-                            && item_entry.y_coord == received_item.y_coord
-                            && item_entry.z_coord == received_item.z_coord)
-                    {
-                        let location_data = mapping_data.items.get(*location_key).unwrap();
-                        log::debug!("Believe this to be: {}", location_key);
-                        log::debug!(
-                            "Checking location items: 0x{:x} vs 0x{:x}",
-                            constants::get_item_id(&*location_data.name).unwrap(),
-                            received_item.item_id as u8
-                        );
-                        if constants::get_item_id(&*location_data.name).unwrap()
-                            == received_item.item_id as u8
-                        {
-                            // Then see if the item picked up matches the specified in the map
-                            match data
-                                .games
-                                .get(GAME_NAME)
-                                .unwrap()
-                                .location_name_to_id
-                                .get(*location_key)
-                            {
-                                Some(loc_id) => {
-                                    edit_end_event(*location_key);
-                                    tokio::spawn(async move {
-                                        tokio::time::sleep(Duration::from_millis(1500)).await;
-                                        unsafe {
-                                            utilities::display_message(&location_data.description);
-                                        }
-                                    });
-                                    hook::CANCEL_TEXT.store(true, Ordering::Relaxed);
-                                    client.location_checks(vec![loc_id.clone()]).await?;
-                                    if constants::get_items_by_category(ItemCategory::Key)
-                                        .contains(&&*location_data.name)
-                                    {
-                                        ui::set_checklist_item(&*location_data.name, true);
-                                        log::debug!("Key Item checked off: {}", location_data.name);
-                                    }
-                                    log::info!(
-                                        "Location check successful: {} ({}), Item: {}",
-                                        location_key,
-                                        loc_id,
-                                        location_data.name
-                                    );
-                                }
-                                None => {
-                                    Err(anyhow::anyhow!("Location not found: {}", location_key))?
-                                }
-                            }
+            let location_key = get_location_item_name(&received_item)?;
+            let location_data = mapping_data.items.get(location_key).unwrap();
+            // Then see if the item picked up matches the specified in the map
+            match data
+                .games
+                .get(GAME_NAME)
+                .unwrap()
+                .location_name_to_id
+                .get(location_key)
+            {
+                Some(loc_id) => {
+                    edit_end_event(&location_key);
+                    tokio::spawn(async move {
+                        tokio::time::sleep(Duration::from_millis(1500)).await;
+                        unsafe {
+                            utilities::display_message(&location_data.description);
                         }
+                    });
+                    hook::CANCEL_TEXT.store(true, Ordering::Relaxed);
+                    client.location_checks(vec![loc_id.clone()]).await?;
+                    if constants::get_items_by_category(ItemCategory::Key)
+                        .contains(&&*location_data.name)
+                    {
+                        ui::set_checklist_item(&*location_data.name, true);
+                        log::debug!("Key Item checked off: {}", location_data.name);
                     }
+                    log::info!(
+                        "Location check successful: {} ({}), Item: {}",
+                        location_key,
+                        loc_id,
+                        location_data.name
+                    );
                 }
+                None => Err(anyhow::anyhow!("Location not found: {}", location_key))?,
             }
         }
     }
     Ok(())
 }
-
 fn edit_end_event(location_key: &str) {
     match constants::EVENT_TABLES.get(&get_mission()) {
         None => {}
@@ -461,7 +474,7 @@ fn edit_end_event(location_key: &str) {
                             unsafe {
                                 utilities::replace_single_byte_no_offset(
                                     constants::EVENT_TABLE_ADDR + event.offset,
-                                    0x00,
+                                    0x00, // (TODO) NOTE: This will fail if something like DDMK's arcade mode is used, due to the player having no officially picked up red orb's. But this shouldn't occur in normal gameplay.
                                 );
                             }
                         }
@@ -680,7 +693,8 @@ fn handle_message_part(message: JSONMessagePart) -> String {
         }
         JSONMessagePart::EntranceName { text } => text,
         JSONMessagePart::Color { text, color } => {
-            match color { // This looks ugly, but I'm too lazy to have a better idea
+            match color {
+                // This looks ugly, but I'm too lazy to have a better idea
                 JSONColor::Bold => text.bold().to_string(),
                 JSONColor::Underline => text.underline().to_string(),
                 JSONColor::Black => text.black().to_string(),
@@ -704,7 +718,6 @@ fn handle_message_part(message: JSONMessagePart) -> String {
         JSONMessagePart::Text { text } => text,
     }
 }
-
 
 /*fn input(text: &str) -> Result<String, anyhow::Error> {
     log::info!("{}", text);

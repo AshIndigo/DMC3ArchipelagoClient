@@ -6,7 +6,7 @@ use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use crate::{archipelago, constants, generated_locations, hook};
-use crate::hook::modify_itm_table;
+use crate::hook::modify_item_table;
 
 const MAPPINGS_FILENAME: &str = "mappings.json";
 
@@ -20,6 +20,13 @@ pub struct Mapping {
     pub items: HashMap<String, LocationData>,
     pub starter_items: Vec<String>,
     pub players: Vec<String>,
+    pub adjudicators: HashMap<String, AdjudicatorData>
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct AdjudicatorData {
+    pub weapon: String,
+    pub ranking: u8
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -37,9 +44,9 @@ pub fn use_mappings() {
                     Some(entry) => match constants::get_item_id(&*location_data.name) {
                         Some(id) => unsafe {
                             if archipelago::location_is_checked_and_end(location_name) {
-                                modify_itm_table(entry.offset, hook::DUMMY_ID)
+                                modify_item_table(entry.offset, hook::DUMMY_ID)
                             } else {
-                                modify_itm_table(entry.offset, id)
+                                modify_item_table(entry.offset, id)
                             }
                         },
                         None => {

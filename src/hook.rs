@@ -1,35 +1,35 @@
 use crate::archipelago::ArchipelagoData;
-use crate::archipelago::{connect_archipelago, SLOT_NUMBER, TEAM_NUMBER};
+use crate::archipelago::{SLOT_NUMBER, TEAM_NUMBER, connect_archipelago};
 use crate::bank::{setup_bank_add_channel, setup_bank_to_inv_channel};
+use crate::constants::ItemEntry;
 use crate::constants::*;
+use crate::mapping::{MAPPING, Mapping};
+use crate::ui::ui;
+use crate::ui::ui::CHECKLIST;
 use crate::utilities::get_mission;
-use crate::{archipelago, check_handler, generated_locations, utilities};
-use anyhow::{anyhow, Error};
+use crate::{archipelago, check_handler, constants, generated_locations, utilities};
+use anyhow::{Error, anyhow};
 use archipelago_rs::client::ArchipelagoClient;
 use archipelago_rs::protocol::ClientStatus;
-use minhook::{MinHook, MH_STATUS};
+use minhook::{MH_STATUS, MinHook};
+use serde::Deserialize;
 use std::arch::asm;
 use std::collections::HashMap;
 use std::convert::Into;
-use std::ffi::c_longlong;
-use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
-use std::sync::{LazyLock, RwLock, RwLockWriteGuard};
-use std::{fs, path, ptr, slice};
+use std::ffi::{c_longlong};
 use std::io::BufReader;
-use serde::Deserialize;
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use std::sync::{LazyLock, OnceLock, RwLock, RwLockWriteGuard};
+use std::{fs, path, ptr, slice};
 use tokio::sync::Mutex;
 use winapi::um::libloaderapi::{FreeLibrary, GetModuleHandleW};
-use winapi::um::memoryapi::VirtualProtect;
-use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
+use winapi::um::memoryapi::{VirtualProtect};
+use winapi::um::winnt::{PAGE_EXECUTE_READWRITE};
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::System::Console::{
-    AllocConsole, FreeConsole, GetConsoleMode, GetStdHandle, SetConsoleMode,
-    ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_OUTPUT_HANDLE,
+    AllocConsole, ENABLE_VIRTUAL_TERMINAL_PROCESSING, FreeConsole, GetConsoleMode, GetStdHandle,
+    STD_OUTPUT_HANDLE, SetConsoleMode,
 };
-use crate::constants::ItemEntry;
-use crate::mapping::{Mapping, MAPPING};
-use crate::ui::ui;
-use crate::ui::ui::CHECKLIST;
 
 pub fn create_console() {
     unsafe {
@@ -139,8 +139,14 @@ pub(crate) async fn spawn_arch_thread() {
                 log::error!("Status update failed: {}", e);
             }
             // This blocks until a reconnect or disconnect is triggered
-            archipelago::handle_things(client, &mut rx_locations, &mut rx_bank_to_inv, &mut rx_connect, &mut rx_bank_add)
-                .await;
+            archipelago::handle_things(
+                client,
+                &mut rx_locations,
+                &mut rx_bank_to_inv,
+                &mut rx_connect,
+                &mut rx_bank_add,
+            )
+            .await;
         }
 
         CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::SeqCst);
@@ -202,7 +208,7 @@ pub fn edit_event_drop(param_1: i64, param_2: i32, param_3: i64) {
                 if checked_locations.contains(&event_table.location.to_string()) {
                     log::debug!("Event loc checked: {}", &event_table.location);
                     match event.event_type {
-                        // If the location has already been checked use 0x15 as a dummy item.
+                        // If the location has already been checked use DUMMY_ID as a dummy item.
                         EventCode::GIVE => utilities::replace_single_byte_no_offset(
                             EVENT_TABLE_ADDR + event.offset,
                             DUMMY_ID,
@@ -277,7 +283,7 @@ pub(crate) unsafe fn modify_adjudicator_drop() {
             Some(mapping) => {
                 for (location_name, entry) in generated_locations::ITEM_MISSION_MAP.iter() {
                     // Run through all locations
-                    if entry.adjudicator && entry.mission == get_mission() as u8 {
+                    if entry.adjudicator && entry.mission == get_mission() {
                         // If Location is adjudicator and mission numbers match
                         let item_id =
                             get_item_id(&*mapping.items.get(*location_name).unwrap().name).unwrap(); // Get the item ID and replace
@@ -308,7 +314,7 @@ fn item_spawns_hook(unknown: i64) {
         );
         log::debug!("Item count: {:x}", item_count);
         let room_num: u16 = utilities::get_room() as u16;
-        set_relevant_key_items();
+        //set_relevant_key_items();
         match MAPPING.get() {
             Some(mapping) => {
                 modify_adjudicator_drop();
@@ -333,7 +339,16 @@ fn item_spawns_hook(unknown: i64) {
                 }
             }
             None => {
-                log::error!("Mapping's are not set up");
+                log::warn!("Mapping's are not set up. Logging debug info:");
+                for _i in 0..item_count {
+                    let item_ref: &u32 = &*(item_addr as *const u32);
+                    log::debug!(
+                        "Item ID: {} (0x{:x})",
+                        get_item_name(*item_ref as u8),
+                        *item_ref
+                    );
+                    item_addr = item_addr.byte_offset(0x14);
+                }
             }
         }
         if let Some(original) = ORIGINAL_ITEM_SPAWNS.get() {
@@ -360,13 +375,18 @@ unsafe fn check_and_replace_item(
         {
             if !dummy_replace(location_name, item_addr, entry.offset) {
                 let ins_val = get_item_id(&*mapping.items.get(*location_name).unwrap().name); // Scary
-                *item_addr = ins_val.unwrap() as i32;
+                
+                if ITEM_MAP.get(&entry.item_id).unwrap().category == ItemCategory::Key {
+                    *item_addr = 0x26i32;
+                } else {
+                    *item_addr = ins_val.unwrap() as i32;
+                }
                 log::info!(
                     "Replaced item in room {} ({}) with {} 0x{:x}",
                     entry.room_number,
                     location_name,
                     get_item_name(*item_ref as u8),
-                    ins_val.unwrap() as i32
+                    *item_addr
                 );
             }
         }
@@ -410,12 +430,16 @@ fn dummy_replace(location_key: &&str, item_addr: *mut i32, offset: usize) -> boo
 }
 
 fn set_relevant_key_items() {
+    if CONNECTION_STATUS.load(Ordering::Relaxed) != 1 {
+        return;
+    }
     let checklist: RwLockWriteGuard<HashMap<String, bool>> =
         CHECKLIST.get().unwrap().write().unwrap();
     let current_inv_addr = utilities::read_usize_from_address(INVENTORY_PTR);
     log::debug!("Current INV Addr: 0x{:x}", current_inv_addr);
     let mut flag: u8;
-    match MISSION_ITEM_MAP.get(&(get_mission() as u8)) {
+    log::debug!("Current mission: {}", get_mission());
+    match MISSION_ITEM_MAP.get(&(get_mission())) {
         None => {} // No items for the mission
         Some(item_list) => {
             for item in item_list.into_iter() {
@@ -485,6 +509,12 @@ fn setup_hooks() -> Result<(), MH_STATUS> {
             ORIGINAL_EDIT_EVENT,
             "Event table"
         );
+        install_hook!(
+            0x23a7b0usize,
+            setup_inventory_for_mission,
+            ORIGINAL_MISSION_INV,
+            "Setup mission inventory"
+        );
         // install_hook!(
         //     RENDER_TEXT_ADDR,
         //     parry_text,
@@ -493,6 +523,20 @@ fn setup_hooks() -> Result<(), MH_STATUS> {
         // );
         Ok(())
     }
+}
+
+pub static ORIGINAL_MISSION_INV: OnceLock<unsafe extern "C" fn(param_1: c_longlong) -> bool> =
+    OnceLock::new();
+
+pub fn setup_inventory_for_mission(param_1: c_longlong) -> bool {
+    let mut res = false;
+    unsafe {
+        if let Some(original) = ORIGINAL_MISSION_INV.get() {
+            res = original(param_1);
+        }
+    }
+    set_relevant_key_items();
+    res
 }
 
 pub static CANCEL_TEXT: AtomicBool = AtomicBool::new(false);
@@ -527,7 +571,8 @@ pub unsafe fn parry_text(
 }
 
 /// The mapping data at dmc3.exe+5c4c20+1A00
-pub unsafe fn modify_itm_table(offset: usize, id: u8) {
+/// This table dictates what item is in what room. Only relevant for consumables and blue orb fragments
+pub unsafe fn modify_item_table(offset: usize, id: u8) {
     unsafe {
         // let start_addr = 0x5C4C20usize; dmc3.exe+5c4c20+1A00
         // let end_addr = 0x5C4C20 + 0xC8; // 0x5C4CE8
@@ -556,4 +601,3 @@ pub unsafe fn modify_itm_table(offset: usize, id: u8) {
         // ); // Shushing this for now
     }
 }
-

@@ -45,14 +45,14 @@ pub const EVENT_TABLE_ADDR: usize = 0x01A42680; // TODO is this gonna be ok?
 pub const STARTING_MELEE: usize = 0xC8F250 + 0x46; // TODO Think is the "obtained" bool, need the starting weapon inv
 pub const STARTING_GUN: usize = 0xC8F250 + 0x4C; // TODO
 
-struct Item {
-    id: u8,
-    name: &'static str,
-    offset: Option<u8>, // Inventory offset
-    category: ItemCategory,
-    mission: Option<u8>, // Mission the key item is used in, typically the same that it is acquired in
-    max_amount: Option<i32>, // Max amount of a consumable
-    _value: Option<i32>, // Value of an orb, used only for red orbs
+pub struct Item {
+    pub id: u8,
+    pub name: &'static str,
+    pub offset: Option<u8>, // Inventory offset
+    pub category: ItemCategory,
+    pub mission: Option<u8>, // Mission the key item is used in, typically the same that it is acquired in
+    pub max_amount: Option<i32>, // Max amount of a consumable
+    pub _value: Option<i32>, // Value of an orb, used only for red orbs
 }
 
 #[derive(PartialEq)]
@@ -581,7 +581,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             _value: None,
         },
         Item {
-            id: 0x38,
+            id: 0x39,
             name: "Samsara",
             offset: Some(0x75),
             category: ItemCategory::Key,
@@ -612,11 +612,17 @@ pub static MISSION_ITEM_MAP: LazyLock<HashMap<u8, Vec<&'static str>>> = LazyLock
 pub static ITEM_ID_MAP: LazyLock<HashMap<&'static str, u8>> =
     LazyLock::new(|| ALL_ITEMS.iter().map(|item| (item.name, item.id)).collect());
 
-pub static ITEM_MAX_COUNT_MAP: LazyLock<HashMap<&'static str, Option<i32>>> =
-    LazyLock::new(|| ALL_ITEMS.iter().map(|item| (item.name, item.max_amount)).collect());
+pub static ITEM_MAX_COUNT_MAP: LazyLock<HashMap<&'static str, Option<i32>>> = LazyLock::new(|| {
+    ALL_ITEMS
+        .iter()
+        .map(|item| (item.name, item.max_amount))
+        .collect()
+});
 
 pub static ID_ITEM_MAP: LazyLock<HashMap<u8, &'static str>> =
     LazyLock::new(|| ALL_ITEMS.iter().map(|item| (item.id, item.name)).collect());
+pub static ITEM_MAP: LazyLock<HashMap<u8, &'static Item>> =
+    LazyLock::new(|| ALL_ITEMS.iter().map(|item| (item.id, item)).collect());
 
 pub fn get_item_name(item_id: u8) -> &'static str {
     ID_ITEM_MAP.get(&item_id).copied().unwrap_or_else(|| {
@@ -696,30 +702,20 @@ pub static EVENT_TABLES: LazyLock<HashMap<u8, Vec<EventTable>>> = LazyLock::new(
         ),
         (
             5,
-            vec![
-                EventTable {
-                    _mission: 5,
-                    location: "Mission #5 - Agni and Rudra",
-                    events: vec![
-                        Event {
-                            event_type: EventCode::CHECK,
-                            offset: 0x186C,
-                        },
-                        Event {
-                            event_type: EventCode::GIVE,
-                            offset: 0x1884,
-                        },
-                    ],
-                },
-                // EventTable {
-                //     mission: 5,
-                //     location: "Mission #5 - Soul of Steel".to_string(),
-                //     events: vec![
-                //         Event { event_type: EventCode::CHECK, offset: 0x186C },
-                //         Event { event_type: EventCode::GIVE, offset: 0x1884 }
-                //     ],
-                // }
-            ],
+            vec![EventTable {
+                _mission: 5,
+                location: "Mission #5 - Agni and Rudra",
+                events: vec![
+                    Event {
+                        event_type: EventCode::CHECK,
+                        offset: 0x186C,
+                    },
+                    Event {
+                        event_type: EventCode::GIVE,
+                        offset: 0x1884,
+                    },
+                ],
+            }],
         ),
         (
             6,
@@ -734,6 +730,117 @@ pub static EVENT_TABLES: LazyLock<HashMap<u8, Vec<EventTable>>> = LazyLock::new(
                     Event {
                         event_type: EventCode::GIVE,
                         offset: 0x13D0,
+                    },
+                ],
+            }],
+        ),
+        (
+            9,
+            vec![
+                EventTable {
+                    _mission: 9,
+                    location: "Mission #9 - Nevan",
+                    events: vec![
+                        Event {
+                            event_type: EventCode::CHECK,
+                            offset: 0xD4C,
+                        },
+                        Event {
+                            event_type: EventCode::GIVE,
+                            offset: 0xD64,
+                        },
+                    ],
+                },
+                EventTable {
+                    _mission: 9,
+                    location: "Mission #9 - Spiral",
+                    events: vec![
+                        Event {
+                            event_type: EventCode::CHECK,
+                            offset: 0x624,
+                        },
+                        Event {
+                            event_type: EventCode::GIVE,
+                            offset: 0x76C,
+                        },
+                    ],
+                },
+            ],
+        ),
+        (
+            12,
+            vec![
+                EventTable {
+                    _mission: 12,
+                    location: "Mission #12 - Quicksilver",
+                    events: vec![
+                        Event {
+                            event_type: EventCode::CHECK,
+                            offset: 0x175C,
+                        },
+                        Event {
+                            event_type: EventCode::GIVE,
+                            offset: 0x1774,
+                        },
+                    ],
+                },
+                EventTable {
+                    _mission: 12,
+                    location: "Mission #12 - Haywire Neo Generator",
+                    events: vec![Event {
+                        event_type: EventCode::GIVE,
+                        offset: 0x130,
+                    }],
+                },
+            ],
+        ),
+        (
+            14,
+            vec![EventTable {
+                _mission: 14,
+                location: "Mission #14 - Beowulf",
+                events: vec![
+                    Event {
+                        event_type: EventCode::CHECK,
+                        offset: 0x94,
+                    },
+                    Event {
+                        event_type: EventCode::GIVE,
+                        offset: 0x15C,
+                    },
+                ],
+            }],
+        ),
+        (
+            16,
+            vec![EventTable {
+                _mission: 16,
+                location: "Mission #16 - Kalina Ann",
+                events: vec![
+                    Event {
+                        event_type: EventCode::CHECK,
+                        offset: 0x1360,
+                    },
+                    Event {
+                        event_type: EventCode::GIVE,
+                        offset: 0x1378,
+                    },
+                ],
+            }],
+        ),
+        (
+            17,
+            vec![EventTable {
+                _mission: 17,
+                location: "Mission #17 - Doppelganger",
+                events: vec![
+                    Event {
+                        event_type: EventCode::CHECK,
+                        offset: 0xA98,
+                    },
+                    Event {
+                        event_type: EventCode::GIVE,
+                        offset: 0xAB0,
                     },
                 ],
             }],

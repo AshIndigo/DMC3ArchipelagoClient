@@ -77,9 +77,7 @@ pub(crate) async fn handle_received_items_packet(
         ui::set_checklist_item(id_to_name.get(&item.item).unwrap(), true);
     }
     log::debug!("Received Items Packet: {:?}", received_items_packet);
-    /*
-    So maybe add all NetworkItems to SyncData as well? Then compare with packet?
-     */
+    // TODO This isn't completely accurate.
     if received_items_packet.index == 0
         || received_items_packet.index > CURRENT_INDEX.load(Ordering::SeqCst)
     {

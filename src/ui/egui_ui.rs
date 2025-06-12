@@ -61,8 +61,11 @@ impl eframe::App for ArchipelagoClient {
                     log::error!("Unable to lock HUD Data: {}", err);
                 }
             }
+            if ui.button("Disconnect").clicked() {
+                log::info!("Disconnecting NYI");
+            }
             if ui.button("Sync").clicked() {
-                item_sync::sync_items(); 
+                item_sync::sync_items();
             };
             if ui.button("Debug: Add Vit Star S").clicked() {
             }
