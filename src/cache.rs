@@ -26,9 +26,13 @@ pub async fn find_checksum_errors(room_info: &RoomInfo) -> Option<Vec<String>> {
             )) {
                 Ok(data_package_object) => {
                     let mut failed_checks = vec![];
-                    for (name, data) in data_package_object.games {
-                        if room_info.datapackage_checksums.get(&name)? != &data.checksum {
-                            failed_checks.push(name.clone());
+                    for name in &room_info.games { // For all games in room
+                        if data_package_object.games.contains_key(name) { // See if cache file has game
+                            if *room_info.datapackage_checksums.get(name)? != data_package_object.games.get(name)?.checksum {
+                                failed_checks.push(name.clone()); // Checksums do not match
+                            }
+                        } else {
+                            failed_checks.push(name.clone()); // Cache file is missing game
                         }
                     }
                     if failed_checks.is_empty() {

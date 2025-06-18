@@ -39,6 +39,7 @@ pub static ORIGINAL_EDIT_EVENT: OnceLock<
 pub const INVENTORY_PTR: usize = 0xC90E28 + 0x8;
 pub const ADJUDICATOR_ITEM_ID_1: usize = 0x250594;
 pub const ADJUDICATOR_ITEM_ID_2: usize = 0x25040d;
+pub const SECRET_MISSION_ITEM: usize = 0x1a7a4d;
 pub const ITEM_MODE_TABLE: usize = 0x1B4534;
 pub const EVENT_TABLE_ADDR: usize = 0x01A42680; // TODO is this gonna be ok?
 
@@ -268,7 +269,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
         Item {
             id: 0x16,
             name: "Rebellion (Normal)",
-            offset: None,
+            offset: Some(0x52),
             category: ItemCategory::Weapon,
             mission: None,
             max_amount: None,
@@ -277,7 +278,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
         Item {
             id: 0x17,
             name: "Cerberus",
-            offset: None,
+            offset: Some(0x53),
             category: ItemCategory::Weapon,
             mission: None,
             max_amount: None,
@@ -286,7 +287,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
         Item {
             id: 0x18,
             name: "Agni and Rudra",
-            offset: None,
+            offset: Some(0x54),
             category: ItemCategory::Weapon,
             mission: None,
             max_amount: None,
@@ -304,7 +305,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
         Item {
             id: 0x1A,
             name: "Nevan",
-            offset: None,
+            offset: Some(0x56),
             category: ItemCategory::Weapon,
             mission: None,
             max_amount: None,
@@ -313,7 +314,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
         Item {
             id: 0x1B,
             name: "Beowulf",
-            offset: None,
+            offset: Some(0x57),
             category: ItemCategory::Weapon,
             mission: None,
             max_amount: None,
@@ -322,7 +323,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
         Item {
             id: 0x1C,
             name: "Ebony & Ivory",
-            offset: None,
+            offset: Some(0x58),
             category: ItemCategory::Weapon,
             mission: None,
             max_amount: None,
@@ -331,7 +332,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
         Item {
             id: 0x1D,
             name: "Shotgun",
-            offset: None,
+            offset: Some(0x59),
             category: ItemCategory::Weapon,
             mission: None,
             max_amount: None,
@@ -340,7 +341,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
         Item {
             id: 0x1E,
             name: "Artemis",
-            offset: None,
+            offset: Some(0x5A),
             category: ItemCategory::Weapon,
             mission: None,
             max_amount: None,
@@ -349,7 +350,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
         Item {
             id: 0x1F,
             name: "Spiral",
-            offset: None,
+            offset: Some(0x5B),
             category: ItemCategory::Weapon,
             mission: None,
             max_amount: None,
@@ -358,7 +359,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
         Item {
             id: 0x20,
             name: "Dummy", // Bomb!
-            offset: None,
+            offset: Some(0x5C), // ??
             category: ItemCategory::Misc,
             mission: None,
             max_amount: None,
@@ -367,7 +368,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
         Item {
             id: 0x21,
             name: "Kalina Ann",
-            offset: None,
+            offset: Some(0x5D),
             category: ItemCategory::Weapon,
             mission: None,
             max_amount: None,
@@ -376,7 +377,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
         Item {
             id: 0x22,
             name: "Quicksilver Style",
-            offset: None,
+            offset: Some(0x5E),
             category: ItemCategory::Weapon,
             mission: None,
             max_amount: None,
@@ -385,7 +386,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
         Item {
             id: 0x23,
             name: "Doppelganger Style",
-            offset: None,
+            offset: Some(0x5F),
             category: ItemCategory::Weapon,
             mission: None,
             max_amount: None,

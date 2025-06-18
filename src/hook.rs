@@ -6,7 +6,7 @@ use crate::constants::*;
 use crate::mapping::{MAPPING, Mapping};
 use crate::ui::ui;
 use crate::ui::ui::CHECKLIST;
-use crate::utilities::get_mission;
+use crate::utilities::{get_mission, get_room};
 use crate::{archipelago, check_handler, constants, generated_locations, utilities};
 use anyhow::{Error, anyhow};
 use archipelago_rs::client::ArchipelagoClient;
@@ -318,6 +318,7 @@ fn item_spawns_hook(unknown: i64) {
         match MAPPING.get() {
             Some(mapping) => {
                 modify_adjudicator_drop();
+                modify_secret_mission_item();
                 for _i in 0..item_count {
                     let item_ref: &u32 = &*(item_addr as *const u32);
                     log::debug!(
@@ -353,6 +354,24 @@ fn item_spawns_hook(unknown: i64) {
         }
         if let Some(original) = ORIGINAL_ITEM_SPAWNS.get() {
             original(unknown);
+        }
+    }
+}
+
+fn modify_secret_mission_item() {
+    unsafe {
+        match MAPPING.get() {
+            Some(mapping) => {
+                for (location_name, entry) in generated_locations::ITEM_MISSION_MAP.iter() {
+                    // Run through all locations
+                    if get_room() == entry.room_number as i32 { // Only on
+                        let item_id =
+                            get_item_id(&*mapping.items.get(*location_name).unwrap().name).unwrap(); // Get the item ID and replace
+                        utilities::replace_single_byte(SECRET_MISSION_ITEM, item_id);
+                    }
+                }
+            }
+            _ => {}
         }
     }
 }

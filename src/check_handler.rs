@@ -18,9 +18,9 @@ static ORIG_ID: AtomicU8 = AtomicU8::new(0);
 pub fn item_non_event(item_struct: i64) {
     unsafe {
         let base_ptr = item_struct as *const u8;
-        let item_id_ptr = base_ptr.add(0x60) as *const i32;
+        let item_id_ptr = base_ptr.add(0x60);
         let item_id = *item_id_ptr;
-        if item_id > 0x03 {
+        if item_id > 0x04 {
             // Ignore red orbs
             if item_id < 0x3A {
                 log::debug!(
@@ -38,7 +38,7 @@ pub fn item_non_event(item_struct: i64) {
                 log::debug!("X Addr: {:?}, X Coord: {}", x_coord, x_coord_val);
                 log::debug!("Y Addr: {:?}, Y Coord: {}", y_coord, y_coord_val);
                 log::debug!("Z Addr: {:?}, Z Coord: {}", z_coord, z_coord_val);
-                send_off_location_coords(item_id, x_coord_val, y_coord_val, z_coord_val);
+                send_off_location_coords(item_id as i32, x_coord_val, y_coord_val, z_coord_val);
                 let loc = Location {
                     item_id: item_id as u64,
                     room: utilities::get_room(),
@@ -55,6 +55,11 @@ pub fn item_non_event(item_struct: i64) {
                 //     }
                 // }
                 log::debug!("Location Name: {:?}", location_name);
+                if location_name.is_err() {
+                    if let Some(original) = ORIGINAL_HANDLE_PICKUP.get() {
+                        original(item_struct);
+                    }
+                }
                 ORIG_ID.store(
                     generated_locations::ITEM_MISSION_MAP
                         .get(location_name.unwrap())
@@ -62,7 +67,7 @@ pub fn item_non_event(item_struct: i64) {
                         .item_id,
                     SeqCst,
                 );
-                log::debug!("item_id: {:x}", ORIG_ID.load(SeqCst));
+                log::debug!("orig item_id: {:x}", ORIG_ID.load(SeqCst));
                 //utilities::replace_single_byte_no_offset(item_id_ptr.addr(), generated_locations::ITEM_MISSION_MAP.get(location_name).unwrap().item_id)
             } else {
                 log::error!(
@@ -103,11 +108,6 @@ pub fn item_event(loc_chk_flg: i64, item_id: i16, unknown: i32) {
         }
         log::debug!("Orig ID is: {:x}", item_id_orig); 
         log::debug!("Unknown is: {}", (20000 + item_id_orig) as c_int);
-        /*
-          lVar1 = (longlong)((int)(itemIDInt + ((int)itemIDInt >> 0x1f & 7U)) >> 3);
-  locChkFlg[lVar1 + 0x7da] = locChkFlg[lVar1 + 0x7da] | (byte)(1 << (itemIDInt & 7));
-  locChkFlg[lVar1 + 0x7e2] = locChkFlg[lVar1 + 0x7e2] | (byte)(1 << (itemIDInt & 7));
-         */
         if let Some(original) = ORIGINAL_ITEM_PICKED_UP.get() {
             original(loc_chk_flg, item_id_orig, (20000 + item_id_orig) as c_int);
             //original(loc_chk_flg, item_id, unknown);
@@ -125,7 +125,7 @@ pub fn mission_complete_check(this: i64) {
         0
     );
     //log::debug!("Method parameters: this: {}, param_2: {}, param_3: {}, param_4: {}", this, param_2, param_3, param_4);
-    log::debug!("Mission complete PTR (this): {}", this);
+    log::debug!("Mission complete PTR (this): {:x}", this);
     unsafe {
         if let Some(original) = ORIGINAL_HANDLE_MISSION_COMPLETE.get() {
             original(this);
@@ -164,6 +164,15 @@ fn clear_high_roller() {
     let current_inv_addr = utilities::read_usize_from_address(INVENTORY_PTR);
     log::debug!("Resetting high roller card");
     let item_addr = current_inv_addr + ITEM_OFFSET_MAP.get("Remote").unwrap().clone() as usize;
+    log::debug!(
+        "Attempting to replace at address: 0x{:x} with flag 0x{:x}",
+        item_addr,
+        0x00
+    );
+    unsafe { utilities::replace_single_byte_no_offset(item_addr, 0x00) };
+    let current_inv_addr = utilities::read_usize_from_address(INVENTORY_PTR);
+    log::debug!("Resetting bomb");
+    let item_addr = current_inv_addr + ITEM_OFFSET_MAP.get("Dummy").unwrap().clone() as usize;
     log::debug!(
         "Attempting to replace at address: 0x{:x} with flag 0x{:x}",
         item_addr,
