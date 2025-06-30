@@ -53,9 +53,15 @@ impl eframe::App for ArchipelagoClient {
                         ui::connect_button_pressed(
                             instance.archipelago_url.clone(),
                             instance.username.clone(),
-                            instance.password.clone(),
-                        );
+                            instance.password.clone());
                     }
+                    // if ui.button("Connect (Offline)").clicked() {
+                    //     log::debug!("Connecting offline");
+                    //     ui::connect_button_pressed(
+                    //         instance.archipelago_url.clone(),
+                    //         instance.username.clone(),
+                    //         instance.password.clone());
+                    // }
                 }
                 Err(err) => {
                     log::error!("Unable to lock HUD Data: {}", err);

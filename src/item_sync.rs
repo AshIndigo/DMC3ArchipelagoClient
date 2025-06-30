@@ -47,6 +47,7 @@ pub fn check_for_sync_file() -> bool {
     })
 }
 
+/// Reads the received items indices from the save file
 pub(crate) fn read_save_data() -> Result<SyncData, Box<dyn Error>> {
     if !check_for_sync_file() {
         Ok(SyncData::default())
@@ -73,14 +74,30 @@ pub(crate) async fn handle_received_items_packet(
         .into_iter()
         .map(|(k, v)| (v, k))
         .collect();
+    // TODO Lazy ass fix ----
+    *get_sync_data().lock().expect("Failed to get Sync Data") = read_save_data()?;
+
+    CURRENT_INDEX.store(
+        *get_sync_data()
+            .lock()
+            .unwrap()
+            .sync_indices
+            .get(&get_index(&client))
+            .unwrap_or(&0),
+        Ordering::SeqCst,
+    );
+    // ---
     for item in &received_items_packet.items {
         ui::set_checklist_item(id_to_name.get(&item.item).unwrap(), true);
     }
     log::debug!("Received Items Packet: {:?}", received_items_packet);
     // TODO This isn't completely accurate.
-    if received_items_packet.index == 0
-        || received_items_packet.index > CURRENT_INDEX.load(Ordering::SeqCst)
-    {
+    if received_items_packet.index == 0 { // If 0 abandon previous inv.
+        // Clear bank
+        // Reset weapons
+        // Checklist should be fine
+    }
+    if received_items_packet.index > CURRENT_INDEX.load(Ordering::SeqCst) {
         for item in &received_items_packet.items {
             /*    unsafe { // TODO This will crash due to a bug with display_message (Needs another "vanilla" message to prep)
                 utilities::display_message(format!(

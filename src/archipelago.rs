@@ -3,7 +3,6 @@ use crate::cache::read_cache;
 use crate::check_handler::Location;
 use crate::constants::{EventCode, GAME_NAME, ItemCategory, Status};
 use crate::hook::CONNECTION_STATUS;
-use crate::mapping::MAPPING;
 use crate::ui::ui;
 use crate::utilities::get_mission;
 use crate::{bank, cache, constants, generated_locations, hook, item_sync, mapping, utilities};
@@ -16,6 +15,7 @@ use once_cell::sync::Lazy;
 use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::fs::{File, remove_file};
 use std::io::Write;
@@ -24,6 +24,7 @@ use std::sync::{Mutex, OnceLock, RwLock, RwLockReadGuard};
 use std::time::Duration;
 use tokio::sync;
 use tokio::sync::mpsc::Receiver;
+use crate::mapping::get_mappings;
 
 static DATA_PACKAGE: Lazy<RwLock<Option<DataPackageObject>>> = Lazy::new(|| RwLock::new(None));
 
@@ -55,7 +56,7 @@ pub fn get_connected() -> &'static Mutex<Connected> {
 
 pub(crate) const LOGIN_DATA_FILE: &str = "login_data.json";
 
-fn save_connection_info(login_data: ArchipelagoData) -> Result<(), Box<dyn std::error::Error>> {
+fn save_connection_info(login_data: ArchipelagoData) -> Result<(), Box<dyn Error>> {
     let res = serde_json::to_string(&login_data)?;
     let mut file = File::create(LOGIN_DATA_FILE)?;
     file.write_all(res.as_bytes())?;
@@ -141,9 +142,7 @@ pub async fn connect_archipelago(
             vec!["AP".to_string()],
         )
         .await?;
-    get_connected()
-        .replace(connected)
-        .expect("Unable to replace CONNECTED");
+    *get_connected().lock().expect("Failed to get connected") = connected;
     let mut connected = get_connected().lock().unwrap();
     let Ok(mut checked_locations) = get_checked_locations().lock() else {
         log::error!("Failed to get checked locations");
@@ -175,12 +174,13 @@ pub async fn connect_archipelago(
     Ok(cl)
 }
 
+/// This is run when a there is a valid connection to a room.
 pub async fn run_setup(cl: &mut ArchipelagoClient) {
     log::info!("Running setup");
     unsafe {
         hook::rewrite_mode_table();
     }
-    match cl.data_package() {
+    match cl.data_package() { // Set the data package global based on received or cached values
         Some(data_package) => {
             log::info!("Using received data package");
             set_data_package(data_package.clone());
@@ -190,10 +190,8 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) {
             set_data_package(read_cache().expect("Expected cache file"));
         }
     }
-    item_sync::get_sync_data()
-        .replace(item_sync::read_save_data().unwrap())
-        .expect("Failed to get Sync Data");
-
+    
+    *item_sync::get_sync_data().lock().expect("Failed to get sync data") = item_sync::read_save_data().unwrap();
     item_sync::CURRENT_INDEX.store(
         *item_sync::get_sync_data()
             .lock()
@@ -204,11 +202,16 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) {
         Ordering::SeqCst,
     );
 
-    // TODO Refactor the error handling + Use seed as some kind verification system? Ensure right mappings are being used?
-    if MAPPING.get().is_none() {
-        MAPPING
-            .set(mapping::load_mappings_file().unwrap())
-            .expect("Sync Data already set");
+    hook::install_initial_functions(); // Hooks needed to modify the game
+    match mapping::parse_slot_data() {
+        Ok(_) => {
+            log::info!("Successfully parsed mapping information");
+            log::debug!("Mapping data: {:#?}", get_mappings().lock().unwrap());
+        }
+        Err(err) => {
+            log::error!("Failed to load mappings from slot data, aborting: {}", err);
+            return;
+        }
     }
     mapping::use_mappings();
 }
@@ -381,8 +384,11 @@ pub fn get_data_package() -> Option<RwLockReadGuard<'static, Option<DataPackageO
 }
 
 pub fn get_location_item_name(received_item: &Location) -> Result<&'static str, anyhow::Error> {
-    let Some(mapping_data) = MAPPING.get() else {
-        return Err(anyhow!("No mapping found"));
+    let Ok(mapping_data) = get_mappings().lock() else {
+        return Err(anyhow!("Unable to get mapping data"));
+    };
+    let Some(mapping_data) = mapping_data.as_ref() else {
+        return Err(anyhow!("No mapping data"));
     };
     for (location_key, item_entry) in generated_locations::ITEM_MISSION_MAP.iter() {
         //log::debug!("Checking room {} vs {} and mission {} vs {}", item_entry.room_number as i32, received_item.room, item_entry.mission as i32, received_item._mission);
@@ -416,11 +422,14 @@ pub fn get_location_item_name(received_item: &Location) -> Result<&'static str, 
 async fn handle_item_receive(
     client: &mut ArchipelagoClient,
     received_item: Location,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn Error>> {
     // See if there's an item!
     log::info!("Processing item: {}", received_item); // TODO Need to handle offline storage... if the item cant be sent it needs to be buffered
-    let Some(mapping_data) = MAPPING.get() else {
-        return Err(Box::from(anyhow!("No mapping found")));
+    let Ok(mapping_data) = get_mappings().lock() else {
+        return Err(Box::from(anyhow!("Unable to get mapping data")));
+    };
+    let Some(mapping_data) = mapping_data.as_ref() else {
+        return Err(Box::from(anyhow!("No mapping data")));
     };
     if let Some(data_guard) = get_data_package() {
         if let Some(data) = data_guard.as_ref() {
@@ -436,10 +445,11 @@ async fn handle_item_receive(
             {
                 Some(loc_id) => {
                     edit_end_event(&location_key);
+                    let desc = location_data.description.clone();
                     tokio::spawn(async move {
                         tokio::time::sleep(Duration::from_millis(1500)).await;
                         unsafe {
-                            utilities::display_message(&location_data.description);
+                            utilities::display_message(&desc);
                         }
                     });
                     hook::CANCEL_TEXT.store(true, Ordering::Relaxed);

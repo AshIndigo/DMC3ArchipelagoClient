@@ -18,7 +18,7 @@ const TEXT_ADDRESS: usize = 0xCB8A0C; //0xCB8A1E; // Text string
 pub unsafe fn display_message(string: &String) {
     unsafe {
         let final_string = format!("<PS\x2085\x20305><SZ\x2024>{}\x00\x2E", string);
-        let bytes = final_string.as_ascii().unwrap().as_bytes();
+        let bytes = final_string.as_bytes();
         log::debug!("Length: {}", bytes.len());
         log::debug!("String: {}", final_string);
         log::debug!("Bytes: {:?}", bytes);
@@ -103,7 +103,7 @@ pub fn is_library_loaded(name: &str) -> bool {
 }
 
 pub fn is_addon_mod_loaded() -> bool {
-    is_library_loaded("Mary.dll") || is_library_loaded("Crimson.dll")
+    is_ddmk_loaded() || is_crimson_loaded()
 }
 
 pub unsafe fn replace_single_byte(offset: usize, new_val: u8) {

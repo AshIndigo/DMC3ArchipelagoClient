@@ -1,7 +1,3 @@
-#![feature(lock_value_accessors)]
-#![feature(ascii_char)]
-#![recursion_limit = "512"]
-
 use std::env::current_exe;
 use crate::hook::create_console;
 use log::{LevelFilter, Log};
@@ -157,7 +153,6 @@ fn main_setup() {
             hook::spawn_arch_thread();
         })
         .expect("Failed to spawn arch thread");
-    hook::install_initial_functions(); // Need to run this when actually connecting?
 }
 
 #[allow(non_snake_case)]

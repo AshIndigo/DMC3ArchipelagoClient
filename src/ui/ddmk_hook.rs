@@ -169,8 +169,7 @@ pub unsafe fn archipelago_window(mut instance: MutexGuard<ArchipelagoHud>) {
             ui::connect_button_pressed(
                 instance.archipelago_url.clone().trim().to_string(),
                 instance.username.clone().trim().to_string(),
-                instance.password.clone().trim().to_string(),
-            );
+                instance.password.clone().trim().to_string());
         }
 
         if get_imgui_button()(
