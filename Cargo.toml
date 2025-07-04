@@ -7,10 +7,6 @@ edition = "2024"
 [lib]
 crate-type = ["cdylib"]
 
-#[target.'cfg(target_family = "windows")']
-#rustflags = ["-C", "link-args=C:\\Program Files (x86)\\Steam\\steamapps\\common\\Devil May Cry HD Collection\\dmc3.exe"] # Have mercy on my soul
-
-
 [build-dependencies]
 serde_json = "1.0.140"
 serde = { version = "1.0.219", features = ["derive"] }
@@ -22,8 +18,7 @@ windows = { version = "0.61.3", features = ["Win32_System_Console", "Win32_Syste
 winapi = { version = "0.3.9", features = ["processthreadsapi", "memoryapi", "winnt", "libloaderapi", "minwindef", "handleapi", "errhandlingapi", "dinput", "winuser"] }
 anyhow = "1.0.98"
 once_cell = "1.21.3"
-tokio = { version = "1.45.1", features = ["full"] }
-#archipelago_rs = { git = "https://github.com/quellen-sol/archipelago_rs", version = "0.1.0" }
+tokio = { version = "1.46.0", features = ["full"] }
 serde_json = "1.0.140"
 serde = { version = "1.0.219", features = ["derive"] }
 simple_logger = { version = "5.0.0", features = ["threads"] }
@@ -33,24 +28,12 @@ imgui-sys = { version = "0.12.0" }
 minhook = "0.7.1"
 egui = "0.31.1"
 libloading = "0.8.8"
-
-# Testing deps
-#hudhook = "0.8.1"
-
 eframe = "0.31.1"
 egui-winit = { version = "0.31.1" }
-egui_demo_lib = "0.31.1"
 egui_logger = "0.7.0"
-egui-directx11 = "0.8.0"
-#egui_overlay = { git = "https://github.com/PlugOvr-ai/egui_overlay" }
-#egui_render_three_d = "0.9.0"
 winit = { version = "0.30.11" }
 multi_log = "0.1.2"
 owo-colors = "4.2.2"
-#egui_d3d11 = {path = "egui_d3d11"}
-#egui-d3d11 = {git = "https://github.com/janis-bhm/egui-d3d11.git"}
-#faithe = "0.8.0"
-#shroud = { version = "0.2.3", features = ["directx11"] }
-#imgui = "0.11.0"
-#imgui-dx11-renderer = "0.8.0"
-#imgui-dx11-renderer = {git = "https://github.com/cohaereo/imgui-dx11-renderer"}
+
+# Experimental
+egui-directx11 = "0.8.0"

@@ -99,7 +99,7 @@ pub struct AdjudicatorData {
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct LocationData {
-    pub name: String,
+    pub item_name: String,
     pub description: String,
 }
 
@@ -109,21 +109,26 @@ pub fn get_mappings() -> &'static Mutex<Option<Mapping>> {
 
 pub fn use_mappings() {
     match get_mappings().lock() {
-        Ok(opt_data) => match opt_data.as_ref() {
+        Ok(mapping_opt) => match mapping_opt.as_ref() {
             None => log::error!("No mapping found"),
-            Some(data) => {
-                for (location_name, location_data) in data.items.iter() {
+            Some(mapping_data) => {
+                // Run through each mapping entry
+                for (location_name, location_data) in mapping_data.items.iter() {
+                    // Acquire the default location data for a specific location
                     match generated_locations::ITEM_MISSION_MAP.get(location_name as &str) {
-                        Some(entry) => match constants::get_item_id(&*location_data.name) {
+                        Some(entry) => match constants::get_item_id(&*location_data.item_name) {
+                            // With the offset acquired, before the necessary replacement
                             Some(id) => unsafe {
                                 if archipelago::location_is_checked_and_end(location_name) {
+                                    // If the item procs an end mission event, replace with a dummy ID in order to not immediately trigger a mission end
                                     modify_item_table(entry.offset, hook::DUMMY_ID)
                                 } else {
+                                    // Replace the item ID with the new one
                                     modify_item_table(entry.offset, id)
                                 }
                             },
                             None => {
-                                log::warn!("Item not found: {}", location_data.name);
+                                log::warn!("Item not found: {}", location_data.item_name);
                             }
                         },
                         None => {

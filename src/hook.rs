@@ -209,7 +209,7 @@ pub fn edit_event_drop(param_1: i64, param_2: i32, param_3: i64) {
                 // For each table
                 for event_table in mission_event_tables {
                     for event in &event_table.events {
-                        if checked_locations.contains(&event_table.location.to_string()) {
+                        if checked_locations.contains(&event_table.location) {
                             log::debug!("Event loc checked: {}", &event_table.location);
                             match event.event_type {
                                 // If the location has already been checked use DUMMY_ID as a dummy item.
@@ -233,7 +233,11 @@ pub fn edit_event_drop(param_1: i64, param_2: i32, param_3: i64) {
                                 EventCode::GIVE => utilities::replace_single_byte_no_offset(
                                     EVENT_TABLE_ADDR + event.offset,
                                     get_item_id(
-                                        &*mapping.items.get(event_table.location).unwrap().name,
+                                        &*mapping
+                                            .items
+                                            .get(event_table.location)
+                                            .unwrap()
+                                            .item_name,
                                     )
                                     .unwrap(),
                                 ),
@@ -295,7 +299,7 @@ pub(crate) unsafe fn modify_adjudicator_drop() {
                         if entry.adjudicator && entry.mission == get_mission() {
                             // If Location is adjudicator and mission numbers match
                             let item_id =
-                                get_item_id(&*mapping.items.get(*location_name).unwrap().name)
+                                get_item_id(&*mapping.items.get(*location_name).unwrap().item_name)
                                     .unwrap(); // Get the item ID and replace
                             utilities::replace_single_byte(ADJUDICATOR_ITEM_ID_1, item_id);
                             utilities::replace_single_byte(ADJUDICATOR_ITEM_ID_2, item_id);
@@ -378,22 +382,25 @@ fn modify_secret_mission_item() {
     unsafe {
         match get_mappings().lock() {
             Ok(mapping) => {
-                match mapping.as_ref() {
-                    Some(mapping) => {
-                        for (location_name, entry) in generated_locations::ITEM_MISSION_MAP.iter() {
-                            // Run through all locations
-                            if get_room() == entry.room_number as i32 {
-                                // Only on
-                                let item_id =
-                                    get_item_id(&*mapping.items.get(*location_name).unwrap().name).unwrap(); // Get the item ID and replace
-                                utilities::replace_single_byte(SECRET_MISSION_ITEM, item_id);
-                            }
-                        }
+                if let Some(mapping) = mapping.as_ref() {
+                    for (location_name, _entry) in generated_locations::ITEM_MISSION_MAP
+                        .iter()
+                        .filter(|(_location_name, entry)| entry.room_number as i32 == get_room())
+                    {
+                        // Get the item ID and replace
+                        utilities::replace_single_byte(
+                            SECRET_MISSION_ITEM,
+                            get_item_id(&*mapping.items.get(*location_name).unwrap().item_name)
+                                .unwrap(),
+                        );
                     }
-                    None => log::warn!("Attempted to modify secret mission item without mappings"),
+                } else {
+                    log::warn!("No mappings loaded, cannot modify the secret mission item");
                 }
             }
-            _ => {}
+            Err(e) => {
+                log::error!("Failed to get mappings lock: {}", e);
+            }
         }
     }
 }
@@ -415,10 +422,10 @@ unsafe fn check_and_replace_item(
         if entry.room_number == room_num && entry.item_id as u32 == *item_ref && !entry.adjudicator
         {
             if !dummy_replace(location_name, item_addr, entry.offset) {
-                let ins_val = get_item_id(&*mapping.items.get(*location_name).unwrap().name); // Scary
+                let ins_val = get_item_id(&*mapping.items.get(*location_name).unwrap().item_name); // Scary
 
                 if ITEM_MAP.get(&entry.item_id).unwrap().category == ItemCategory::Key {
-                    *item_addr = 0x26i32;
+                    *item_addr = 0x26i32; // 0x26 is high roller card, what is used for remote items.
                 } else {
                     *item_addr = ins_val.unwrap() as i32;
                 }
@@ -434,35 +441,30 @@ unsafe fn check_and_replace_item(
     }
 }
 
+/// Replaces an item with a dummy one in order to not immediately proc end events upon entering the location's room
 fn dummy_replace(location_key: &&str, item_addr: *mut i32, _offset: usize) -> bool {
-    match EVENT_TABLES.get(&get_mission()) {
-        None => {}
-        Some(event_tables) => {
-            for event_table in event_tables {
-                if event_table.location == *location_key {
-                    for event in event_table.events.iter() {
-                        if event.event_type == EventCode::END {
-                            unsafe {
-                                match archipelago::get_checked_locations().lock() {
-                                    Ok(checked_locations) => {
-                                        if checked_locations.contains(&String::from(*location_key))
-                                        {
-                                            *item_addr = DUMMY_ID as i32;
-                                            // modify_itm_table(offset, DUMMY_ID);
-                                            log::info!("Replaced item in room with dummy item");
-                                            return true;
-                                        }
-                                    }
-                                    Err(err) => {
-                                        log::error!(
-                                            "Failed to lock checked locations vec: {}",
-                                            err
-                                        );
-                                    }
-                                }
-                            }
+    // Get event tables for mission and then each END event
+    if let Some(event_tables) = EVENT_TABLES.get(&get_mission()) {
+        for event_table in event_tables
+            .iter()
+            .filter(|table| table.location == *location_key)
+        {
+            for _event in event_table
+                .events
+                .iter()
+                .filter(|event| event.event_type == EventCode::END)
+            {
+                // Then if location in question is checked, replace the item with a dummy and return true
+                if let Ok(checked_locations) = archipelago::get_checked_locations().lock() {
+                    if checked_locations.contains(location_key) {
+                        unsafe {
+                            *item_addr = DUMMY_ID as i32;
                         }
+                        log::info!("Replaced item at {} with dummy item", location_key);
+                        return true;
                     }
+                } else {
+                    log::error!("Failed to lock checked locations vec");
                 }
             }
         }
