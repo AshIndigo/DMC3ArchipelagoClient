@@ -10,7 +10,7 @@ fn edit_save_name(new_name: String) {
 fn get_save_name(seed: String) -> String {
     let mut copied = seed.clone();
     copied.truncate(6);
-    format!("dmc3{}.sav", copied)
+    format!("dmc3_{}.sav", copied)
 }
 
 fn create_special_save(new_name: String) {

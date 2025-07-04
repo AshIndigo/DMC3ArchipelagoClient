@@ -4,7 +4,7 @@ use crate::hook::CLIENT;
 use crate::ui::ui;
 use crate::ui::ui::CHECKLIST;
 use crate::{archipelago, bank};
-use archipelago_rs::client::ArchipelagoClient;
+use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
 use archipelago_rs::protocol::{NetworkItem, ReceivedItems};
 use log;
 use serde::{Deserialize, Serialize};
@@ -22,7 +22,13 @@ pub(crate) static CURRENT_INDEX: AtomicI32 = AtomicI32::new(0);
 
 #[derive(Deserialize, Serialize, Debug, Default)]
 pub struct SyncData {
-    pub sync_indices: HashMap<String, i32>,
+    pub room_sync_info: HashMap<String, RoomSyncInfo>, // String is seed
+}
+
+#[derive(Deserialize, Serialize, Debug, Default)]
+pub struct RoomSyncInfo {
+    pub sync_index: i32,
+    pub offline_checks: Vec<i64>,
 }
 
 pub fn get_sync_data() -> &'static Mutex<SyncData> {
@@ -78,12 +84,13 @@ pub(crate) async fn handle_received_items_packet(
     *get_sync_data().lock().expect("Failed to get Sync Data") = read_save_data()?;
 
     CURRENT_INDEX.store(
-        *get_sync_data()
+        get_sync_data()
             .lock()
             .unwrap()
-            .sync_indices
+            .room_sync_info
             .get(&get_index(&client))
-            .unwrap_or(&0),
+            .unwrap_or(&RoomSyncInfo::default())
+            .sync_index,
         Ordering::SeqCst,
     );
     // ---
@@ -122,11 +129,18 @@ pub(crate) async fn handle_received_items_packet(
         }
         log::debug!("storing data");
         CURRENT_INDEX.store(received_items_packet.index, Ordering::SeqCst);
-        get_sync_data()
-            .lock()
-            .unwrap()
-            .sync_indices
-            .insert(get_index(client), received_items_packet.index);
+        let mut sync_data = get_sync_data().lock().unwrap();
+        if sync_data.room_sync_info.contains_key(&get_index(client)) {
+            sync_data
+                .room_sync_info
+                .get_mut(&get_index(client))
+                .unwrap()
+                .sync_index = received_items_packet.index;
+        } else {
+            sync_data
+                .room_sync_info
+                .insert(get_index(client), RoomSyncInfo::default());
+        }
         log::debug!("data stored");
     }
 
@@ -154,8 +168,7 @@ pub(crate) fn get_index(cl: &ArchipelagoClient) -> String {
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
 pub(crate) async fn sync_items() {
-    let mut client_lock = CLIENT.lock().await;
-    if let Some(ref mut client) = client_lock.as_mut() {
+    if let Some(ref mut client) = CLIENT.lock().await.as_mut() {
         log::info!("Synchronizing items");
         CHECKLIST.get().unwrap().write().unwrap().clear();
         match client.sync().await {
@@ -172,4 +185,57 @@ pub(crate) async fn sync_items() {
             }
         }
     }
+}
+
+/// Adds an offline location to be sent when room connection is restored
+pub(crate) async fn add_offline_check(
+    location: i64,
+    client: &ArchipelagoClient,
+) -> Result<(), Box<dyn Error>> {
+    let mut sync_data = get_sync_data().lock()?;
+    if sync_data.room_sync_info.contains_key(&get_index(client)) {
+        sync_data
+            .room_sync_info
+            .get_mut(&get_index(client))
+            .unwrap()
+            .offline_checks
+            .push(location);
+    } else {
+        sync_data
+            .room_sync_info
+            .insert(get_index(client), RoomSyncInfo::default());
+    }
+    write_sync_data().await?;
+    Ok(())
+}
+
+pub(crate) async fn send_offline_checks(
+    client: &mut ArchipelagoClient,
+) -> Result<(), Box<dyn Error>> {
+    let mut sync_data = get_sync_data().lock()?;
+    if sync_data.room_sync_info.contains_key(&get_index(client)) {
+        match client
+            .location_checks(
+                sync_data
+                    .room_sync_info
+                    .get(&get_index(client))
+                    .unwrap()
+                    .offline_checks.clone()
+            )
+            .await {
+            Ok(_) => {
+                log::info!("Successfully sent offline checks");
+                sync_data
+                    .room_sync_info
+                    .get_mut(&get_index(client))
+                    .unwrap()
+                    .offline_checks.clear();
+                write_sync_data().await?;
+            }
+            Err(err) => {
+                log::error!("Failed to send offline checks, will attempt next reconnection: {}", err);
+            }
+        }
+    }
+    Ok(())
 }

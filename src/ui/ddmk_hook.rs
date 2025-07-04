@@ -1,7 +1,7 @@
 use crate::constants::ItemCategory;
 use crate::ui::imgui_bindings::*;
 use crate::ui::ui;
-use crate::ui::ui::{get_status_text, ArchipelagoHud, CHECKLIST};
+use crate::ui::ui::{get_status_text, LoginData, CHECKLIST};
 use crate::utilities::get_mary_base_address;
 use crate::{bank, constants, utilities};
 use imgui_sys::{ImGuiCond, ImGuiCond_Always, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
@@ -140,7 +140,7 @@ fn checkbox_text(item: &str) -> String {
     format!("{} [{}]", item, if state { "X" } else { " " })
 }
 
-pub unsafe fn archipelago_window(mut instance: MutexGuard<ArchipelagoHud>) {
+pub unsafe fn archipelago_window(mut instance: MutexGuard<LoginData>) {
     unsafe {
         let flag = &mut true;
         get_imgui_next_pos()(
@@ -171,7 +171,12 @@ pub unsafe fn archipelago_window(mut instance: MutexGuard<ArchipelagoHud>) {
                 instance.username.clone().trim().to_string(),
                 instance.password.clone().trim().to_string());
         }
-
+        if get_imgui_button()(
+            "Disonnect\0".as_ptr() as *const c_char,
+            &ImVec2 { x: 0.0, y: 0.0 },
+        ) {
+            ui::disconnect_button_pressed();
+        }
         if get_imgui_button()(
             "Display Message\0".as_ptr() as *const c_char,
             &ImVec2 { x: 0.0, y: 0.0 },

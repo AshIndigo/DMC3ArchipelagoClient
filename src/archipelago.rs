@@ -28,14 +28,14 @@ use crate::mapping::get_mappings;
 
 static DATA_PACKAGE: Lazy<RwLock<Option<DataPackageObject>>> = Lazy::new(|| RwLock::new(None));
 
-pub static CHECKED_LOCATIONS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+pub static CHECKED_LOCATIONS: OnceLock<Mutex<Vec<&'static str>>> = OnceLock::new();
 pub static CONNECTED: OnceLock<Mutex<Connected>> = OnceLock::new();
 pub static TX_ARCH: OnceLock<sync::mpsc::Sender<ArchipelagoData>> = OnceLock::new();
 
 pub static SLOT_NUMBER: AtomicI32 = AtomicI32::new(-1);
 pub static TEAM_NUMBER: AtomicI32 = AtomicI32::new(-1);
 
-pub fn get_checked_locations() -> &'static Mutex<Vec<String>> {
+pub fn get_checked_locations() -> &'static Mutex<Vec<&'static str>> {
     CHECKED_LOCATIONS.get_or_init(|| Mutex::new(vec![]))
 }
 
@@ -159,11 +159,10 @@ pub async fn connect_archipelago(
             .iter()
             .map(|(k, v)| (*v, k.clone())),
     );
+    item_sync::send_offline_checks(&mut cl).await.unwrap();
     connected.checked_locations.iter_mut().for_each(|val| {
         checked_locations.push(
-            (&*reversed_loc_id.get(val).unwrap().clone())
-                .parse()
-                .unwrap(),
+            generated_locations::ITEM_MISSION_MAP.get_key_value(reversed_loc_id.get(val).unwrap().as_str()).unwrap().0
         );
     });
     log::info!("Connected info: {:?}", connected);
@@ -193,12 +192,11 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) {
     
     *item_sync::get_sync_data().lock().expect("Failed to get sync data") = item_sync::read_save_data().unwrap();
     item_sync::CURRENT_INDEX.store(
-        *item_sync::get_sync_data()
+        item_sync::get_sync_data()
             .lock()
             .unwrap()
-            .sync_indices
-            .get(&item_sync::get_index(&cl))
-            .unwrap_or(&0),
+            .room_sync_info
+            .get(&item_sync::get_index(&cl)).unwrap().sync_index,
         Ordering::SeqCst,
     );
 
@@ -226,7 +224,7 @@ pub(crate) fn location_is_checked_and_end(location_key: &str) -> bool {
                         if event.event_type == EventCode::END {
                             match get_checked_locations().lock() {
                                 Ok(checked_locations) => {
-                                    if checked_locations.contains(&location_key.to_string()) {
+                                    if checked_locations.contains(&location_key) {
                                         return true;
                                     }
                                 }
@@ -285,7 +283,7 @@ pub async fn handle_things(
 async fn handle_client_messages(
     result: Result<Option<ServerMessage>, ArchipelagoError>,
     client: &mut ArchipelagoClient,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn Error>> {
     match result {
         Ok(opt_msg) => match opt_msg {
             None => Ok(()),
@@ -402,10 +400,10 @@ pub fn get_location_item_name(received_item: &Location) -> Result<&'static str, 
                 log::debug!("Believe this to be: {}", location_key);
                 log::debug!(
                     "Checking location items: 0x{:x} vs 0x{:x}",
-                    constants::get_item_id(&*location_data.name).unwrap(),
+                    constants::get_item_id(&*location_data.item_name).unwrap(),
                     received_item.item_id as u8
                 );
-                if constants::get_item_id(&*location_data.name).unwrap()
+                if constants::get_item_id(&*location_data.item_name).unwrap()
                     == received_item.item_id as u8
                 {
                     // Then see if the item picked up matches the specified in the map
@@ -424,7 +422,7 @@ async fn handle_item_receive(
     received_item: Location,
 ) -> Result<(), Box<dyn Error>> {
     // See if there's an item!
-    log::info!("Processing item: {}", received_item); // TODO Need to handle offline storage... if the item cant be sent it needs to be buffered
+    log::info!("Processing item: {}", received_item);
     let Ok(mapping_data) = get_mappings().lock() else {
         return Err(Box::from(anyhow!("Unable to get mapping data")));
     };
@@ -453,18 +451,21 @@ async fn handle_item_receive(
                         }
                     });
                     hook::CANCEL_TEXT.store(true, Ordering::Relaxed);
-                    client.location_checks(vec![loc_id.clone()]).await?;
+                    if let Err(arch_err) = client.location_checks(vec![loc_id.clone()]).await {
+                        log::error!("Failed to check location: {}", arch_err);
+                        item_sync::add_offline_check(loc_id.clone(), client).await?;
+                    }
                     if constants::get_items_by_category(ItemCategory::Key)
-                        .contains(&&*location_data.name)
+                        .contains(&&*location_data.item_name)
                     {
-                        ui::set_checklist_item(&*location_data.name, true);
-                        log::debug!("Key Item checked off: {}", location_data.name);
+                        ui::set_checklist_item(&*location_data.item_name, true);
+                        log::debug!("Key Item checked off: {}", location_data.item_name);
                     }
                     log::info!(
                         "Location check successful: {} ({}), Item: {}",
                         location_key,
                         loc_id,
-                        location_data.name
+                        location_data.item_name
                     );
                 }
                 None => Err(anyhow::anyhow!("Location not found: {}", location_key))?,

@@ -6,13 +6,13 @@ use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::{Mutex, OnceLock, RwLock};
 
-pub struct ArchipelagoHud {
+pub struct LoginData {
     pub(crate) archipelago_url: String,
     pub(crate) username: String,
     pub(crate) password: String,
 }
 
-impl ArchipelagoHud {
+impl LoginData {
     pub(crate) fn new() -> Self {
         Self {
             archipelago_url: String::with_capacity(256),
@@ -22,11 +22,11 @@ impl ArchipelagoHud {
     }
 }
 
-pub static HUD_INSTANCE: OnceLock<Mutex<ArchipelagoHud>> = OnceLock::new();
+pub static HUD_INSTANCE: OnceLock<Mutex<LoginData>> = OnceLock::new();
 pub static CHECKLIST: OnceLock<RwLock<HashMap<String, bool>>> = OnceLock::new();
 
-pub fn get_hud_data() -> &'static Mutex<ArchipelagoHud> {
-    HUD_INSTANCE.get_or_init(|| Mutex::new(ArchipelagoHud::new()))
+pub fn get_hud_data() -> &'static Mutex<LoginData> {
+    HUD_INSTANCE.get_or_init(|| Mutex::new(LoginData::new()))
 }
 
 pub fn set_checklist_item(item: &str, value: bool) {
@@ -53,6 +53,12 @@ pub(crate) async fn connect_button_pressed(url: String, name: String, password: 
             .expect("Failed to send data");
         }
     }
+}
+
+#[tokio::main(flavor = "multi_thread", worker_threads = 1)]
+pub(crate) async fn disconnect_button_pressed() {
+    todo!("Not implemented yet")
+    // Run disconnect method on client as well as disable hooks
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]

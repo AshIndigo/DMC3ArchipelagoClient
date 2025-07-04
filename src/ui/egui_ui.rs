@@ -68,7 +68,7 @@ impl eframe::App for ArchipelagoClient {
                 }
             }
             if ui.button("Disconnect").clicked() {
-                log::info!("Disconnecting NYI");
+                ui::disconnect_button_pressed();
             }
             if ui.button("Sync").clicked() {
                 item_sync::sync_items();
