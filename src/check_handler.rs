@@ -18,27 +18,18 @@ static ORIG_ID: AtomicU8 = AtomicU8::new(0);
 pub fn item_non_event(item_struct: i64) {
     unsafe {
         let base_ptr = item_struct as *const u8;
-        let item_id_ptr = base_ptr.add(0x60);
+        let item_id_ptr = base_ptr.add(0x60) as *const i32; // Don't remove this
         let item_id = *item_id_ptr;
         if item_id > 0x04 {
+            // TODO replace with a better ID check?
             // Ignore red orbs
             if item_id < 0x3A {
-                log::debug!(
-                    "Item ID is: {} (0x{:x})",
-                    constants::get_item_name(item_id as u8),
-                    item_id
-                );
-                log::debug!("Item ID PTR is: {:?}", item_id_ptr);
-                let x_coord = item_id_ptr.offset(0x1);
-                let y_coord = item_id_ptr.offset(0x2);
-                let z_coord = item_id_ptr.offset(0x3);
-                let x_coord_val = (*(x_coord) as u32).to_be();
-                let y_coord_val = (*(y_coord) as u32).to_be();
-                let z_coord_val = (*(z_coord) as u32).to_be();
-                log::debug!("X Addr: {:?}, X Coord: {}", x_coord, x_coord_val);
-                log::debug!("Y Addr: {:?}, Y Coord: {}", y_coord, y_coord_val);
-                log::debug!("Z Addr: {:?}, Z Coord: {}", z_coord, z_coord_val);
-                send_off_location_coords(item_id as i32, x_coord_val, y_coord_val, z_coord_val);
+                let x_coord_addr = item_id_ptr.offset(0x1);
+                let y_coord_addr = item_id_ptr.offset(0x2);
+                let z_coord_addr = item_id_ptr.offset(0x3);
+                let x_coord_val = (*(x_coord_addr) as u32).to_be();
+                let y_coord_val = (*(y_coord_addr) as u32).to_be();
+                let z_coord_val = (*(z_coord_addr) as u32).to_be();
                 let loc = Location {
                     item_id: item_id as u64,
                     room: utilities::get_room(),
@@ -47,27 +38,39 @@ pub fn item_non_event(item_struct: i64) {
                     y_coord: y_coord_val,
                     z_coord: z_coord_val,
                 };
+                send_off_location_coords(loc.clone());
                 let location_name = archipelago::get_location_item_name(&loc);
-                // if location_name.is_err() {
-                //     log::error!("Location name not found: {:?}\nBailing out", &loc);
-                //     if let Some(original) = ORIGINAL_HANDLE_PICKUP.get() {
-                //         original(item_struct)
-                //     }
-                // }
-                log::debug!("Location Name: {:?}", location_name);
+                log::debug!("Item Non Event - Item is: {} (0x{:x}) PTR: {:?}\n\
+                X Coord: {} (X Addr: {:?})\n\
+                Y Coord: {} (Y Addr: {:?})\n\
+                Z Coord: {} (Z Addr: {:?})\n\
+                Location Name: {:?}\n---
+                ",
+                    constants::get_item_name(item_id as u8),
+                    item_id,
+                    item_id_ptr,
+                    x_coord_val,
+                    x_coord_addr,
+                    y_coord_val,
+                    y_coord_addr,
+                    z_coord_val,
+                    z_coord_addr,
+                    &location_name
+                );
                 if location_name.is_err() {
                     if let Some(original) = ORIGINAL_HANDLE_PICKUP.get() {
                         original(item_struct);
+                        return;
                     }
                 }
+
                 ORIG_ID.store(
                     generated_locations::ITEM_MISSION_MAP
-                        .get(location_name.unwrap())
+                        .get(&location_name.unwrap())
                         .unwrap()
                         .item_id,
                     SeqCst,
                 );
-                log::debug!("orig item_id: {:x}", ORIG_ID.load(SeqCst));
                 //utilities::replace_single_byte_no_offset(item_id_ptr.addr(), generated_locations::ITEM_MISSION_MAP.get(location_name).unwrap().item_id)
             } else {
                 log::error!(
@@ -90,13 +93,6 @@ pub fn item_event(loc_chk_flg: i64, item_id: i16, unknown: i32) {
     unsafe {
         //utilities::replace_single_byte_no_offset(item_id, 0x11); // Just a little silly
         if item_id > 0x03 {
-            log::debug!("Loc CHK Flg is: {:x}", loc_chk_flg);
-            log::debug!(
-                "Item ID is: {} (0x{:x})",
-                constants::get_item_name(item_id as u8),
-                item_id
-            );
-            log::debug!("Unknown is: {:x}", unknown); // Don't know what to make of this just yet
             if unknown == -1 {
                 // We only want items given via events, looks like if unknown is -1 then it'll always be an event item
                 send_off_location(item_id as i32);
@@ -106,8 +102,15 @@ pub fn item_event(loc_chk_flg: i64, item_id: i16, unknown: i32) {
         if item_id_orig == 0 {
             item_id_orig = item_id;
         }
-        log::debug!("Orig ID is: {:x}", item_id_orig); 
-        log::debug!("Unknown is: {}", (20000 + item_id_orig) as c_int);
+        // log::debug!("Orig ID is: {:x}", item_id_orig);
+        // log::debug!("Unknown is: {}", (20000 + item_id_orig) as c_int);
+        log::debug!(
+            "Item Event - Item is: {} (0x{:x}) - LOC_CHK_FLG: {:x} - Unknown: {:x}",
+            constants::get_item_name(item_id as u8),
+            item_id,
+            loc_chk_flg,
+            unknown,
+        );
         if let Some(original) = ORIGINAL_ITEM_PICKED_UP.get() {
             original(loc_chk_flg, item_id_orig, (20000 + item_id_orig) as c_int);
             //original(loc_chk_flg, item_id, unknown);
@@ -125,7 +128,7 @@ pub fn mission_complete_check(this: i64) {
         0
     );
     //log::debug!("Method parameters: this: {}, param_2: {}, param_3: {}, param_4: {}", this, param_2, param_3, param_4);
-    log::debug!("Mission complete PTR (this): {:x}", this);
+    log::trace!("Mission complete PTR (this): {:x}", this);
     unsafe {
         if let Some(original) = ORIGINAL_HANDLE_MISSION_COMPLETE.get() {
             original(this);
@@ -135,7 +138,7 @@ pub fn mission_complete_check(this: i64) {
 
 pub(crate) static LOCATION_CHECK_TX: OnceCell<Sender<Location>> = OnceCell::new();
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct Location {
     pub(crate) item_id: u64,
     pub(crate) room: i32,
@@ -164,7 +167,7 @@ fn clear_high_roller() {
     let current_inv_addr = utilities::read_usize_from_address(INVENTORY_PTR);
     log::debug!("Resetting high roller card");
     let item_addr = current_inv_addr + ITEM_OFFSET_MAP.get("Remote").unwrap().clone() as usize;
-    log::debug!(
+    log::trace!(
         "Attempting to replace at address: 0x{:x} with flag 0x{:x}",
         item_addr,
         0x00
@@ -173,7 +176,7 @@ fn clear_high_roller() {
     let current_inv_addr = utilities::read_usize_from_address(INVENTORY_PTR);
     log::debug!("Resetting bomb");
     let item_addr = current_inv_addr + ITEM_OFFSET_MAP.get("Dummy").unwrap().clone() as usize;
-    log::debug!(
+    log::trace!(
         "Attempting to replace at address: 0x{:x} with flag 0x{:x}",
         item_addr,
         0x00
@@ -199,18 +202,9 @@ async fn send_off_location(item_id: i32) {
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
-async fn send_off_location_coords(item_id: i32, x_coord: u32, y_coord: u32, z_coord: u32) {
+async fn send_off_location_coords(loc: Location) {
     if let Some(tx) = LOCATION_CHECK_TX.get() {
-        tx.send(Location {
-            item_id: item_id as u64,
-            room: utilities::get_room(),
-            _mission: get_mission(),
-            x_coord,
-            y_coord,
-            z_coord,
-        })
-        .await
-        .expect("Failed to send Location!");
+        tx.send(loc).await.expect("Failed to send Location!");
         clear_high_roller();
     }
 }

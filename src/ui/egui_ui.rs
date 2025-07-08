@@ -1,8 +1,7 @@
 // Nothing wrong with this. Runs as a separate window so would have to alt-tab if full screen. Could at least be a backup HUD if DDMK isn't available
 
-use crate::ui::ui::CHECKLIST;
+use crate::ui::ui::{CHECKLIST, CONNECTION_STATUS};
 use crate::constants::{ItemCategory, Status};
-use crate::hook::{CONNECTION_STATUS};
 use crate::ui::ui;
 use crate::{bank, constants, item_sync};
 use eframe::epaint::Color32;
@@ -34,7 +33,7 @@ impl eframe::App for ArchipelagoClient {
                 ui.label("Status:");
                 ui.colored_label(get_status_color(), ui::get_status_text());
             });
-            match ui::get_hud_data().lock() {
+            match ui::get_login_data().lock() {
                 Ok(mut instance) => {
                     ui.horizontal(|ui| {
                         ui.label("URL:");

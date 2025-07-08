@@ -42,7 +42,7 @@ unsafe extern "C" fn hooked_render() {
         if !SETUP.load(Ordering::SeqCst) {
             return;
         }
-        match ui::get_hud_data().lock() {
+        match ui::get_login_data().lock() {
             Ok(instance) => {
                 if false {
                     // TODO: Hud for pause menu and main menu

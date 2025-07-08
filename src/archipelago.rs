@@ -1,16 +1,14 @@
-use crate::bank::get_bank;
+use crate::bank::{get_bank, get_bank_key};
 use crate::cache::read_cache;
 use crate::check_handler::Location;
 use crate::constants::{EventCode, GAME_NAME, ItemCategory, Status};
-use crate::hook::CONNECTION_STATUS;
+use crate::ui::ui::CONNECTION_STATUS;
 use crate::ui::ui;
 use crate::utilities::get_mission;
 use crate::{bank, cache, constants, generated_locations, hook, item_sync, mapping, utilities};
 use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
-use archipelago_rs::protocol::{
-    Connected, DataPackageObject, JSONColor, JSONMessagePart, NetworkItem, PrintJSON, ServerMessage,
-};
+use archipelago_rs::protocol::{Connected, DataPackageObject, JSONColor, JSONMessagePart, NetworkItem, PrintJSON, Retrieved, ServerMessage};
 use once_cell::sync::Lazy;
 use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
@@ -24,13 +22,13 @@ use std::sync::{Mutex, OnceLock, RwLock, RwLockReadGuard};
 use std::time::Duration;
 use tokio::sync;
 use tokio::sync::mpsc::Receiver;
-use crate::mapping::get_mappings;
 
 static DATA_PACKAGE: Lazy<RwLock<Option<DataPackageObject>>> = Lazy::new(|| RwLock::new(None));
 
 pub static CHECKED_LOCATIONS: OnceLock<Mutex<Vec<&'static str>>> = OnceLock::new();
 pub static CONNECTED: OnceLock<Mutex<Connected>> = OnceLock::new();
-pub static TX_ARCH: OnceLock<sync::mpsc::Sender<ArchipelagoData>> = OnceLock::new();
+pub static TX_ARCH: OnceLock<sync::mpsc::Sender<ArchipelagoConnection>> = OnceLock::new();
+pub static TX_DISCONNECT: OnceLock<sync::mpsc::Sender<bool>> = OnceLock::new();
 
 pub static SLOT_NUMBER: AtomicI32 = AtomicI32::new(-1);
 pub static TEAM_NUMBER: AtomicI32 = AtomicI32::new(-1);
@@ -56,7 +54,7 @@ pub fn get_connected() -> &'static Mutex<Connected> {
 
 pub(crate) const LOGIN_DATA_FILE: &str = "login_data.json";
 
-fn save_connection_info(login_data: ArchipelagoData) -> Result<(), Box<dyn Error>> {
+fn save_connection_info(login_data: ArchipelagoConnection) -> Result<(), Box<dyn Error>> {
     let res = serde_json::to_string(&login_data)?;
     let mut file = File::create(LOGIN_DATA_FILE)?;
     file.write_all(res.as_bytes())?;
@@ -64,28 +62,34 @@ fn save_connection_info(login_data: ArchipelagoData) -> Result<(), Box<dyn Error
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct ArchipelagoData {
+pub struct ArchipelagoConnection {
     pub url: String,
     pub name: String,
     #[serde(skip)]
     pub password: String,
 }
 
-impl Display for ArchipelagoData {
+impl Display for ArchipelagoConnection {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Ok(write!(f, "URL: {:#} Name: {:#}", self.url, self.name,)
             .expect("Failed to print connection data"))
     }
 }
 
-pub fn setup_connect_channel() -> Receiver<ArchipelagoData> {
+pub fn setup_connect_channel() -> Receiver<ArchipelagoConnection> {
     let (tx, rx) = sync::mpsc::channel(8);
     TX_ARCH.set(tx).expect("TX already initialized");
     rx
 }
 
+pub fn setup_disconnect_channel() -> Receiver<bool> {
+    let (tx, rx) = sync::mpsc::channel(8);
+    TX_DISCONNECT.set(tx).expect("TX already initialized");
+    rx
+}
+
 pub async fn get_archipelago_client(
-    login_data: &ArchipelagoData,
+    login_data: &ArchipelagoConnection,
 ) -> Result<ArchipelagoClient, ArchipelagoError> {
     if !cache::check_for_cache_file() {
         // If the cache file does not exist, then it needs to be acquired
@@ -129,7 +133,7 @@ pub async fn get_archipelago_client(
 }
 
 pub async fn connect_archipelago(
-    login_data: ArchipelagoData,
+    login_data: ArchipelagoConnection,
 ) -> Result<ArchipelagoClient, ArchipelagoError> {
     log::info!("Attempting room connection");
     let mut cl = get_archipelago_client(&login_data).await?;
@@ -143,7 +147,6 @@ pub async fn connect_archipelago(
         )
         .await?;
     *get_connected().lock().expect("Failed to get connected") = connected;
-    let mut connected = get_connected().lock().unwrap();
     let Ok(mut checked_locations) = get_checked_locations().lock() else {
         log::error!("Failed to get checked locations");
         return Err(ArchipelagoError::ConnectionClosed);
@@ -159,10 +162,15 @@ pub async fn connect_archipelago(
             .iter()
             .map(|(k, v)| (*v, k.clone())),
     );
+    log::debug!("Attempting to send offline checks");
     item_sync::send_offline_checks(&mut cl).await.unwrap();
+    let mut connected = get_connected().lock().unwrap();
     connected.checked_locations.iter_mut().for_each(|val| {
         checked_locations.push(
-            generated_locations::ITEM_MISSION_MAP.get_key_value(reversed_loc_id.get(val).unwrap().as_str()).unwrap().0
+            generated_locations::ITEM_MISSION_MAP
+                .get_key_value(reversed_loc_id.get(val).unwrap().as_str())
+                .unwrap()
+                .0,
         );
     });
     log::info!("Connected info: {:?}", connected);
@@ -176,35 +184,44 @@ pub async fn connect_archipelago(
 /// This is run when a there is a valid connection to a room.
 pub async fn run_setup(cl: &mut ArchipelagoClient) {
     log::info!("Running setup");
-    unsafe {
-        hook::rewrite_mode_table();
-    }
-    match cl.data_package() { // Set the data package global based on received or cached values
+    hook::rewrite_mode_table();
+    match cl.data_package() {
+        // Set the data package global based on received or cached values
         Some(data_package) => {
             log::info!("Using received data package");
             set_data_package(data_package.clone());
         }
         None => {
-            log::info!("No data package found, using cached data");
+            log::info!("No data package data received, using cached data");
             set_data_package(read_cache().expect("Expected cache file"));
         }
     }
-    
-    *item_sync::get_sync_data().lock().expect("Failed to get sync data") = item_sync::read_save_data().unwrap();
-    item_sync::CURRENT_INDEX.store(
-        item_sync::get_sync_data()
-            .lock()
-            .unwrap()
-            .room_sync_info
-            .get(&item_sync::get_index(&cl)).unwrap().sync_index,
-        Ordering::SeqCst,
-    );
+
+    let mut sync_data = item_sync::get_sync_data()
+        .lock()
+        .expect("Failed to get sync data");
+    *sync_data = item_sync::read_save_data().unwrap_or_default();
+    if sync_data
+        .room_sync_info
+        .contains_key(&item_sync::get_index(&cl))
+    {
+        item_sync::CURRENT_INDEX.store(
+            sync_data
+                .room_sync_info
+                .get(&item_sync::get_index(&cl))
+                .unwrap()
+                .sync_index,
+            Ordering::SeqCst,
+        );
+    } else {
+        item_sync::CURRENT_INDEX.store(0, Ordering::SeqCst);
+    }
 
     hook::install_initial_functions(); // Hooks needed to modify the game
     match mapping::parse_slot_data() {
         Ok(_) => {
             log::info!("Successfully parsed mapping information");
-            log::debug!("Mapping data: {:#?}", get_mappings().lock().unwrap());
+            log::debug!("Mapping data: {:#?}", mapping::MAPPING.read().unwrap());
         }
         Err(err) => {
             log::error!("Failed to load mappings from slot data, aborting: {}", err);
@@ -246,8 +263,9 @@ pub async fn handle_things(
     client: &mut ArchipelagoClient,
     loc_rx: &mut Receiver<Location>,
     bank_rx: &mut Receiver<String>,
-    connect_rx: &mut Receiver<ArchipelagoData>,
+    connect_rx: &mut Receiver<ArchipelagoConnection>,
     add_bank_rx: &mut Receiver<NetworkItem>,
+    disconnect_request: &mut Receiver<bool>,
 ) {
     loop {
         tokio::select! {
@@ -270,6 +288,10 @@ pub async fn handle_things(
                 log::warn!("Reconnect requested while connected: {}", reconnect_request);
                 break; // Exit to trigger reconnect in spawn_arch_thread
             }
+            Some(_disconnect_request) = disconnect_request.recv() => {
+                disconnect(client).await;
+                break;
+            }
             message = client.recv() => {
                 if let Err(err) = handle_client_messages(message, client).await {
                     log::error!("Client error or disconnect: {}", err);
@@ -278,6 +300,32 @@ pub async fn handle_things(
             }
         }
     }
+}
+
+async fn disconnect(client: &mut ArchipelagoClient) {
+    log::info!("Disconnecting");
+    match client.disconnect(None).await {
+        Ok(_) => {
+            CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::Relaxed);
+            TEAM_NUMBER.store(-1, Ordering::SeqCst);
+            SLOT_NUMBER.store(-1, Ordering::SeqCst);
+            log::info!("Disconnected from Archipelago room");
+        }
+        Err(err) => {
+            log::error!("Failed to disconnect: {}", err);
+        }
+    }
+    match hook::disable_hooks() {
+        Ok(_) => {
+            log::debug!("Disabled hooks");
+        }
+        Err(e) => {
+            log::error!("Failed to disable hooks: {:?}", e);
+        }
+    }
+    hook::restore_item_table();
+    hook::restore_mode_table();
+    log::info!("Game restored to default state");
 }
 
 async fn handle_client_messages(
@@ -319,13 +367,12 @@ async fn handle_client_messages(
                 log::error!("Invalid packet: {:?}", invalid_packet);
                 Ok(())
             }
-            Some(ServerMessage::Retrieved(_)) => Ok(()),
+            Some(ServerMessage::Retrieved(retrieved)) => handle_retrieved(retrieved),
             Some(ServerMessage::SetReply(reply)) => {
                 log::debug!("SetReply: {:?}", reply); // TODO Use this for the bank...
+                let mut bank = get_bank().lock().unwrap();
                 for item in constants::get_items_by_category(ItemCategory::Consumable).iter() {
                     if item.eq(&reply.key.split("_").collect::<Vec<_>>()[2]) {
-                        // This is stupid
-                        let mut bank = get_bank().lock().unwrap();
                         bank.insert(item, reply.value.as_i64().unwrap() as i32);
                     }
                 }
@@ -334,8 +381,8 @@ async fn handle_client_messages(
         },
         Err(ArchipelagoError::NetworkError(err)) => {
             log::info!("Failed to receive data, reconnecting: {}", err);
-            let data = ui::get_hud_data().lock()?;
-            *client = connect_archipelago(ArchipelagoData {
+            let data = ui::get_login_data().lock()?;
+            *client = connect_archipelago(ArchipelagoConnection {
                 url: data.archipelago_url.clone(),
                 name: data.username.clone(),
                 password: data.username.clone(),
@@ -367,6 +414,21 @@ async fn handle_client_messages(
     }
 }
 
+fn handle_retrieved(retrieved: Retrieved) -> Result<(), Box<dyn Error>> {
+    let mut bank = get_bank().lock()?;
+    bank.iter_mut().for_each(|(item_name, count)| {
+        log::debug!("Reading {}", item_name);
+        *count = retrieved
+            .keys
+            .get(get_bank_key(item_name))
+            .unwrap()
+            .as_i64()
+            .unwrap() as i32;
+        log::debug!("Set count {}", item_name);
+    });
+    Ok(())
+}
+
 pub fn set_data_package(value: DataPackageObject) {
     let mut lock = DATA_PACKAGE.write().unwrap();
     *lock = Some(value);
@@ -382,7 +444,7 @@ pub fn get_data_package() -> Option<RwLockReadGuard<'static, Option<DataPackageO
 }
 
 pub fn get_location_item_name(received_item: &Location) -> Result<&'static str, anyhow::Error> {
-    let Ok(mapping_data) = get_mappings().lock() else {
+    let Ok(mapping_data) = mapping::MAPPING.read() else {
         return Err(anyhow!("Unable to get mapping data"));
     };
     let Some(mapping_data) = mapping_data.as_ref() else {
@@ -408,7 +470,8 @@ pub fn get_location_item_name(received_item: &Location) -> Result<&'static str, 
                 {
                     // Then see if the item picked up matches the specified in the map
                     return Ok(location_key);
-                } else if received_item.item_id == 0x26 { // TODO This may be stupid
+                } else if received_item.item_id == 0x26 {
+                    // TODO This may be stupid
                     return Ok(location_key);
                 }
             }
@@ -423,7 +486,7 @@ async fn handle_item_receive(
 ) -> Result<(), Box<dyn Error>> {
     // See if there's an item!
     log::info!("Processing item: {}", received_item);
-    let Ok(mapping_data) = get_mappings().lock() else {
+    let Ok(mapping_data) = mapping::MAPPING.read() else {
         return Err(Box::from(anyhow!("Unable to get mapping data")));
     };
     let Some(mapping_data) = mapping_data.as_ref() else {
@@ -474,6 +537,7 @@ async fn handle_item_receive(
     }
     Ok(())
 }
+
 fn edit_end_event(location_key: &str) {
     match constants::EVENT_TABLES.get(&get_mission()) {
         None => {}
@@ -729,9 +793,3 @@ fn handle_message_part(message: JSONMessagePart) -> String {
         JSONMessagePart::Text { text } => text,
     }
 }
-
-/*fn input(text: &str) -> Result<String, anyhow::Error> {
-    log::info!("{}", text);
-
-    Ok(io::stdin().lock().lines().next().unwrap()?) // Use this to support command sending
-}*/

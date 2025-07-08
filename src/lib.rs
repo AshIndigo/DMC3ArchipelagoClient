@@ -1,17 +1,28 @@
 use std::env::current_exe;
-use crate::hook::create_console;
 use log::{LevelFilter, Log};
 use simple_logger::SimpleLogger;
 use std::ffi::c_void;
-use std::thread;
+use std::{ptr, thread};
+use anyhow::{anyhow, Error};
 use winapi::shared::guiddef::REFIID;
 use winapi::shared::minwindef::{DWORD, LPVOID};
 use winapi::um::errhandlingapi::AddVectoredExceptionHandler;
-use winapi::um::libloaderapi::LoadLibraryA;
+use winapi::um::libloaderapi::{GetModuleHandleW, LoadLibraryA};
 use winapi::um::winnt::{EXCEPTION_POINTERS, HRESULT};
 use windows::Win32::Foundation::*;
 use windows::core::BOOL;
+use windows::Win32::System::Console::{AllocConsole, FreeConsole, GetConsoleMode, GetStdHandle, SetConsoleMode, ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_OUTPUT_HANDLE};
 use windows::Win32::System::Diagnostics::Debug::EXCEPTION_CONTINUE_SEARCH;
+use std::sync::RwLock;
+use std::collections::HashMap;
+use std::sync::atomic::Ordering;
+use archipelago_rs::protocol::ClientStatus;
+use ui::ui::CONNECTION_STATUS;
+use crate::archipelago::{connect_archipelago, SLOT_NUMBER, TEAM_NUMBER};
+use crate::bank::{setup_bank_add_channel, setup_bank_to_inv_channel};
+use crate::constants::Status;
+use crate::hook::CLIENT;
+use crate::ui::ui::CHECKLIST;
 
 mod archipelago;
 mod cache;
@@ -150,7 +161,7 @@ fn main_setup() {
     thread::Builder::new()
         .name("Archipelago Client".to_string())
         .spawn(move || {
-            hook::spawn_arch_thread();
+            spawn_arch_thread();
         })
         .expect("Failed to spawn arch thread");
 }
@@ -171,11 +182,122 @@ pub extern "system" fn DirectInput8Create(
     }
 }
 
+pub fn create_console() {
+    unsafe {
+        if AllocConsole().is_ok() {
+            pub fn enable_ansi_support() -> Result<(), Error> {
+                // So we can have sweet sweet color
+                unsafe {
+                    let handle = GetStdHandle(STD_OUTPUT_HANDLE)?;
+                    if handle == HANDLE::default() {
+                        return Err(anyhow!(windows::core::Error::from_win32()));
+                    }
+
+                    let mut mode = std::mem::zeroed();
+                    GetConsoleMode(handle, &mut mode)?;
+                    SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING)?;
+                    Ok(())
+                }
+            }
+            match enable_ansi_support() {
+                Ok(_) => {}
+                Err(err) => {
+                    log::error!("Failed to enable ANSI support: {}", err);
+                }
+            }
+            log::info!("Console created successfully!");
+        } else {
+            log::info!("Failed to allocate console!");
+        }
+    }
+}
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn free_self() -> bool {
+    unsafe {
+        FreeConsole().expect("Unable to free console");
+        let module_handle = GetModuleHandleW(ptr::null());
+        if module_handle.is_null() {
+            return false;
+        }
+        winapi::um::libloaderapi::FreeLibrary(module_handle) != 0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
     fn it_works() {
         // let result = add(2, 2);
         // assert_eq!(result, 4);
+    }
+}
+
+#[tokio::main]
+pub(crate) async fn spawn_arch_thread() {
+    log::info!("Archipelago Thread started");
+
+    CHECKLIST
+        .set(RwLock::new(HashMap::new()))
+        .expect("Unable to create the Checklist HashMap");
+    let mut setup = false;
+    let mut rx_locations = check_handler::setup_items_channel();
+    let mut rx_connect = archipelago::setup_connect_channel();
+    let mut rx_disconnect = archipelago::setup_disconnect_channel();
+    let mut rx_bank_to_inv = setup_bank_to_inv_channel();
+    let mut rx_bank_add = setup_bank_add_channel();
+    match ui::ui::load_login_data() {
+        Ok(_) => {}
+        Err(err) => log::error!("Unable to read login data: {}", err),
+    }
+    loop {
+        // Wait for a connection request
+        let Some(item) = rx_connect.recv().await else {
+            log::warn!("Connect channel closed, exiting Archipelago thread.");
+            break;
+        };
+
+        log::info!("Processing connection request: {}", item);
+        let mut client_lock = CLIENT.lock().await;
+
+        match connect_archipelago(item).await {
+            Ok(cl) => {
+                client_lock.replace(cl);
+                CONNECTION_STATUS.store(Status::Connected.into(), Ordering::SeqCst);
+                CHECKLIST.get().unwrap().write().unwrap().clear();
+            }
+            Err(err) => {
+                log::error!("Failed to connect to Archipelago: {}", err);
+                client_lock.take(); // Clear the client
+                CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::SeqCst);
+                SLOT_NUMBER.store(-1, Ordering::SeqCst);
+                TEAM_NUMBER.store(-1, Ordering::SeqCst);
+                continue; // Try again on next connection request
+            }
+        }
+
+        // Client is successfully connected
+        if let Some(ref mut client) = client_lock.as_mut() {
+            if !setup {
+                archipelago::run_setup(client).await;
+                //item_sync::sync_items(client).await;
+                setup = true;
+            }
+            if let Err(e) = client.status_update(ClientStatus::ClientReady).await {
+                log::error!("Status update failed: {}", e);
+            }
+            // This blocks until a reconnect or disconnect is triggered
+            archipelago::handle_things(
+                client,
+                &mut rx_locations,
+                &mut rx_bank_to_inv,
+                &mut rx_connect,
+                &mut rx_bank_add,
+                &mut rx_disconnect,
+            )
+            .await;
+        }
+        CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::SeqCst);
+        setup = false;
+        // Allow reconnection immediately without delay
     }
 }

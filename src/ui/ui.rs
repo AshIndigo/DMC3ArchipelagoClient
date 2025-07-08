@@ -1,10 +1,12 @@
-use crate::archipelago::ArchipelagoData;
+use crate::archipelago::ArchipelagoConnection;
 use crate::constants::Status;
-use crate::hook::CONNECTION_STATUS;
 use crate::{archipelago, bank};
 use std::collections::HashMap;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::{Mutex, OnceLock, RwLock};
+use std::{fs, path};
+use std::io::BufReader;
+use serde::Deserialize;
 
 pub struct LoginData {
     pub(crate) archipelago_url: String,
@@ -22,11 +24,11 @@ impl LoginData {
     }
 }
 
-pub static HUD_INSTANCE: OnceLock<Mutex<LoginData>> = OnceLock::new();
+pub(crate) static CONNECTION_STATUS: AtomicIsize = AtomicIsize::new(0); // Disconnected
+pub static LOGIN_DATA: OnceLock<Mutex<LoginData>> = OnceLock::new();
 pub static CHECKLIST: OnceLock<RwLock<HashMap<String, bool>>> = OnceLock::new();
-
-pub fn get_hud_data() -> &'static Mutex<LoginData> {
-    HUD_INSTANCE.get_or_init(|| Mutex::new(LoginData::new()))
+pub fn get_login_data() -> &'static Mutex<LoginData> {
+    LOGIN_DATA.get_or_init(|| Mutex::new(LoginData::new()))
 }
 
 pub fn set_checklist_item(item: &str, value: bool) {
@@ -44,7 +46,7 @@ pub(crate) async fn connect_button_pressed(url: String, name: String, password: 
     match archipelago::TX_ARCH.get() {
         None => log::error!("Connect TX doesn't exist"),
         Some(tx) => {
-            tx.send(ArchipelagoData {
+            tx.send(ArchipelagoConnection {
                 url,
                 name,
                 password,
@@ -57,8 +59,12 @@ pub(crate) async fn connect_button_pressed(url: String, name: String, password: 
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
 pub(crate) async fn disconnect_button_pressed() {
-    todo!("Not implemented yet")
-    // Run disconnect method on client as well as disable hooks
+    match archipelago::TX_DISCONNECT.get() {
+        None => log::error!("Disconnect TX doesn't exist"),
+        Some(tx) => {
+            tx.send(true).await.expect("Failed to send data");
+        }
+    }
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
@@ -84,3 +90,23 @@ pub fn get_status_text() -> &'static str {
         Status::InvalidItemHandling => "Invalid item handling, post on Github or Discord",
     }
 }
+
+pub fn load_login_data() -> Result<(), Box<dyn std::error::Error>> {
+    if path::Path::new(archipelago::LOGIN_DATA_FILE).exists() {
+        let login_data_file = fs::File::open(archipelago::LOGIN_DATA_FILE)?;
+        let reader = BufReader::new(login_data_file);
+        let mut json_reader = serde_json::Deserializer::from_reader(reader);
+        let data = ArchipelagoConnection::deserialize(&mut json_reader)?;
+        match get_login_data().lock() {
+            Ok(mut instance) => {
+                instance.archipelago_url = data.url;
+                instance.username = data.name;
+                Ok(())
+            }
+            Err(err) => Err(err.into()),
+        }
+    } else {
+        Err("Failed to find login data".into())
+    }
+}
+

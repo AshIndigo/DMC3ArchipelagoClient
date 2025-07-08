@@ -8,11 +8,11 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{RwLock};
 
 const MAPPINGS_FILENAME: &str = "mappings.json";
 
-static MAPPING: OnceLock<Mutex<Option<Mapping>>> = OnceLock::new();
+pub static MAPPING: RwLock<Option<Mapping>> = RwLock::new(None);
 
 fn default_gun() -> String {
     "Ebony & Ivory".to_string()
@@ -99,16 +99,17 @@ pub struct AdjudicatorData {
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct LocationData {
+    #[serde(rename = "name")]
     pub item_name: String,
     pub description: String,
 }
 
-pub fn get_mappings() -> &'static Mutex<Option<Mapping>> {
-    MAPPING.get_or_init(|| Mutex::new(None))
-}
+// pub fn get_mappings() -> &'static OnceLock<RwLock<Option<Mapping>>> {
+//     MAPPING.get_or_init(|| Mutex::new(None))
+// }
 
 pub fn use_mappings() {
-    match get_mappings().lock() {
+    match MAPPING.read() {
         Ok(mapping_opt) => match mapping_opt.as_ref() {
             None => log::error!("No mapping found"),
             Some(mapping_data) => {
@@ -118,7 +119,7 @@ pub fn use_mappings() {
                     match generated_locations::ITEM_MISSION_MAP.get(location_name as &str) {
                         Some(entry) => match constants::get_item_id(&*location_data.item_name) {
                             // With the offset acquired, before the necessary replacement
-                            Some(id) => unsafe {
+                            Some(id) => {
                                 if archipelago::location_is_checked_and_end(location_name) {
                                     // If the item procs an end mission event, replace with a dummy ID in order to not immediately trigger a mission end
                                     modify_item_table(entry.offset, hook::DUMMY_ID)
@@ -159,6 +160,6 @@ pub fn load_mappings_file() -> Result<Mapping, Box<dyn std::error::Error>> {
 pub(crate) fn parse_slot_data() -> Result<(), Box<dyn std::error::Error>> {
     let connected = get_connected().try_lock()?;
     let mappings: Mapping = from_value(connected.slot_data.clone())?;
-    *get_mappings().lock().unwrap() = Some(mappings);
+    MAPPING.write()?.replace(mappings);
     Ok(())
 }

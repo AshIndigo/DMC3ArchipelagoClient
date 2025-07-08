@@ -1,178 +1,124 @@
-use crate::archipelago::ArchipelagoData;
-use crate::archipelago::{SLOT_NUMBER, TEAM_NUMBER, connect_archipelago};
-use crate::bank::{setup_bank_add_channel, setup_bank_to_inv_channel};
 use crate::constants::ItemEntry;
 use crate::constants::*;
-use crate::mapping::{Mapping, get_mappings};
-use crate::ui::ui;
-use crate::ui::ui::CHECKLIST;
+use crate::mapping::Mapping;
+use crate::ui::ui::{CHECKLIST, CONNECTION_STATUS};
 use crate::utilities::{get_mission, get_room};
-use crate::{archipelago, check_handler, generated_locations, utilities};
-use anyhow::{Error, anyhow};
+use crate::{archipelago, check_handler, generated_locations, mapping, utilities};
 use archipelago_rs::client::ArchipelagoClient;
-use archipelago_rs::protocol::ClientStatus;
-use minhook::{MH_STATUS, MinHook};
-use serde::Deserialize;
+use minhook::{MinHook, MH_STATUS};
 use std::arch::asm;
 use std::collections::HashMap;
-use std::convert::Into;
 use std::ffi::c_longlong;
-use std::io::BufReader;
-use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
-use std::sync::{LazyLock, OnceLock, RwLock, RwLockWriteGuard};
-use std::{fs, path, ptr, slice};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{LazyLock, OnceLock, RwLockReadGuard};
+use std::{ptr, slice};
 use tokio::sync::Mutex;
-use winapi::um::libloaderapi::{FreeLibrary, GetModuleHandleW};
 use winapi::um::memoryapi::VirtualProtect;
 use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
-use windows::Win32::Foundation::HANDLE;
-use windows::Win32::System::Console::{
-    AllocConsole, ENABLE_VIRTUAL_TERMINAL_PROCESSING, FreeConsole, GetConsoleMode, GetStdHandle,
-    STD_OUTPUT_HANDLE, SetConsoleMode,
-};
 
-pub fn create_console() {
-    unsafe {
-        if AllocConsole().is_ok() {
-            pub fn enable_ansi_support() -> Result<(), Error> {
-                // So we can have sweet sweet color
-                unsafe {
-                    let handle = GetStdHandle(STD_OUTPUT_HANDLE)?;
-                    if handle == HANDLE::default() {
-                        return Err(anyhow!(windows::core::Error::from_win32()));
-                    }
-
-                    let mut mode = std::mem::zeroed();
-                    GetConsoleMode(handle, &mut mode)?;
-                    SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING)?;
-                    Ok(())
-                }
-            }
-            match enable_ansi_support() {
-                Ok(_) => {}
-                Err(err) => {
-                    log::error!("Failed to enable ANSI support: {}", err);
-                }
-            }
-            log::info!("Console created successfully!");
-        } else {
-            log::info!("Failed to allocate console!");
-        }
-    }
-}
-#[unsafe(no_mangle)]
-pub unsafe extern "system" fn free_self() -> bool {
-    unsafe {
-        FreeConsole().expect("Unable to free console");
-        let module_handle = GetModuleHandleW(ptr::null());
-        if module_handle.is_null() {
-            return false;
-        }
-        FreeLibrary(module_handle) != 0
-    }
-}
+pub(crate) const DUMMY_ID: u8 = 0x20;
+static HOOKS_CREATED: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn install_initial_functions() {
-    setup_hooks().unwrap_or_else(|status| {
-        // TODO Improve later, will setup to setup hooks again upon each connection
-        log::error!(
-            "Unable to initialize hooks, randomizer is unable to function: {:?}",
-            status
-        )
-    });
+    if !HOOKS_CREATED.load(Ordering::SeqCst) {
+        unsafe {
+            match create_hooks() {
+                Ok(_) => {
+                    HOOKS_CREATED.store(true, Ordering::SeqCst);
+                }
+                Err(err) => {
+                    log::error!("Failed to create hook: {:?}", err);
+                }
+            }
+        }
+    }
+    enable_hooks();
+}
+
+macro_rules! create_hook {
+    ($offset:expr, $detour:expr, $storage:ident, $name:expr) => {{
+        let target = (utilities::get_dmc3_base_address() + $offset) as *mut _;
+        let detour_ptr = ($detour as *const ()) as *mut std::ffi::c_void;
+        let original = MinHook::create_hook(target, detour_ptr)?;
+        $storage
+            .set(std::mem::transmute(original))
+            .expect(concat!($name, " hook already set"));
+        log::debug!("{name} hook created", name = $name);
+    }};
+}
+
+// 23d680 - Pause menu event? Hook in here to do rendering
+unsafe fn create_hooks() -> Result<(), MH_STATUS> {
+    unsafe {
+        create_hook!(
+            ITEM_HANDLE_PICKUP_ADDR,
+            check_handler::item_non_event,
+            ORIGINAL_HANDLE_PICKUP,
+            "Non event item"
+        );
+        create_hook!(
+            ITEM_PICKED_UP_ADDR,
+            check_handler::item_event,
+            ORIGINAL_ITEM_PICKED_UP,
+            "Event item"
+        );
+        create_hook!(
+            RESULT_SCREEN_ADDR,
+            check_handler::mission_complete_check,
+            ORIGINAL_HANDLE_MISSION_COMPLETE,
+            "Mission complete"
+        );
+
+        create_hook!(
+            ITEM_SPAWNS_ADDR,
+            item_spawns_hook,
+            ORIGINAL_ITEM_SPAWNS,
+            "Item Spawn"
+        );
+        create_hook!(
+            EDIT_EVENT_HOOK_ADDR,
+            edit_event_drop,
+            ORIGINAL_EDIT_EVENT,
+            "Event table"
+        );
+        create_hook!(
+            0x23a7b0usize,
+            setup_inventory_for_mission,
+            ORIGINAL_MISSION_INV,
+            "Setup mission inventory"
+        );
+        // install_hook!(
+        //     RENDER_TEXT_ADDR,
+        //     parry_text,
+        //     ORIGINAL_RENDER_TEXT,
+        //     "Render Text"
+        // );
+    }
+    Ok(())
+}
+
+fn enable_hooks() {
+    let addresses: Vec<usize> = vec![
+        ITEM_HANDLE_PICKUP_ADDR,
+        ITEM_PICKED_UP_ADDR,
+        RESULT_SCREEN_ADDR,
+        ITEM_SPAWNS_ADDR,
+        EDIT_EVENT_HOOK_ADDR,
+        0x23a7b0usize,
+    ];
+    addresses.iter().for_each(|addr| unsafe {
+        match MinHook::enable_hook((utilities::get_dmc3_base_address() + addr) as *mut _) {
+            Ok(_) => {}
+            Err(err) => {
+                log::error!("Failed to enable 0x{:x} hook: {:?}", addr, err);
+            }
+        }
+    })
 }
 
 pub(crate) static CLIENT: LazyLock<Mutex<Option<ArchipelagoClient>>> =
     LazyLock::new(|| Mutex::new(None));
 
-pub(crate) static CONNECTION_STATUS: AtomicIsize = AtomicIsize::new(0); // Disconnected
-
-#[tokio::main]
-pub(crate) async fn spawn_arch_thread() {
-    log::info!("Archipelago Thread started");
-
-    CHECKLIST
-        .set(RwLock::new(HashMap::new()))
-        .expect("Unable to create the Checklist HashMap");
-    let mut setup = false;
-    let mut rx_locations = check_handler::setup_items_channel();
-    let mut rx_connect = archipelago::setup_connect_channel();
-    let mut rx_bank_to_inv = setup_bank_to_inv_channel();
-    let mut rx_bank_add = setup_bank_add_channel();
-    match load_login_data() {
-        Ok(_) => {}
-        Err(err) => log::error!("Unable to read login data: {}", err),
-    }
-    loop {
-        // Wait for a connection request
-        let Some(item) = rx_connect.recv().await else {
-            log::warn!("Connect channel closed, exiting Archipelago thread.");
-            break;
-        };
-
-        log::info!("Processing connection request: {}", item);
-        let mut client_lock = CLIENT.lock().await;
-
-        match connect_archipelago(item).await {
-            Ok(cl) => {
-                client_lock.replace(cl);
-                CONNECTION_STATUS.store(Status::Connected.into(), Ordering::SeqCst);
-                CHECKLIST.get().unwrap().write().unwrap().clear();
-            }
-            Err(err) => {
-                log::error!("Failed to connect to Archipelago: {}", err);
-                client_lock.take(); // Clear the client
-                CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::SeqCst);
-                SLOT_NUMBER.store(-1, Ordering::SeqCst);
-                TEAM_NUMBER.store(-1, Ordering::SeqCst);
-                continue; // Try again on next connection request
-            }
-        }
-
-        // Client is successfully connected
-        if let Some(ref mut client) = client_lock.as_mut() {
-            if !setup {
-                archipelago::run_setup(client).await;
-                //item_sync::sync_items(client).await;
-                setup = true;
-            }
-            if let Err(e) = client.status_update(ClientStatus::ClientReady).await {
-                log::error!("Status update failed: {}", e);
-            }
-            // This blocks until a reconnect or disconnect is triggered
-            archipelago::handle_things(
-                client,
-                &mut rx_locations,
-                &mut rx_bank_to_inv,
-                &mut rx_connect,
-                &mut rx_bank_add,
-            )
-            .await;
-        }
-        CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::SeqCst);
-        setup = false;
-        // Allow reconnect immediately without delay
-    }
-}
-
-fn load_login_data() -> Result<(), Box<dyn std::error::Error>> {
-    if path::Path::new(archipelago::LOGIN_DATA_FILE).exists() {
-        let login_data_file = fs::File::open(archipelago::LOGIN_DATA_FILE)?;
-        let reader = BufReader::new(login_data_file);
-        let mut json_reader = serde_json::Deserializer::from_reader(reader);
-        let data = ArchipelagoData::deserialize(&mut json_reader)?;
-        match ui::get_hud_data().lock() {
-            Ok(mut instance) => {
-                instance.archipelago_url = data.url;
-                instance.username = data.name;
-                Ok(())
-            }
-            Err(err) => Err(err.into()),
-        }
-    } else {
-        Err("Failed to find login data".into())
-    }
-}
 
 /// Set the starting gun and melee weapon upon a new game
 pub unsafe fn set_starting_weapons(melee_id: u8, gun_id: u8) {
@@ -183,12 +129,10 @@ pub unsafe fn set_starting_weapons(melee_id: u8, gun_id: u8) {
     }
 }
 
-pub(crate) const DUMMY_ID: u8 = 0x20;
-
 pub fn edit_event_drop(param_1: i64, param_2: i32, param_3: i64) {
     let (mapping, mission_event_tables, checked_locations) =
         if let (Ok(mapping), Some(mission_event_tables), Some(checked_locations)) = (
-            get_mappings().lock(),
+            mapping::MAPPING.read(),
             EVENT_TABLES.get(&get_mission()),
             archipelago::get_checked_locations().lock().ok(),
         ) && mapping.is_some()
@@ -263,12 +207,12 @@ pub fn edit_event_drop(param_1: i64, param_2: i32, param_3: i64) {
 
 /// Modify the game's code so the "pickup mode" table is correct
 // start at 1B3944 -> 1B395A
-// Set these from 01 to 02
-pub(crate) unsafe fn rewrite_mode_table() {
+// Set these from 02 to 01
+pub(crate) fn rewrite_mode_table() {
+    let table_address = ITEM_MODE_TABLE + utilities::get_dmc3_base_address();
+    let mut old_protect = 0;
+    let length = 16;
     unsafe {
-        let table_address = ITEM_MODE_TABLE + utilities::get_dmc3_base_address();
-        let mut old_protect = 0;
-        let length = 16;
         VirtualProtect(
             table_address as *mut _,
             length, // Length of table I need to modify
@@ -289,25 +233,17 @@ pub(crate) unsafe fn rewrite_mode_table() {
 }
 
 /// Modifies Adjudicator Drops
-pub(crate) unsafe fn modify_adjudicator_drop() {
-    unsafe {
-        match get_mappings().lock() {
-            Ok(mapping) => {
-                if let Some(mapping) = mapping.as_ref() {
-                    for (location_name, entry) in generated_locations::ITEM_MISSION_MAP.iter() {
-                        // Run through all locations
-                        if entry.adjudicator && entry.mission == get_mission() {
-                            // If Location is adjudicator and mission numbers match
-                            let item_id =
-                                get_item_id(&*mapping.items.get(*location_name).unwrap().item_name)
-                                    .unwrap(); // Get the item ID and replace
-                            utilities::replace_single_byte(ADJUDICATOR_ITEM_ID_1, item_id);
-                            utilities::replace_single_byte(ADJUDICATOR_ITEM_ID_2, item_id);
-                        }
-                    }
-                }
+pub(crate) unsafe fn modify_adjudicator_drop(mapping: &Mapping) {
+    for (location_name, entry) in generated_locations::ITEM_MISSION_MAP.iter() {
+        // Run through all locations
+        if entry.adjudicator && entry.mission == get_mission() {
+            // If Location is adjudicator and mission numbers match
+            let item_id =
+                get_item_id(&*mapping.items.get(*location_name).unwrap().item_name).unwrap(); // Get the item ID and replace
+            unsafe {
+                utilities::replace_single_byte(ADJUDICATOR_ITEM_ID_1, item_id);
+                utilities::replace_single_byte(ADJUDICATOR_ITEM_ID_2, item_id);
             }
-            _ => {}
         }
     }
 }
@@ -328,9 +264,10 @@ fn item_spawns_hook(unknown: i64) {
             clobber_abi("win64")
         );
         log::debug!("Item count: {:x}", item_count);
-        let room_num: u16 = utilities::get_room() as u16;
+        let room_num: u16 = get_room() as u16;
+        log::debug!("Room num: {:x}", room_num);
         //set_relevant_key_items();
-        match get_mappings().lock() {
+        match mapping::MAPPING.read() {
             Ok(mapping) => match mapping.as_ref() {
                 None => {
                     log::warn!("Mapping's are not set up. Logging debug info:");
@@ -345,8 +282,8 @@ fn item_spawns_hook(unknown: i64) {
                     }
                 }
                 Some(mapping) => {
-                    modify_adjudicator_drop();
-                    modify_secret_mission_item();
+                    modify_adjudicator_drop(mapping);
+                    modify_secret_mission_item(mapping);
                     for _i in 0..item_count {
                         let item_ref: &u32 = &*(item_addr as *const u32);
                         log::debug!(
@@ -378,29 +315,18 @@ fn item_spawns_hook(unknown: i64) {
     }
 }
 
-fn modify_secret_mission_item() {
+fn modify_secret_mission_item(mapping: &Mapping) {
     unsafe {
-        match get_mappings().lock() {
-            Ok(mapping) => {
-                if let Some(mapping) = mapping.as_ref() {
-                    for (location_name, _entry) in generated_locations::ITEM_MISSION_MAP
-                        .iter()
-                        .filter(|(_location_name, entry)| entry.room_number as i32 == get_room())
-                    {
-                        // Get the item ID and replace
-                        utilities::replace_single_byte(
-                            SECRET_MISSION_ITEM,
-                            get_item_id(&*mapping.items.get(*location_name).unwrap().item_name)
-                                .unwrap(),
-                        );
-                    }
-                } else {
-                    log::warn!("No mappings loaded, cannot modify the secret mission item");
-                }
-            }
-            Err(e) => {
-                log::error!("Failed to get mappings lock: {}", e);
-            }
+        for (location_name, _entry) in generated_locations::ITEM_MISSION_MAP
+            .iter()
+            .filter(|(_location_name, entry)| entry.room_number as i32 == get_room())
+        {
+            log::debug!(
+                "Replaced secret mission with: 0x{:x}",
+                get_item_id(&*mapping.items.get(*location_name).unwrap().item_name).unwrap()
+            );
+            // Get the item ID and replace
+            utilities::replace_single_byte(SECRET_MISSION_ITEM, 0x26);
         }
     }
 }
@@ -476,8 +402,8 @@ fn set_relevant_key_items() {
     if CONNECTION_STATUS.load(Ordering::Relaxed) != 1 {
         return;
     }
-    let checklist: RwLockWriteGuard<HashMap<String, bool>> =
-        CHECKLIST.get().unwrap().write().unwrap();
+    let checklist: RwLockReadGuard<HashMap<String, bool>> =
+        CHECKLIST.get().unwrap().read().unwrap();
     let current_inv_addr = utilities::read_usize_from_address(INVENTORY_PTR);
     log::debug!("Current INV Addr: 0x{:x}", current_inv_addr);
     let mut flag: u8;
@@ -503,69 +429,34 @@ fn set_relevant_key_items() {
             }
         }
     }
-}
-
-macro_rules! install_hook {
-    ($offset:expr, $detour:expr, $storage:ident, $name:expr) => {{
-        let target = (utilities::get_dmc3_base_address() + $offset) as *mut _;
-        let detour_ptr = ($detour as *const ()) as *mut std::ffi::c_void;
-        let original = MinHook::create_hook(target, detour_ptr)?;
-        $storage
-            .set(std::mem::transmute(original))
-            .expect(concat!($name, " hook already set"));
-        MinHook::enable_hook(target)?;
-        log::info!("{name} hook enabled", name = $name);
-    }};
-}
-
-// 23d680 - Pause menu event? Hook in here to do rendering
-fn setup_hooks() -> Result<(), MH_STATUS> {
-    unsafe {
-        install_hook!(
-            ITEM_HANDLE_PICKUP_ADDR,
-            check_handler::item_non_event,
-            ORIGINAL_HANDLE_PICKUP,
-            "Non event item"
+    // Setting weapons
+    // TODO Probably need to modify equipped values as well
+    for weapon in get_items_by_category(ItemCategory::Weapon) {
+        if *checklist.get(weapon).unwrap_or(&false) {
+            flag = 0x01;
+            log::debug!("Adding weapon/style to inventory {}", weapon);
+            if weapon == "Cerberus"
+                && utilities::read_byte_from_address_no_offset(0x045FF2D8 + 0x01) == 0xFF
+            {
+                unsafe { utilities::replace_single_byte_no_offset(0x045FF2D8 + 0x01, 0x01) };
+            }
+            if weapon == "Shotgun"
+                && utilities::read_byte_from_address_no_offset(0x045FF2D8 + 0x03) == 0xFF
+            {
+                unsafe { utilities::replace_single_byte_no_offset(0x045FF2D8 + 0x03, 0x06) };
+            }
+        } else {
+            flag = 0x00;
+        }
+        let item_addr = current_inv_addr + ITEM_OFFSET_MAP.get(weapon).unwrap().clone() as usize;
+        log::trace!(
+            "Attempting to replace at address: 0x{:x} with flag 0x{:x}",
+            item_addr,
+            flag
         );
-        install_hook!(
-            ITEM_PICKED_UP_ADDR,
-            check_handler::item_event,
-            ORIGINAL_ITEM_PICKED_UP,
-            "Event item"
-        );
-        install_hook!(
-            RESULT_SCREEN_ADDR,
-            check_handler::mission_complete_check,
-            ORIGINAL_HANDLE_MISSION_COMPLETE,
-            "Mission complete"
-        );
-
-        install_hook!(
-            ITEM_SPAWNS_ADDR,
-            item_spawns_hook,
-            ORIGINAL_ITEM_SPAWNS,
-            "Item Spawn"
-        );
-        install_hook!(
-            EDIT_EVENT_HOOK,
-            edit_event_drop,
-            ORIGINAL_EDIT_EVENT,
-            "Event table"
-        );
-        install_hook!(
-            0x23a7b0usize,
-            setup_inventory_for_mission,
-            ORIGINAL_MISSION_INV,
-            "Setup mission inventory"
-        );
-        // install_hook!(
-        //     RENDER_TEXT_ADDR,
-        //     parry_text,
-        //     ORIGINAL_RENDER_TEXT,
-        //     "Render Text"
-        // );
-        Ok(())
+        unsafe { utilities::replace_single_byte_no_offset(item_addr, flag) };
     }
+    //item_sync::validate_equipment(&checklist);
 }
 
 /// Disable hooks, used for disconnecting
@@ -576,7 +467,7 @@ pub fn disable_hooks() -> Result<(), MH_STATUS> {
         MinHook::disable_hook((base_address + ITEM_PICKED_UP_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + RESULT_SCREEN_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + ITEM_SPAWNS_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + EDIT_EVENT_HOOK) as *mut _)?;
+        MinHook::disable_hook((base_address + EDIT_EVENT_HOOK_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + 0x23a7b0usize) as *mut _)?;
         Ok(())
     }
@@ -629,7 +520,7 @@ pub unsafe fn parry_text(
 
 /// The mapping data at dmc3.exe+5c4c20+1A00
 /// This table dictates what item is in what room. Only relevant for consumables and blue orb fragments
-pub unsafe fn modify_item_table(offset: usize, id: u8) {
+pub fn modify_item_table(offset: usize, id: u8) {
     unsafe {
         // let start_addr = 0x5C4C20usize; dmc3.exe+5c4c20+1A00
         // let end_addr = 0x5C4C20 + 0xC8; // 0x5C4CE8
@@ -656,5 +547,55 @@ pub unsafe fn modify_item_table(offset: usize, id: u8) {
         //     id,
         //     offset
         // ); // Shushing this for now
+    }
+}
+
+/// Restore the mode table to its original values
+pub(crate) fn restore_item_table() {
+    generated_locations::ITEM_MISSION_MAP
+        .iter()
+        .filter(|item| item.1.offset != 0x0) // item.1 is the entry
+        .for_each(|(_key, val)| {
+            unsafe {
+                let true_offset = val.offset + utilities::get_dmc3_base_address() + 0x1A00usize;
+                let mut old_protect = 0;
+                VirtualProtect(
+                    true_offset as *mut _,
+                    4, // Length of table I need to modify
+                    PAGE_EXECUTE_READWRITE,
+                    &mut old_protect,
+                );
+
+                let table = slice::from_raw_parts_mut(true_offset as *mut u8, 4);
+
+                table[3] = val.item_id;
+
+                VirtualProtect(true_offset as *mut _, 4, old_protect, &mut old_protect);
+            }
+        })
+}
+
+/// Set the modified modes back to 1 from 2
+pub(crate) fn restore_mode_table() {
+    let table_address = ITEM_MODE_TABLE + utilities::get_dmc3_base_address();
+    let mut old_protect = 0;
+    let length = 16;
+    unsafe {
+        VirtualProtect(
+            table_address as *mut _,
+            length, // Length of table I need to modify
+            PAGE_EXECUTE_READWRITE,
+            &mut old_protect,
+        );
+
+        let table = slice::from_raw_parts_mut(table_address as *mut u8, length);
+        table.fill(0x02u8); // 0 = orbs, 1 = items, 2 = bad
+
+        VirtualProtect(
+            table_address as *mut _,
+            length,
+            old_protect,
+            &mut old_protect,
+        );
     }
 }

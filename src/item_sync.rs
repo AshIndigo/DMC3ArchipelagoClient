@@ -4,7 +4,7 @@ use crate::hook::CLIENT;
 use crate::ui::ui;
 use crate::ui::ui::CHECKLIST;
 use crate::{archipelago, bank};
-use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
+use archipelago_rs::client::{ArchipelagoClient};
 use archipelago_rs::protocol::{NetworkItem, ReceivedItems};
 use log;
 use serde::{Deserialize, Serialize};
@@ -35,7 +35,7 @@ pub fn get_sync_data() -> &'static Mutex<SyncData> {
     SYNC_DATA.get_or_init(|| Mutex::new(SyncData::default()))
 }
 
-pub async fn write_sync_data() -> Result<(), Box<dyn Error>> {
+pub async fn write_sync_data_file() -> Result<(), Box<dyn Error>> {
     let mut file = File::create(SYNC_FILE)?;
     log::debug!("Writing sync file");
     file.write_all(
@@ -54,6 +54,7 @@ pub fn check_for_sync_file() -> bool {
 }
 
 /// Reads the received items indices from the save file
+// TODO Need to check to see if the file is empty before loading
 pub(crate) fn read_save_data() -> Result<SyncData, Box<dyn Error>> {
     if !check_for_sync_file() {
         Ok(SyncData::default())
@@ -81,7 +82,7 @@ pub(crate) async fn handle_received_items_packet(
         .map(|(k, v)| (v, k))
         .collect();
     // TODO Lazy ass fix ----
-    *get_sync_data().lock().expect("Failed to get Sync Data") = read_save_data()?;
+    *get_sync_data().lock().expect("Failed to get Sync Data") = read_save_data().unwrap_or_default();
 
     CURRENT_INDEX.store(
         get_sync_data()
@@ -99,11 +100,15 @@ pub(crate) async fn handle_received_items_packet(
     }
     log::debug!("Received Items Packet: {:?}", received_items_packet);
     // TODO This isn't completely accurate.
-    if received_items_packet.index == 0 { // If 0 abandon previous inv.
-        // Clear bank
-        // Reset weapons
+    if received_items_packet.index == 0 {
+        // If 0 abandon previous inv.
+        //bank::reset_bank(client).await?;
+        bank::read_values(client).await?;
+        // Clear bank - ?
+        // Reset weapons - Need to do this on room transition
         // Checklist should be fine
     }
+    log::debug!("Read the bank values");
     if received_items_packet.index > CURRENT_INDEX.load(Ordering::SeqCst) {
         for item in &received_items_packet.items {
             /*    unsafe { // TODO This will crash due to a bug with display_message (Needs another "vanilla" message to prep)
@@ -124,7 +129,6 @@ pub(crate) async fn handle_received_items_packet(
                     })
                     .await?;
                 }
-                //bank::add_item(client, item).await; // TODO Somethings fucked with this
             }
         }
         log::debug!("storing data");
@@ -145,17 +149,8 @@ pub(crate) async fn handle_received_items_packet(
     }
 
     log::debug!("Writing sync file");
-    write_sync_data().await?;
+    write_sync_data_file().await?;
     Ok(())
-}
-
-pub async fn handle_received_items(received_items: ReceivedItems) -> Result<(), Box<dyn Error>> {
-    let mut client_lock = CLIENT.lock().await;
-    if let Some(ref mut client) = client_lock.as_mut() {
-        handle_received_items_packet(received_items, client).await
-    } else {
-        Err("Failed to get client lock".into())
-    }
 }
 
 pub(crate) fn get_index(cl: &ArchipelagoClient) -> String {
@@ -205,7 +200,7 @@ pub(crate) async fn add_offline_check(
             .room_sync_info
             .insert(get_index(client), RoomSyncInfo::default());
     }
-    write_sync_data().await?;
+    write_sync_data_file().await?;
     Ok(())
 }
 
@@ -213,29 +208,53 @@ pub(crate) async fn send_offline_checks(
     client: &mut ArchipelagoClient,
 ) -> Result<(), Box<dyn Error>> {
     let mut sync_data = get_sync_data().lock()?;
-    if sync_data.room_sync_info.contains_key(&get_index(client)) {
+    let index = &get_index(client);
+    if sync_data.room_sync_info.contains_key(index) {
         match client
             .location_checks(
                 sync_data
                     .room_sync_info
-                    .get(&get_index(client))
+                    .get(index)
                     .unwrap()
-                    .offline_checks.clone()
+                    .offline_checks
+                    .clone(),
             )
-            .await {
+            .await
+        {
             Ok(_) => {
                 log::info!("Successfully sent offline checks");
                 sync_data
                     .room_sync_info
-                    .get_mut(&get_index(client))
+                    .get_mut(index)
                     .unwrap()
-                    .offline_checks.clear();
-                write_sync_data().await?;
+                    .offline_checks
+                    .clear();
+                write_sync_data_file().await?;
             }
             Err(err) => {
-                log::error!("Failed to send offline checks, will attempt next reconnection: {}", err);
+                log::error!(
+                    "Failed to send offline checks, will attempt next reconnection: {}",
+                    err
+                );
             }
         }
     }
     Ok(())
 }
+
+// TODO If validation is needed, wip
+/*pub(crate) fn validate_equipment(checklist: &RwLockReadGuard<HashMap<String, bool>>) -> Result<(), Box<dyn Error>> {
+    let melee_1_addr: usize = 0x045FF2D8;
+    let (melee_1, melee_2, gun_1, gun_2): (u8, u8, u8, u8) = (
+        utilities::read_byte_from_address_no_offset(melee_1_addr),
+        utilities::read_byte_from_address_no_offset(melee_1_addr + 0x01),
+        utilities::read_byte_from_address_no_offset(melee_1_addr + 0x02),
+        utilities::read_byte_from_address_no_offset(melee_1_addr + 0x03),
+    );
+    validate_melee(melee_1)?;
+    Ok(())
+}
+
+fn validate_melee(melee: u8) -> Result<(), Box<dyn Error>> {
+    Ok(())
+}*/

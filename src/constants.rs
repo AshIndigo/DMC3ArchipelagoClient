@@ -32,7 +32,7 @@ pub const ITEM_SPAWNS_ADDR: usize = 0x1b4440; // 0x1b4480
 pub static ORIGINAL_ITEM_SPAWNS: OnceLock<unsafe extern "C" fn(loc_chk_id: c_longlong)> =
     OnceLock::new();
 
-pub const EDIT_EVENT_HOOK: usize = 0x1a9bc0;
+pub const EDIT_EVENT_HOOK_ADDR: usize = 0x1a9bc0;
 pub static ORIGINAL_EDIT_EVENT: OnceLock<
     unsafe extern "C" fn(param_1: c_longlong, param_2: c_int, param_3: c_longlong),
 > = OnceLock::new();
@@ -296,7 +296,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
         Item {
             id: 0x19,
             name: "Rebellion (Awakened)",
-            offset: None,
+            offset: Some(0x52), // TODO, using the same offset as rebellion even if not correct. Need to determine what awakens Rebellion
             category: ItemCategory::Weapon,
             mission: None,
             max_amount: None,
