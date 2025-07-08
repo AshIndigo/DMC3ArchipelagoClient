@@ -84,7 +84,7 @@ impl eframe::App for ArchipelagoClient {
 }
 
 fn setup_bank_grid(ui: &mut Ui) {
-    let bank = bank::get_bank().lock().unwrap();
+    let bank = bank::get_bank().read().unwrap();
     let mut id = 50;
     egui::Grid::new(id).spacing([25.0, 4.0]).show(ui, |ui| {
         for item in constants::get_items_by_category(ItemCategory::Consumable) {

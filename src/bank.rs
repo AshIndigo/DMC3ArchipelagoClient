@@ -6,30 +6,18 @@ use archipelago_rs::protocol::{ClientMessage, DataStorageOperation, Get, Network
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::sync::{OnceLock, RwLock, RwLockReadGuard};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-pub(crate) async fn add_item_to_bank(
-    client: &mut ArchipelagoClient,
-    item: &NetworkItem,
-) -> Result<(), ArchipelagoError> {
-    client
-        .send(ClientMessage::Set(Set {
-            key: get_bank_key(&constants::get_item_name(item.item as u8)),
-            default: Value::from(1),
-            want_reply: true,
-            operations: vec![DataStorageOperation::Add(Value::from(1))],
-        }))
-        .await
-}
 
+pub static BANK: OnceLock<RwLock<HashMap<&'static str, i32>>> = OnceLock::new();
 pub static TX_BANK_TO_INV: OnceLock<Sender<String>> = OnceLock::new();
 pub static TX_BANK_ADD: OnceLock<Sender<NetworkItem>> = OnceLock::new();
 
-pub fn get_bank() -> &'static Mutex<HashMap<&'static str, i32>> {
+pub fn get_bank() -> &'static RwLock<HashMap<&'static str, i32>> {
     BANK.get_or_init(|| {
-        Mutex::new(
+        RwLock::new(
             constants::get_items_by_category(ItemCategory::Consumable)
                 .iter()
                 .map(|name| (*name, 0))
@@ -59,12 +47,27 @@ pub(crate) fn get_bank_key(item: &str) -> String {
     )
 }
 
+pub(crate) async fn add_item_to_bank(
+    client: &mut ArchipelagoClient,
+    item: &NetworkItem,
+) -> Result<(), ArchipelagoError> {
+    client
+        .send(ClientMessage::Set(Set {
+            key: get_bank_key(&constants::get_item_name(item.item as u8)),
+            default: Value::from(1),
+            want_reply: true,
+            operations: vec![DataStorageOperation::Add(Value::from(1))],
+        }))
+        .await
+}
+
+
 pub(crate) async fn handle_bank(
     client: &mut ArchipelagoClient,
     item: String,
 ) -> Result<(), ArchipelagoError> {
     log::debug!("Handling message from bank {:?}", item);
-    let bank: MutexGuard<HashMap<&str, i32>> = get_bank().lock().unwrap();
+    let bank: RwLockReadGuard<HashMap<&str, i32>> = get_bank().read().unwrap();
     if *bank.get(item.as_str()).unwrap() > 0 {
         client
             .send(ClientMessage::Set(Set {
@@ -111,13 +114,13 @@ pub(crate) fn add_item_to_current_inv(item_name: &String) {
     }
 }
 
-pub static BANK: OnceLock<Mutex<HashMap<&'static str, i32>>> = OnceLock::new();
+
 
 /// Reset the banks contents to nothing. Used for resetting the values if needed.
 pub(crate) async fn reset_bank(
     client: &mut ArchipelagoClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    get_bank().lock()?.iter_mut().for_each(|(_k, v)| {
+    get_bank().write()?.iter_mut().for_each(|(_k, v)| {
         *v = 0; // Set each bank item in the map to 0
     });
     for item in constants::get_items_by_category(ItemCategory::Consumable) {
@@ -136,8 +139,6 @@ pub(crate) async fn reset_bank(
 pub(crate) async fn read_values(
     client: &mut ArchipelagoClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // TODO Send out "Get" message, then when reply is received, update bank hashmap with received values
-    // ArchipelagoClient#get is annoying
     let mut keys = vec![];
     for item in constants::get_items_by_category(ItemCategory::Consumable) {
         keys.push(get_bank_key(item));

@@ -170,7 +170,6 @@ pub fn read_bool_from_address_ddmk(address: usize) -> bool {
 }
 
 /// Base address for DDMK
-// TODO Add check to make sure DDMK is loaded first?
 pub extern "system" fn get_mary_base_address() -> usize {
     get_base_address("Mary.dll")
 }

@@ -113,7 +113,7 @@ unsafe fn bank_window() {
             text(format!(
                 "{}: {}\0",
                 item,
-                bank::get_bank().lock().unwrap().get(item).unwrap()
+                bank::get_bank().read().unwrap().get(item).unwrap()
             ));
             get_imgui_same_line()(0f32, 5f32); // TODO Figure out how to align properly
             get_imgui_push_id()(n as c_int);

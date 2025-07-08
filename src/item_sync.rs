@@ -4,7 +4,7 @@ use crate::hook::CLIENT;
 use crate::ui::ui;
 use crate::ui::ui::CHECKLIST;
 use crate::{archipelago, bank};
-use archipelago_rs::client::{ArchipelagoClient};
+use archipelago_rs::client::ArchipelagoClient;
 use archipelago_rs::protocol::{NetworkItem, ReceivedItems};
 use log;
 use serde::{Deserialize, Serialize};
@@ -54,14 +54,12 @@ pub fn check_for_sync_file() -> bool {
 }
 
 /// Reads the received items indices from the save file
-// TODO Need to check to see if the file is empty before loading
 pub(crate) fn read_save_data() -> Result<SyncData, Box<dyn Error>> {
     if !check_for_sync_file() {
         Ok(SyncData::default())
     } else {
-        let save_data = SyncData::deserialize(&mut serde_json::Deserializer::from_reader(
-            BufReader::new(File::open(SYNC_FILE)?),
-        ))?;
+        let save_data =
+            SyncData::deserialize(&mut serde_json::Deserializer::from_reader(BufReader::new(File::open(SYNC_FILE)?)))?;
         Ok(save_data)
     }
 }
@@ -82,7 +80,8 @@ pub(crate) async fn handle_received_items_packet(
         .map(|(k, v)| (v, k))
         .collect();
     // TODO Lazy ass fix ----
-    *get_sync_data().lock().expect("Failed to get Sync Data") = read_save_data().unwrap_or_default();
+    *get_sync_data().lock().expect("Failed to get Sync Data") =
+        read_save_data().unwrap_or_default();
 
     CURRENT_INDEX.store(
         get_sync_data()

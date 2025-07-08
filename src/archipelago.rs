@@ -342,6 +342,7 @@ async fn handle_client_messages(
             Some(ServerMessage::RoomInfo(_)) => Ok(()),
             Some(ServerMessage::ConnectionRefused(err)) => {
                 // TODO Update UI status to mark as refused+reason
+                CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::Relaxed);
                 log::error!("Connection refused: {:?}", err.errors);
                 Ok(())
             }
@@ -369,8 +370,8 @@ async fn handle_client_messages(
             }
             Some(ServerMessage::Retrieved(retrieved)) => handle_retrieved(retrieved),
             Some(ServerMessage::SetReply(reply)) => {
-                log::debug!("SetReply: {:?}", reply); // TODO Use this for the bank...
-                let mut bank = get_bank().lock().unwrap();
+                log::debug!("SetReply: {:?}", reply);
+                let mut bank = get_bank().write().unwrap();
                 for item in constants::get_items_by_category(ItemCategory::Consumable).iter() {
                     if item.eq(&reply.key.split("_").collect::<Vec<_>>()[2]) {
                         bank.insert(item, reply.value.as_i64().unwrap() as i32);
@@ -415,7 +416,7 @@ async fn handle_client_messages(
 }
 
 fn handle_retrieved(retrieved: Retrieved) -> Result<(), Box<dyn Error>> {
-    let mut bank = get_bank().lock()?;
+    let mut bank = get_bank().write()?;
     bank.iter_mut().for_each(|(item_name, count)| {
         log::debug!("Reading {}", item_name);
         *count = retrieved
@@ -423,7 +424,7 @@ fn handle_retrieved(retrieved: Retrieved) -> Result<(), Box<dyn Error>> {
             .get(get_bank_key(item_name))
             .unwrap()
             .as_i64()
-            .unwrap() as i32;
+            .unwrap_or_default() as i32;
         log::debug!("Set count {}", item_name);
     });
     Ok(())
@@ -549,7 +550,7 @@ fn edit_end_event(location_key: &str) {
                             unsafe {
                                 utilities::replace_single_byte_no_offset(
                                     constants::EVENT_TABLE_ADDR + event.offset,
-                                    0x00, // (TODO) NOTE: This will fail if something like DDMK's arcade mode is used, due to the player having no officially picked up red orb's. But this shouldn't occur in normal gameplay.
+                                    0x00, // (TODO) NOTE: This will fail if something like DDMK's arcade mode is used, due to the player having no officially picked up red orbs. But this shouldn't occur in normal gameplay.
                                 );
                             }
                         }

@@ -265,7 +265,6 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
             max_amount: None,
             _value: None,
         },
-        // TODO Weapon offsets
         Item {
             id: 0x16,
             name: "Rebellion (Normal)",
@@ -921,5 +920,4 @@ pub struct ItemEntry {
     pub x_coord: u32,
     pub y_coord: u32,
     pub z_coord: u32,
-    // TODO Secret
 }
