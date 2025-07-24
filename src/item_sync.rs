@@ -3,7 +3,7 @@ use crate::constants::GAME_NAME;
 use crate::hook::CLIENT;
 use crate::ui::ui;
 use crate::ui::ui::CHECKLIST;
-use crate::{archipelago, bank};
+use crate::{archipelago, bank, constants, text_handler};
 use archipelago_rs::client::ArchipelagoClient;
 use archipelago_rs::protocol::{NetworkItem, ReceivedItems};
 use log;
@@ -15,6 +15,7 @@ use std::io::{BufReader, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 const SYNC_FILE: &str = "archipelago.json";
 pub(crate) static SYNC_DATA: OnceLock<Mutex<SyncData>> = OnceLock::new();
@@ -58,8 +59,9 @@ pub(crate) fn read_save_data() -> Result<SyncData, Box<dyn Error>> {
     if !check_for_sync_file() {
         Ok(SyncData::default())
     } else {
-        let save_data =
-            SyncData::deserialize(&mut serde_json::Deserializer::from_reader(BufReader::new(File::open(SYNC_FILE)?)))?;
+        let save_data = SyncData::deserialize(&mut serde_json::Deserializer::from_reader(
+            BufReader::new(File::open(SYNC_FILE)?),
+        ))?;
         Ok(save_data)
     }
 }
@@ -110,15 +112,13 @@ pub(crate) async fn handle_received_items_packet(
     log::debug!("Read the bank values");
     if received_items_packet.index > CURRENT_INDEX.load(Ordering::SeqCst) {
         for item in &received_items_packet.items {
-            /*    unsafe { // TODO This will crash due to a bug with display_message (Needs another "vanilla" message to prep)
-                utilities::display_message(format!(
+            unsafe {
+                text_handler::display_text(&format!(
                     "Received {}!",
-                    constants::get_item(item.item as u64)
-                ));
-            }*/
+                    constants::get_item_name(item.item as u8)
+                ), Duration::from_secs(1));
+            }
             if item.item < 0x14 {
-                // TODO Bank stuff broken
-                // Consumables/orbs TODO
                 if let Some(tx) = bank::TX_BANK_ADD.get() {
                     tx.send(NetworkItem {
                         item: item.item,
@@ -130,7 +130,6 @@ pub(crate) async fn handle_received_items_packet(
                 }
             }
         }
-        log::debug!("storing data");
         CURRENT_INDEX.store(received_items_packet.index, Ordering::SeqCst);
         let mut sync_data = get_sync_data().lock().unwrap();
         if sync_data.room_sync_info.contains_key(&get_index(client)) {
@@ -144,7 +143,6 @@ pub(crate) async fn handle_received_items_packet(
                 .room_sync_info
                 .insert(get_index(client), RoomSyncInfo::default());
         }
-        log::debug!("data stored");
     }
 
     log::debug!("Writing sync file");

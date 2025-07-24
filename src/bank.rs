@@ -1,5 +1,5 @@
 use crate::archipelago::{SLOT_NUMBER, TEAM_NUMBER};
-use crate::constants::{INVENTORY_PTR, ItemCategory};
+use crate::constants::{ItemCategory};
 use crate::{constants, utilities};
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
 use archipelago_rs::protocol::{ClientMessage, DataStorageOperation, Get, NetworkItem, Set};
@@ -9,7 +9,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{OnceLock, RwLock, RwLockReadGuard};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
-
+use crate::utilities::{get_inv_address};
 
 pub static BANK: OnceLock<RwLock<HashMap<&'static str, i32>>> = OnceLock::new();
 pub static TX_BANK_TO_INV: OnceLock<Sender<String>> = OnceLock::new();
@@ -83,14 +83,14 @@ pub(crate) async fn handle_bank(
 }
 
 pub(crate) fn can_add_item_to_current_inv(item_name: &str) -> bool {
-    let current_inv_addr = utilities::read_usize_from_address(INVENTORY_PTR);
+    let current_inv_addr = utilities::get_inv_address();
     if current_inv_addr == 0 {
         return false;
     }
     let offset = constants::ITEM_OFFSET_MAP
         .get(item_name)
         .unwrap_or_else(|| panic!("Item offset not found: {}", item_name));
-    let val = utilities::read_byte_from_address_no_offset(current_inv_addr + *offset as usize)+1 // This won't work for red orbs+consumables... int vs byte
+    let val = utilities::read_data_from_address::<u8>(current_inv_addr + *offset as usize)+1 // This won't work for red orbs+consumables... int vs byte
         < constants::ITEM_MAX_COUNT_MAP
             .get(item_name)
             .unwrap_or_else(|| {
@@ -102,14 +102,14 @@ pub(crate) fn can_add_item_to_current_inv(item_name: &str) -> bool {
 }
 
 pub(crate) fn add_item_to_current_inv(item_name: &String) {
-    let current_inv_addr = utilities::read_usize_from_address(INVENTORY_PTR);
+    let current_inv_addr = get_inv_address();
     let offset = constants::ITEM_OFFSET_MAP
         .get(item_name.as_str())
         .unwrap_or_else(|| panic!("Item offset not found: {}", item_name));
     unsafe {
-        utilities::replace_single_byte_no_offset(
+        utilities::replace_single_byte(
             current_inv_addr + *offset as usize,
-            utilities::read_byte_from_address_no_offset(current_inv_addr + *offset as usize) + 1,
+            utilities::read_data_from_address::<u8>(current_inv_addr + *offset as usize) + 1,
         );
     }
 }
@@ -117,7 +117,7 @@ pub(crate) fn add_item_to_current_inv(item_name: &String) {
 
 
 /// Reset the banks contents to nothing. Used for resetting the values if needed.
-pub(crate) async fn reset_bank(
+pub(crate) async fn _reset_bank(
     client: &mut ArchipelagoClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
     get_bank().write()?.iter_mut().for_each(|(_k, v)| {

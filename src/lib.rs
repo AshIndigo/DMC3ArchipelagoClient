@@ -1,42 +1,60 @@
-use std::env::current_exe;
+use crate::archipelago::{SLOT_NUMBER, TEAM_NUMBER, connect_archipelago};
+use crate::bank::{setup_bank_add_channel, setup_bank_to_inv_channel};
+use crate::constants::Status;
+use crate::hook::CLIENT;
+use crate::ui::ui::CHECKLIST;
+use anyhow::{Error, anyhow};
+use archipelago_rs::protocol::ClientStatus;
 use log::{LevelFilter, Log};
 use simple_logger::SimpleLogger;
+use std::collections::HashMap;
+use std::env::current_exe;
 use std::ffi::c_void;
+use std::sync::RwLock;
+use std::sync::atomic::Ordering;
 use std::{ptr, thread};
-use anyhow::{anyhow, Error};
+use ui::ui::CONNECTION_STATUS;
 use winapi::shared::guiddef::REFIID;
 use winapi::shared::minwindef::{DWORD, LPVOID};
 use winapi::um::errhandlingapi::AddVectoredExceptionHandler;
 use winapi::um::libloaderapi::{GetModuleHandleW, LoadLibraryA};
 use winapi::um::winnt::{EXCEPTION_POINTERS, HRESULT};
 use windows::Win32::Foundation::*;
-use windows::core::BOOL;
-use windows::Win32::System::Console::{AllocConsole, FreeConsole, GetConsoleMode, GetStdHandle, SetConsoleMode, ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_OUTPUT_HANDLE};
+use windows::Win32::System::Console::{
+    AllocConsole, ENABLE_VIRTUAL_TERMINAL_PROCESSING, FreeConsole, GetConsoleMode, GetStdHandle,
+    STD_OUTPUT_HANDLE, SetConsoleMode,
+};
 use windows::Win32::System::Diagnostics::Debug::EXCEPTION_CONTINUE_SEARCH;
-use std::sync::RwLock;
-use std::collections::HashMap;
-use std::sync::atomic::Ordering;
-use archipelago_rs::protocol::ClientStatus;
-use ui::ui::CONNECTION_STATUS;
-use crate::archipelago::{connect_archipelago, SLOT_NUMBER, TEAM_NUMBER};
-use crate::bank::{setup_bank_add_channel, setup_bank_to_inv_channel};
-use crate::constants::Status;
-use crate::hook::CLIENT;
-use crate::ui::ui::CHECKLIST;
+use windows::core::BOOL;
 
 mod archipelago;
+mod bank;
 mod cache;
+mod check_handler;
 mod constants;
+mod data;
 mod experiments;
-mod generated_locations;
 mod hook;
+mod item_sync;
+mod mapping;
+mod save_handler;
+mod text_handler;
 mod ui;
 mod utilities;
-mod save_handler;
-mod check_handler;
-mod bank;
-mod mapping;
-mod item_sync;
+
+#[macro_export]
+/// Does not enable the hook, that needs to be done separately
+macro_rules! create_hook {
+    ($offset:expr, $detour:expr, $storage:ident, $name:expr) => {{
+        let target = (*DMC3_ADDRESS.read().unwrap() + $offset) as *mut _;
+        let detour_ptr = ($detour as *const ()) as *mut std::ffi::c_void;
+        let original = MinHook::create_hook(target, detour_ptr)?;
+        $storage
+            .set(std::mem::transmute(original))
+            .expect(concat!($name, " hook already set"));
+        log::debug!("{name} hook created", name = $name);
+    }};
+}
 
 static mut REAL_DIRECTINPUT8CREATE: Option<
     unsafe extern "system" fn(HINSTANCE, DWORD, REFIID, *mut *mut c_void, *mut c_void) -> HRESULT,
@@ -130,34 +148,40 @@ fn load_other_dlls() {
 }
 
 fn main_setup() {
-    let simple_logger = Box::new(SimpleLogger::new()
-        .with_module_level("tokio", LevelFilter::Warn)
-        .with_module_level("tungstenite::protocol", LevelFilter::Warn)
-        .with_module_level("hudhook::hooks::dx11", LevelFilter::Warn)
-        .with_module_level("tracing::span", LevelFilter::Warn)
-        .with_module_level("winit::window", LevelFilter::Warn)
-        .with_module_level("eframe::native::run", LevelFilter::Warn)
-        .with_module_level("eframe::native::glow_integration", LevelFilter::Warn)
-        .with_threads(true));
+    let simple_logger = Box::new(
+        SimpleLogger::new()
+            .with_module_level("tokio", LevelFilter::Warn)
+            .with_module_level("tungstenite::protocol", LevelFilter::Warn)
+            .with_module_level("hudhook::hooks::dx11", LevelFilter::Warn)
+            .with_module_level("tracing::span", LevelFilter::Warn)
+            .with_module_level("winit::window", LevelFilter::Warn)
+            .with_module_level("eframe::native::run", LevelFilter::Warn)
+            .with_module_level("eframe::native::glow_integration", LevelFilter::Warn)
+            .with_threads(true),
+    );
     let mut loggers: Vec<Box<dyn Log>> = vec![simple_logger];
     if !utilities::is_ddmk_loaded() {
-        loggers.push(Box::new(egui_logger::builder().max_level(LevelFilter::Info).build())); // EGui will melt if this is anything higher
+        loggers.push(Box::new(
+            egui_logger::builder().max_level(LevelFilter::Info).build(),
+        )); // EGui will melt if this is anything higher
     }
     multi_log::MultiLogger::init(loggers, log::Level::Debug).unwrap();
     create_console();
     install_exception_handler();
+    CHECKLIST
+        .set(RwLock::new(HashMap::new()))
+        .expect("Unable to create the Checklist HashMap");
     if utilities::is_ddmk_loaded() {
         log::info!("DDMK is loaded!");
         ui::ddmk_hook::setup_ddmk_hook();
     } else {
         log::info!("DDMK is not loaded!");
         thread::spawn(move || ui::egui_ui::start_egui());
-        // thread::Builder::new()
-        //     .name("Archipelago HUD".to_string())
-        //     .spawn(move || {
-        //         hudhook_hook::start_imgui_hudhook(); // HudHook wants to be in its own thread
-        //     }).expect("Failed to spawn ui thread");
     }
+    log::info!(
+        "DMC3 Base Address is: {:X}",
+        *utilities::DMC3_ADDRESS.read().unwrap()
+    );
     thread::Builder::new()
         .name("Archipelago Client".to_string())
         .spawn(move || {
@@ -235,10 +259,6 @@ mod tests {
 #[tokio::main]
 pub(crate) async fn spawn_arch_thread() {
     log::info!("Archipelago Thread started");
-
-    CHECKLIST
-        .set(RwLock::new(HashMap::new()))
-        .expect("Unable to create the Checklist HashMap");
     let mut setup = false;
     let mut rx_locations = check_handler::setup_items_channel();
     let mut rx_connect = archipelago::setup_connect_channel();
@@ -280,7 +300,7 @@ pub(crate) async fn spawn_arch_thread() {
             if !setup {
                 archipelago::run_setup(client).await;
                 //item_sync::sync_items(client).await;
-                setup = true;
+                //setup = true; // TODO Marker
             }
             if let Err(e) = client.status_update(ClientStatus::ClientReady).await {
                 log::error!("Status update failed: {}", e);

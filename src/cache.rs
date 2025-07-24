@@ -1,8 +1,9 @@
+use std::fs;
 use anyhow::Error;
 use archipelago_rs::protocol::{DataPackageObject, RoomInfo};
 use serde::{Deserialize};
 use std::fs::File;
-use std::io::{BufReader, Write};
+use std::io::{BufReader};
 use std::path::Path;
 
 pub const CACHE_FILENAME: &str = "cache.json";
@@ -56,9 +57,7 @@ pub async fn find_checksum_errors(room_info: &RoomInfo) -> Option<Vec<String>> {
 
 /// Write the DataPackage to a JSON file
 pub async fn write_cache(data: &&&DataPackageObject) -> Result<(), Box<dyn std::error::Error>> {
-    let mut file = File::create(CACHE_FILENAME)?;
-    file.write_all(serde_json::to_string_pretty(&data)?.as_bytes())?;
-    file.flush()?;
+    fs::write(CACHE_FILENAME, serde_json::to_string_pretty(&data)?.as_bytes())?;
     Ok(())
 }
 

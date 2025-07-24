@@ -1,9 +1,9 @@
 use crate::constants::{
-    INVENTORY_PTR, ITEM_OFFSET_MAP, ORIGINAL_HANDLE_MISSION_COMPLETE, ORIGINAL_HANDLE_PICKUP,
+    ITEM_OFFSET_MAP, ORIGINAL_HANDLE_MISSION_COMPLETE, ORIGINAL_HANDLE_PICKUP,
     ORIGINAL_ITEM_PICKED_UP,
 };
-use crate::utilities::get_mission;
-use crate::{archipelago, constants, generated_locations, utilities};
+use crate::utilities::{get_mission};
+use crate::{archipelago, constants, data, utilities};
 use once_cell::sync::OnceCell;
 use std::ffi::c_int;
 use std::fmt::{Display, Formatter};
@@ -11,6 +11,7 @@ use std::sync::atomic::AtomicU8;
 use std::sync::atomic::Ordering::SeqCst;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
+use data::generated_locations;
 
 static ORIG_ID: AtomicU8 = AtomicU8::new(0);
 
@@ -21,7 +22,6 @@ pub fn item_non_event(item_struct: i64) {
         let item_id_ptr = base_ptr.add(0x60) as *const i32; // Don't remove this
         let item_id = *item_id_ptr;
         if item_id > 0x04 {
-            // TODO replace with a better ID check?
             // Ignore red orbs
             if item_id < 0x3A {
                 let x_coord_addr = item_id_ptr.offset(0x1);
@@ -40,7 +40,7 @@ pub fn item_non_event(item_struct: i64) {
                 };
                 send_off_location_coords(loc.clone());
                 let location_name = archipelago::get_location_item_name(&loc);
-                log::debug!("Item Non Event - Item is: {} (0x{:x}) PTR: {:?}\n\
+                log::debug!("Item Non Event - Item is: {} ({:#X}) PTR: {:?}\n\
                 X Coord: {} (X Addr: {:?})\n\
                 Y Coord: {} (Y Addr: {:?})\n\
                 Z Coord: {} (Z Addr: {:?})\n\
@@ -80,6 +80,7 @@ pub fn item_non_event(item_struct: i64) {
                 );
             }
         } else {
+            // Special check for red orbs
             ORIG_ID.store(0, SeqCst);
         }
         if let Some(original) = ORIGINAL_HANDLE_PICKUP.get() {
@@ -105,7 +106,7 @@ pub fn item_event(loc_chk_flg: i64, item_id: i16, unknown: i32) {
         // log::debug!("Orig ID is: {:x}", item_id_orig);
         // log::debug!("Unknown is: {}", (20000 + item_id_orig) as c_int);
         log::debug!(
-            "Item Event - Item is: {} (0x{:x}) - LOC_CHK_FLG: {:x} - Unknown: {:x}",
+            "Item Event - Item is: {} ({:#X}) - LOC_CHK_FLG: {:X} - Unknown: {:X}",
             constants::get_item_name(item_id as u8),
             item_id,
             loc_chk_flg,
@@ -164,24 +165,23 @@ pub(crate) fn setup_items_channel() -> Receiver<Location> {
 }
 
 fn clear_high_roller() {
-    let current_inv_addr = utilities::read_usize_from_address(INVENTORY_PTR);
+    let current_inv_addr = utilities::get_inv_address();
     log::debug!("Resetting high roller card");
     let item_addr = current_inv_addr + ITEM_OFFSET_MAP.get("Remote").unwrap().clone() as usize;
     log::trace!(
-        "Attempting to replace at address: 0x{:x} with flag 0x{:x}",
+        "Attempting to replace at address: {:#X} with flag {:#X}",
         item_addr,
         0x00
     );
-    unsafe { utilities::replace_single_byte_no_offset(item_addr, 0x00) };
-    let current_inv_addr = utilities::read_usize_from_address(INVENTORY_PTR);
+    unsafe { utilities::replace_single_byte(item_addr, 0x00) };
     log::debug!("Resetting bomb");
     let item_addr = current_inv_addr + ITEM_OFFSET_MAP.get("Dummy").unwrap().clone() as usize;
     log::trace!(
-        "Attempting to replace at address: 0x{:x} with flag 0x{:x}",
+        "Attempting to replace at address: {:#X} with flag {:#X}",
         item_addr,
         0x00
     );
-    unsafe { utilities::replace_single_byte_no_offset(item_addr, 0x00) };
+    unsafe { utilities::replace_single_byte(item_addr, 0x00) };
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]

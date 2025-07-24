@@ -2,8 +2,8 @@ use crate::constants::ItemCategory;
 use crate::ui::imgui_bindings::*;
 use crate::ui::ui;
 use crate::ui::ui::{get_status_text, LoginData, CHECKLIST};
-use crate::utilities::get_mary_base_address;
-use crate::{bank, constants, utilities};
+use crate::utilities::{get_mary_base_address, read_data_from_address};
+use crate::{bank, constants, text_handler};
 use imgui_sys::{ImGuiCond, ImGuiCond_Always, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
 use minhook::MinHook;
 use std::ffi::c_int;
@@ -12,6 +12,7 @@ use std::os::raw::c_char;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{MutexGuard, OnceLock};
 use std::thread;
+use std::time::Duration;
 
 static SETUP: AtomicBool = AtomicBool::new(false);
 
@@ -48,7 +49,8 @@ unsafe extern "C" fn hooked_render() {
                     // TODO: Hud for pause menu and main menu
                     on_screen_hud();
                 }
-                if !utilities::read_bool_from_address_ddmk(DDMK_UI_ENABLED) {
+                
+                if !read_data_from_address::<bool>(DDMK_UI_ENABLED + get_mary_base_address()) {
                     return;
                 }
                 archipelago_window(instance); // For the archipelago window
@@ -177,12 +179,20 @@ pub unsafe fn archipelago_window(mut instance: MutexGuard<LoginData>) {
         ) {
             ui::disconnect_button_pressed();
         }
+        // if get_imgui_button()(
+        //     "Display Message\0".as_ptr() as *const c_char,
+        //     &ImVec2 { x: 0.0, y: 0.0 },
+        // ) {
+        //     thread::spawn(move || {
+        //         text_handler::display_message(&"Test Message".to_string());
+        //     });
+        // }
         if get_imgui_button()(
-            "Display Message\0".as_ptr() as *const c_char,
+            "Display Message New\0".as_ptr() as *const c_char,
             &ImVec2 { x: 0.0, y: 0.0 },
         ) {
             thread::spawn(move || {
-                utilities::display_message(&"Test Message".to_string());
+                text_handler::display_text(&"Test Message\x00\x2E".to_string(), Duration::from_secs(5));
             });
         }
         get_imgui_end()();
@@ -191,7 +201,7 @@ pub unsafe fn archipelago_window(mut instance: MutexGuard<LoginData>) {
 
 pub fn setup_ddmk_hook() {
     log::info!("Starting up DDMK hook");
-    log::info!("Mary base ADDR: {:x}", get_mary_base_address());
+    log::info!("Mary base ADDR: {:X}", get_mary_base_address());
     init_render_func();
     init_timestep_func();
     unsafe {

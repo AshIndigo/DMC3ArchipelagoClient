@@ -14,16 +14,6 @@ pub const RESULT_SCREEN_ADDR: usize = 0x2a0850; //Constructor for result screen
 pub static ORIGINAL_HANDLE_MISSION_COMPLETE: OnceLock<unsafe extern "C" fn(this: c_longlong)> =
     OnceLock::new(); //, param_2: c_longlong, param_3: c_longlong, param_4: c_longlong)> = OnceLock::new();
 
-pub const RENDER_TEXT_ADDR: usize = 0x2f0440;
-pub static ORIGINAL_RENDER_TEXT: OnceLock<
-    unsafe extern "C" fn(
-        param_1: c_longlong,
-        param_2: c_longlong,
-        param_3: c_longlong,
-        param_4: c_longlong,
-    ),
-> = OnceLock::new();
-
 pub const ITEM_HANDLE_PICKUP_ADDR: usize = 0x1b45a0;
 pub static ORIGINAL_HANDLE_PICKUP: OnceLock<unsafe extern "C" fn(item_struct: c_longlong)> =
     OnceLock::new();
@@ -43,9 +33,9 @@ pub const SECRET_MISSION_ITEM: usize = 0x1a7a4d;
 pub const ITEM_MODE_TABLE: usize = 0x1B4534;
 pub const EVENT_TABLE_ADDR: usize = 0x01A42680; // TODO is this gonna be ok?
 
-pub const STARTING_MELEE: usize = 0xC8F250 + 0x46; // TODO Think is the "obtained" bool, need the starting weapon inv
+/*pub const STARTING_MELEE: usize = 0xC8F250 + 0x46; // TODO Think is the "obtained" bool, need the starting weapon inv
 pub const STARTING_GUN: usize = 0xC8F250 + 0x4C; // TODO
-
+*/
 pub struct Item {
     pub id: u8,
     pub name: &'static str,
@@ -357,7 +347,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
         },
         Item {
             id: 0x20,
-            name: "Dummy", // Bomb!
+            name: "Dummy",      // Bomb!
             offset: Some(0x5C), // ??
             category: ItemCategory::Misc,
             mission: None,

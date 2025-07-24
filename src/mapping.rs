@@ -1,16 +1,12 @@
 use crate::archipelago::get_connected;
 use crate::hook::modify_item_table;
-use crate::{archipelago, constants, generated_locations, hook};
-use anyhow::anyhow;
+use crate::{archipelago, constants, hook};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Value, from_value};
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::BufReader;
-use std::path::Path;
 use std::sync::{RwLock};
+use crate::data::generated_locations;
 
-const MAPPINGS_FILENAME: &str = "mappings.json";
 
 pub static MAPPING: RwLock<Option<Mapping>> = RwLock::new(None);
 
@@ -104,10 +100,6 @@ pub struct LocationData {
     pub description: String,
 }
 
-// pub fn get_mappings() -> &'static OnceLock<RwLock<Option<Mapping>>> {
-//     MAPPING.get_or_init(|| Mutex::new(None))
-// }
-
 pub fn use_mappings() {
     match MAPPING.read() {
         Ok(mapping_opt) => match mapping_opt.as_ref() {
@@ -142,18 +134,6 @@ pub fn use_mappings() {
         Err(e) => {
             log::error!("Mapping error: {}", e);
         }
-    }
-}
-
-/// Load mappings from a mappings file in the game's main directory
-pub fn load_mappings_file() -> Result<Mapping, Box<dyn std::error::Error>> {
-    if Path::new(MAPPINGS_FILENAME).try_exists()? {
-        log::info!("Mapping file exists, loading");
-        let mut json_reader =
-            serde_json::Deserializer::from_reader(BufReader::new(File::open(MAPPINGS_FILENAME)?));
-        Ok(Mapping::deserialize(&mut json_reader)?)
-    } else {
-        Err(Box::from(anyhow!("Mapping file doesn't exist")))
     }
 }
 

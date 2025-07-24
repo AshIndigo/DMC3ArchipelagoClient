@@ -1,7 +1,7 @@
 /target
 .idea
 .git
-src/generated_locations.rs
+src/data/generated_locations.rs
 experiments/
 /src/experiments/
 /src/experiments

@@ -1,11 +1,11 @@
 use crate::bank::{get_bank, get_bank_key};
 use crate::cache::read_cache;
 use crate::check_handler::Location;
-use crate::constants::{EventCode, GAME_NAME, ItemCategory, Status};
+use crate::constants::{EventCode, ItemCategory, Status, GAME_NAME};
 use crate::ui::ui::CONNECTION_STATUS;
 use crate::ui::ui;
 use crate::utilities::get_mission;
-use crate::{bank, cache, constants, generated_locations, hook, item_sync, mapping, utilities};
+use crate::{bank, cache, constants, hook, item_sync, mapping, save_handler, text_handler, utilities};
 use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
 use archipelago_rs::protocol::{Connected, DataPackageObject, JSONColor, JSONMessagePart, NetworkItem, PrintJSON, Retrieved, ServerMessage};
@@ -15,13 +15,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::fs::{File, remove_file};
+use std::fs::{remove_file, File};
 use std::io::Write;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Mutex, OnceLock, RwLock, RwLockReadGuard};
 use std::time::Duration;
 use tokio::sync;
 use tokio::sync::mpsc::Receiver;
+use crate::data::generated_locations;
 
 static DATA_PACKAGE: Lazy<RwLock<Option<DataPackageObject>>> = Lazy::new(|| RwLock::new(None));
 
@@ -229,6 +230,7 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) {
         }
     }
     mapping::use_mappings();
+    save_handler::create_special_save().unwrap();
 }
 
 pub(crate) fn location_is_checked_and_end(location_key: &str) -> bool {
@@ -462,7 +464,7 @@ pub fn get_location_item_name(received_item: &Location) -> Result<&'static str, 
                 let location_data = mapping_data.items.get(*location_key).unwrap();
                 log::debug!("Believe this to be: {}", location_key);
                 log::debug!(
-                    "Checking location items: 0x{:x} vs 0x{:x}",
+                    "Checking location items: {:#X} vs {:#X}",
                     constants::get_item_id(&*location_data.item_name).unwrap(),
                     received_item.item_id as u8
                 );
@@ -511,10 +513,11 @@ async fn handle_item_receive(
                     tokio::spawn(async move {
                         tokio::time::sleep(Duration::from_millis(1500)).await;
                         unsafe {
-                            utilities::display_message(&desc);
+                            text_handler::display_text(&desc, Duration::from_secs(5));
+                            // TODO I want to replace the actual pick up text...
                         }
                     });
-                    hook::CANCEL_TEXT.store(true, Ordering::Relaxed);
+                    text_handler::CANCEL_TEXT.store(true, Ordering::Relaxed);
                     if let Err(arch_err) = client.location_checks(vec![loc_id.clone()]).await {
                         log::error!("Failed to check location: {}", arch_err);
                         item_sync::add_offline_check(loc_id.clone(), client).await?;
@@ -548,7 +551,7 @@ fn edit_end_event(location_key: &str) {
                     for event in event_table.events.iter() {
                         if event.event_type == EventCode::END {
                             unsafe {
-                                utilities::replace_single_byte_no_offset(
+                                utilities::replace_single_byte(
                                     constants::EVENT_TABLE_ADDR + event.offset,
                                     0x00, // (TODO) NOTE: This will fail if something like DDMK's arcade mode is used, due to the player having no officially picked up red orbs. But this shouldn't occur in normal gameplay.
                                 );
@@ -562,7 +565,8 @@ fn edit_end_event(location_key: &str) {
 }
 
 fn handle_print_json(print_json: PrintJSON) -> String {
-    log::debug!("Printing json: {:?}", print_json);
+    // TODO Can I consolidate this down?
+    //log::debug!("Printing json: {:?}", print_json);
     let mut final_message: String = "".to_string();
     match print_json {
         PrintJSON::ItemSend {

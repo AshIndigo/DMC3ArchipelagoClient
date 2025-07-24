@@ -2,10 +2,10 @@ use std::fs;
 use std::path::Path;
 
 fn main() {
-    println!("cargo:rerun-if-changed=./src/locations.json");
+    println!("cargo:rerun-if-changed=./src/data/locations.json");
     println!("cargo:rustc-link-lib=msvcrt");
     // Read the JSON file
-    let input_path = Path::new("src/locations.json");
+    let input_path = Path::new("src/data/locations.json");
     let content = fs::read_to_string(input_path).expect("Unable to read locations.json");
 
     // Parse JSON
@@ -61,6 +61,6 @@ fn main() {
 
     // Write to src folder
     let out_dir = Path::new("src");
-    let dest_path = Path::new(&out_dir).join("generated_locations.rs");
+    let dest_path = Path::new(&out_dir).join("data/generated_locations.rs");
     fs::write(dest_path, output).expect("Unable to write generated_locations");
 }
