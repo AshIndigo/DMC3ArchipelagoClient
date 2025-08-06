@@ -1,28 +1,31 @@
 use crate::bank::{get_bank, get_bank_key};
 use crate::cache::read_cache;
 use crate::check_handler::Location;
-use crate::constants::{EventCode, ItemCategory, Status, GAME_NAME};
-use crate::ui::ui::CONNECTION_STATUS;
+use crate::constants::{EventCode, GAME_NAME, ItemCategory, Status, ITEM_ID_MAP};
+use crate::data::generated_locations;
 use crate::ui::ui;
-use crate::utilities::get_mission;
-use crate::{bank, cache, constants, hook, item_sync, mapping, save_handler, text_handler, utilities};
+use crate::ui::ui::CONNECTION_STATUS;
+use crate::utilities::{get_mission, read_data_from_address, DMC3_ADDRESS};
+use crate::{
+    bank, cache, constants, hook, item_sync, mapping, save_handler, text_handler, utilities,
+};
 use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
-use archipelago_rs::protocol::{Connected, DataPackageObject, JSONColor, JSONMessagePart, NetworkItem, PrintJSON, Retrieved, ServerMessage};
+use archipelago_rs::protocol::{Bounced, Connected, DataPackageObject, JSONColor, JSONMessagePart, NetworkItem, PrintJSON, Retrieved, ServerMessage};
 use once_cell::sync::Lazy;
 use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::fs::{remove_file, File};
+use std::fs::{File, remove_file};
 use std::io::Write;
+use std::ptr::{write_unaligned};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Mutex, OnceLock, RwLock, RwLockReadGuard};
 use std::time::Duration;
 use tokio::sync;
 use tokio::sync::mpsc::Receiver;
-use crate::data::generated_locations;
 
 static DATA_PACKAGE: Lazy<RwLock<Option<DataPackageObject>>> = Lazy::new(|| RwLock::new(None));
 
@@ -362,9 +365,8 @@ async fn handle_client_messages(
                 Ok(())
             }
             Some(ServerMessage::DataPackage(_)) => Ok(()), // Ignore
-            Some(ServerMessage::Bounced(_)) => {
-                log::debug!("Boing!");
-                Ok(())
+            Some(ServerMessage::Bounced(bounced_msg)) => {
+                handle_bounced(bounced_msg, client).await
             }
             Some(ServerMessage::InvalidPacket(invalid_packet)) => {
                 log::error!("Invalid packet: {:?}", invalid_packet);
@@ -414,6 +416,27 @@ async fn handle_client_messages(
             log::error!("Non-text websocket result: {:?}", msg);
             Err(ArchipelagoError::NonTextWebsocketResult(msg).into())
         }
+    }
+}
+
+async fn handle_bounced(bounced: Bounced, _client: &mut ArchipelagoClient) -> Result<(), Box<dyn Error>> {
+    const DEATH_LINK: &str = "Deathlink";
+    if bounced.tags.contains(&DEATH_LINK.to_string()) {
+        log::debug!("Deathlink detected");
+        log::info!("{}", bounced.data.get("cause").unwrap().as_str().unwrap());
+        kill_dante();
+    }
+    Ok(())
+}
+
+pub(crate) fn kill_dante() {
+    let char_data_ptr: usize =
+        read_data_from_address(*DMC3_ADDRESS.read().unwrap() + utilities::ACTIVE_CHAR_DATA);
+    unsafe {
+        write_unaligned(
+            (char_data_ptr + 0x411C) as *mut f32,
+            0.0,
+        );
     }
 }
 
@@ -473,7 +496,7 @@ pub fn get_location_item_name(received_item: &Location) -> Result<&'static str, 
                 {
                     // Then see if the item picked up matches the specified in the map
                     return Ok(location_key);
-                } else if received_item.item_id == 0x26 {
+                } else if received_item.item_id == *ITEM_ID_MAP.get("Remote").unwrap() as u64 {
                     // TODO This may be stupid
                     return Ok(location_key);
                 }
@@ -511,11 +534,8 @@ async fn handle_item_receive(
                     edit_end_event(&location_key);
                     let desc = location_data.description.clone();
                     tokio::spawn(async move {
-                        tokio::time::sleep(Duration::from_millis(1500)).await;
-                        unsafe {
-                            text_handler::display_text(&desc, Duration::from_secs(5));
-                            // TODO I want to replace the actual pick up text...
-                        }
+                        tokio::time::sleep(Duration::from_millis(15)).await;
+                        text_handler::display_message_via_index(desc);
                     });
                     text_handler::CANCEL_TEXT.store(true, Ordering::Relaxed);
                     if let Err(arch_err) = client.location_checks(vec![loc_id.clone()]).await {

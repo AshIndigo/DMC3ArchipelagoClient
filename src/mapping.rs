@@ -81,10 +81,11 @@ pub struct Mapping {
     pub adjudicators: HashMap<String, AdjudicatorData>,
     #[serde(default = "default_gun")]
     #[serde(deserialize_with = "parse_gun_number")]
-    pub starter_gun: String,
+    pub start_gun: String,
     #[serde(default = "default_melee")]
     #[serde(deserialize_with = "parse_melee_number")]
-    pub starter_melee: String,
+    pub start_melee: String,
+    pub death_link: bool
 }
 
 #[derive(Deserialize, Serialize, Debug)]

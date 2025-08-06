@@ -1,6 +1,6 @@
-use crate::mapping;
 use crate::ui::ui;
 use crate::utilities::DMC3_ADDRESS;
+use crate::{constants, mapping};
 use crate::{create_hook, utilities};
 use minhook::MH_STATUS;
 use minhook::MinHook;
@@ -23,18 +23,15 @@ pub static ORIGINAL_LOAD_GAME: OnceLock<
 
 static SAVE_DATA: RwLock<Vec<u8>> = RwLock::new(vec![]);
 
-fn get_save_name(seed: &String) -> String {
-    let mut copied = seed.clone();
-    copied.truncate(6); // TODO Don't actually need this truncate anymore
-    format!("dmc3_{}.sav", copied)
-}
-
 pub fn get_save_path() -> Result<String, Box<dyn std::error::Error>> {
     // Load up the mappings to get the seed
     if let Ok(mappings_opt) = mapping::MAPPING.read() {
         return match mappings_opt.as_ref() {
             None => Err(Box::from("Mappings is none, seed is unavailable")),
-            Some(mappings) => Ok(format!("archipelago/{}", get_save_name(&mappings.seed))),
+            Some(mappings) => Ok(format!(
+                "archipelago/{}",
+                format!("dmc3_{}.sav", &mappings.seed)
+            )),
         };
     }
     Err(Box::from("Unable to read mapping file"))
@@ -46,23 +43,71 @@ pub fn get_save_path() -> Result<String, Box<dyn std::error::Error>> {
 - Gold mode
 - Tutorials off
 - BP + Gallery + Demo Digest (Though contents are not unlocked)
+- DT Unlocked
+- Blue/Purple orbs made unpurchasable
 */
 /*
 Can modify this save file to have appropriate starter weapons immediately equipped
 Additionally, maybe option on AP site to configure whether gold or yellow mode? Also want to somehow disable new game option?
 */
+const SAVE_SIZE: usize = 0x4A30;
+pub static ORIGINAL_WRITE_CRC: OnceLock<
+    // Don't know first param
+    // Second param is for the event code and then additional data. Might actually be i32's?
+    unsafe extern "C" fn(param_1: usize, event_code: i32), // u8
+> = OnceLock::new();
 
 /// If the seed save does not exist, create it
 pub(crate) fn create_special_save() -> Result<(), Box<dyn std::error::Error>> {
-    let base_bytes = include_bytes!("data/dmc3_all.sav");
+    const BASE_BYTES: &[u8; SAVE_SIZE] = include_bytes!("data/dmc3_all.sav");
+    let save_bytes = BASE_BYTES.clone();
     let save_path = get_save_path()?;
     if !fs::exists("archipelago")? {
         fs::create_dir("archipelago/")?;
     }
+    let save_bytes = set_starting_weapons(save_bytes)?;
+    unsafe {
+        ORIGINAL_WRITE_CRC
+            .get_or_init(|| std::mem::transmute(*DMC3_ADDRESS.read().unwrap() + 0x33eed0))(
+            save_bytes.as_ptr().addr() + 0x3B8,
+            0x708,
+        );
+    }
     if !fs::exists(&save_path)? {
-        fs::write(save_path, base_bytes)?;
+        fs::write(save_path, save_bytes)?;
     }
     Ok(())
+}
+
+fn set_starting_weapons(
+    mut save_bytes: [u8; SAVE_SIZE],
+) -> Result<[u8; SAVE_SIZE], Box<dyn std::error::Error>> {
+    let mapping_opt = mapping::MAPPING.read()?;
+    match mapping_opt.as_ref() {
+        None => Err(Box::from("Mapping is none, starting weapons are unknown")),
+        Some(mappings) => {
+            let mut melee = 0;
+            let mut gun = 5;
+
+            if !&mappings.start_melee.as_str().eq("Rebellion") {
+                melee = constants::ITEM_ID_MAP
+                    .get(&mappings.start_melee.as_str())
+                    .unwrap()
+                    - 0x16;
+            }
+            if !&mappings.start_gun.as_str().eq("Ebony & Ivory") {
+                gun = constants::ITEM_ID_MAP
+                    .get(&mappings.start_gun.as_str())
+                    .unwrap()
+                    - 0x1C
+                    + 0x05;
+            }
+            log::debug!("Gun ID: {} - Melee ID: {}", gun, melee);
+            save_bytes[0x414] = melee;
+            save_bytes[0x416] = gun;
+            Ok(save_bytes)
+        }
+    }
 }
 
 pub fn setup_save_hooks() -> Result<(), MH_STATUS> {

@@ -83,14 +83,14 @@ pub(crate) async fn handle_bank(
 }
 
 pub(crate) fn can_add_item_to_current_inv(item_name: &str) -> bool {
-    let current_inv_addr = utilities::get_inv_address();
-    if current_inv_addr == 0 {
+    let current_inv_addr = get_inv_address();
+    if current_inv_addr.is_none()  {
         return false;
     }
     let offset = constants::ITEM_OFFSET_MAP
         .get(item_name)
         .unwrap_or_else(|| panic!("Item offset not found: {}", item_name));
-    let val = utilities::read_data_from_address::<u8>(current_inv_addr + *offset as usize)+1 // This won't work for red orbs+consumables... int vs byte
+    let val = utilities::read_data_from_address::<u8>(current_inv_addr.unwrap() + *offset as usize)+1 // This won't work for red orbs+consumables... int vs byte
         < constants::ITEM_MAX_COUNT_MAP
             .get(item_name)
             .unwrap_or_else(|| {
@@ -103,13 +103,16 @@ pub(crate) fn can_add_item_to_current_inv(item_name: &str) -> bool {
 
 pub(crate) fn add_item_to_current_inv(item_name: &String) {
     let current_inv_addr = get_inv_address();
+    if current_inv_addr.is_none()  {
+        return;
+    }
     let offset = constants::ITEM_OFFSET_MAP
         .get(item_name.as_str())
         .unwrap_or_else(|| panic!("Item offset not found: {}", item_name));
     unsafe {
         utilities::replace_single_byte(
-            current_inv_addr + *offset as usize,
-            utilities::read_data_from_address::<u8>(current_inv_addr + *offset as usize) + 1,
+            current_inv_addr.unwrap() + *offset as usize,
+            utilities::read_data_from_address::<u8>(current_inv_addr.unwrap() + *offset as usize) + 1,
         );
     }
 }

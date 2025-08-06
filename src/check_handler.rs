@@ -1,9 +1,7 @@
-use crate::constants::{
-    ITEM_OFFSET_MAP, ORIGINAL_HANDLE_MISSION_COMPLETE, ORIGINAL_HANDLE_PICKUP,
-    ORIGINAL_ITEM_PICKED_UP,
-};
-use crate::utilities::{get_mission};
+use crate::constants::{Rank, ITEM_OFFSET_MAP, ORIGINAL_HANDLE_PICKUP, ORIGINAL_ITEM_PICKED_UP, ORIGINAL_RESULT_CALC};
+use crate::utilities::get_mission;
 use crate::{archipelago, constants, data, utilities};
+use data::generated_locations;
 use once_cell::sync::OnceCell;
 use std::ffi::c_int;
 use std::fmt::{Display, Formatter};
@@ -11,7 +9,6 @@ use std::sync::atomic::AtomicU8;
 use std::sync::atomic::Ordering::SeqCst;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
-use data::generated_locations;
 
 static ORIG_ID: AtomicU8 = AtomicU8::new(0);
 
@@ -40,7 +37,8 @@ pub fn item_non_event(item_struct: i64) {
                 };
                 send_off_location_coords(loc.clone());
                 let location_name = archipelago::get_location_item_name(&loc);
-                log::debug!("Item Non Event - Item is: {} ({:#X}) PTR: {:?}\n\
+                log::debug!(
+                    "Item Non Event - Item is: {} ({:#X}) PTR: {:?}\n\
                 X Coord: {} (X Addr: {:?})\n\
                 Y Coord: {} (Y Addr: {:?})\n\
                 Z Coord: {} (Z Addr: {:?})\n\
@@ -73,11 +71,13 @@ pub fn item_non_event(item_struct: i64) {
                 );
                 //utilities::replace_single_byte_no_offset(item_id_ptr.addr(), generated_locations::ITEM_MISSION_MAP.get(location_name).unwrap().item_id)
             } else {
-                log::error!(
-                    "Item ID was above max ID: {:x} PTR: {:?}",
-                    item_id,
-                    item_id_ptr
-                );
+                if EXTRA_OUTPUT {
+                    log::error!(
+                        "Item ID was above max ID: {:x} PTR: {:?}",
+                        item_id,
+                        item_id_ptr
+                    );
+                }
             }
         } else {
             // Special check for red orbs
@@ -88,6 +88,8 @@ pub fn item_non_event(item_struct: i64) {
         }
     }
 }
+
+const EXTRA_OUTPUT: bool = false;
 
 /// Hook into item picked up method (1aa6e0). Handles item pick up locations
 pub fn item_event(loc_chk_flg: i64, item_id: i16, unknown: i32) {
@@ -105,13 +107,15 @@ pub fn item_event(loc_chk_flg: i64, item_id: i16, unknown: i32) {
         }
         // log::debug!("Orig ID is: {:x}", item_id_orig);
         // log::debug!("Unknown is: {}", (20000 + item_id_orig) as c_int);
-        log::debug!(
-            "Item Event - Item is: {} ({:#X}) - LOC_CHK_FLG: {:X} - Unknown: {:X}",
-            constants::get_item_name(item_id as u8),
-            item_id,
-            loc_chk_flg,
-            unknown,
-        );
+        if EXTRA_OUTPUT {
+            log::debug!(
+                "Item Event - Item is: {} ({:#X}) - LOC_CHK_FLG: {:X} - Unknown: {:X}",
+                constants::get_item_name(item_id as u8),
+                item_id,
+                loc_chk_flg,
+                unknown,
+            );
+        }
         if let Some(original) = ORIGINAL_ITEM_PICKED_UP.get() {
             original(loc_chk_flg, item_id_orig, (20000 + item_id_orig) as c_int);
             //original(loc_chk_flg, item_id, unknown);
@@ -119,21 +123,22 @@ pub fn item_event(loc_chk_flg: i64, item_id: i16, unknown: i32) {
     }
 }
 
-/// To check off a mission as being completed - TODO
-pub fn mission_complete_check(this: i64) {
-    //, param_2: i64, param_3: i64, param_4: i64) {
+/// To check off a mission as being completed
+pub fn mission_complete_check(cuid_result: usize, ranking: i32) -> i32 {
     log::info!(
-        "Mission {} Finished on Difficulty {} Rank {}",
+        "Mission {} Finished on Difficulty {} Rank {} ({})",
         get_mission(),
-        0,
-        0
+        utilities::get_difficulty(),
+        Rank::from_repr(ranking as usize).unwrap(),
+        ranking
     );
-    //log::debug!("Method parameters: this: {}, param_2: {}, param_3: {}, param_4: {}", this, param_2, param_3, param_4);
-    log::trace!("Mission complete PTR (this): {:x}", this);
-    unsafe {
-        if let Some(original) = ORIGINAL_HANDLE_MISSION_COMPLETE.get() {
-            original(this);
+    if let Some(original) = ORIGINAL_RESULT_CALC.get() {
+        unsafe {
+            original(cuid_result, ranking)
         }
+    } else {
+        log::error!("Result Calc doesn't exist??");
+        0
     }
 }
 
@@ -164,19 +169,24 @@ pub(crate) fn setup_items_channel() -> Receiver<Location> {
     rx
 }
 
-fn clear_high_roller() {
+pub(crate) fn clear_high_roller() {
     let current_inv_addr = utilities::get_inv_address();
+    if current_inv_addr.is_none() {
+        return;
+    }
     log::debug!("Resetting high roller card");
-    let item_addr = current_inv_addr + ITEM_OFFSET_MAP.get("Remote").unwrap().clone() as usize;
-    log::trace!(
+    let item_addr =
+        current_inv_addr.unwrap() + ITEM_OFFSET_MAP.get("Remote").unwrap().clone() as usize;
+    log::debug!(
         "Attempting to replace at address: {:#X} with flag {:#X}",
         item_addr,
         0x00
     );
     unsafe { utilities::replace_single_byte(item_addr, 0x00) };
     log::debug!("Resetting bomb");
-    let item_addr = current_inv_addr + ITEM_OFFSET_MAP.get("Dummy").unwrap().clone() as usize;
-    log::trace!(
+    let item_addr =
+        current_inv_addr.unwrap() + ITEM_OFFSET_MAP.get("Dummy").unwrap().clone() as usize;
+    log::debug!(
         "Attempting to replace at address: {:#X} with flag {:#X}",
         item_addr,
         0x00

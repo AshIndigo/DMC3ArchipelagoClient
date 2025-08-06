@@ -1,8 +1,9 @@
-use crate::utilities::get_mary_base_address;
+
 use imgui_sys::{cty, ImGuiCond, ImGuiInputTextCallback, ImGuiInputTextFlags, ImGuiWindowFlags, ImVec2};
 use std::ffi::{c_float, c_int};
 use std::os::raw::c_char;
 use std::sync::OnceLock;
+use crate::utilities::MARY_ADDRESS;
 
 pub type ImGuiBegin =
     extern "C" fn(name: *const cty::c_char, p_open: *mut bool, flags: ImGuiWindowFlags) -> bool;
@@ -26,10 +27,10 @@ pub type ImGuiPushID = extern "C" fn (offset_from_start_x: c_int);
 
 pub const BEGIN_FUNC_ADDR: usize = 0x1F8B0;
 pub const END_FUNC_ADDR: usize = 0x257B0;
-pub const BUTTON_ADDR: usize = 0x59f20;
+pub const BUTTON_ADDR: usize = 0x59F80; //0x59f20;
 // 5cd0
-pub const TEXT_ADDR: usize = 0x69d50;
-pub const INPUT_ADDR: usize = 0x60c80;
+pub const TEXT_ADDR: usize = 0x69db0; //0x69d50;
+pub const INPUT_ADDR: usize = 0x60ce0; //0x60c80;
 
 pub const NEXT_POS_FUNC_ADDR: usize = 0x374a0;
 pub const SAME_LINE_ADDR: usize = 0x36200;
@@ -43,7 +44,7 @@ pub fn text<T: AsRef<str>>(text: T) {
     unsafe {
         let start = s.as_ptr();
         let end = start.add(s.len());
-        std::mem::transmute::<_, ImGuiText>(get_mary_base_address() + TEXT_ADDR)(start as *const c_char, end as *const c_char);
+        std::mem::transmute::<_, ImGuiText>(*MARY_ADDRESS.read().unwrap() + TEXT_ADDR)(start as *const c_char, end as *const c_char);
     }
 }
 
@@ -65,55 +66,55 @@ static IMGUI_POP_ID: OnceLock<BasicNothingFunc> = OnceLock::new();
 // Helpers to retrieve values
 pub fn get_imgui_end() -> &'static BasicNothingFunc {
     IMGUI_END.get_or_init(|| unsafe {
-        std::mem::transmute::<_, BasicNothingFunc>(get_mary_base_address() + END_FUNC_ADDR)
+        std::mem::transmute::<_, BasicNothingFunc>(*MARY_ADDRESS.read().unwrap() + END_FUNC_ADDR)
     })
 }
 
 pub fn get_imgui_begin() -> &'static ImGuiBegin {
     IMGUI_BEGIN.get_or_init(|| unsafe {
-        std::mem::transmute::<_, ImGuiBegin>(get_mary_base_address() + BEGIN_FUNC_ADDR)
+        std::mem::transmute::<_, ImGuiBegin>(*MARY_ADDRESS.read().unwrap() + BEGIN_FUNC_ADDR)
     })
 }
 
 pub fn get_imgui_button() -> &'static ImGuiButton {
     IMGUI_BUTTON.get_or_init(|| unsafe {
-        std::mem::transmute::<_, ImGuiButton>(get_mary_base_address() + BUTTON_ADDR)
+        std::mem::transmute::<_, ImGuiButton>(*MARY_ADDRESS.read().unwrap() + BUTTON_ADDR)
     })
 }
 
 pub fn get_imgui_next_pos() -> &'static ImGuiNextWindowPos {
     IMGUI_POS.get_or_init(|| unsafe {
-        std::mem::transmute::<_, ImGuiNextWindowPos>(get_mary_base_address() + NEXT_POS_FUNC_ADDR)
+        std::mem::transmute::<_, ImGuiNextWindowPos>(*MARY_ADDRESS.read().unwrap() + NEXT_POS_FUNC_ADDR)
     })
 }
 
 pub fn get_imgui_next_size() -> &'static ImGuiNextWindowPos {
     IMGUI_POS.get_or_init(|| unsafe {
-        std::mem::transmute::<_, ImGuiNextWindowPos>(get_mary_base_address() + NEXT_WINDOW_SIZE_ADDR)
+        std::mem::transmute::<_, ImGuiNextWindowPos>(*MARY_ADDRESS.read().unwrap() + NEXT_WINDOW_SIZE_ADDR)
     })
 }
 
 
 pub fn get_imgui_same_line() -> &'static ImGuiSameLine {
     IMGUI_SAME_LINE.get_or_init(|| unsafe {
-        std::mem::transmute::<_, ImGuiSameLine>(get_mary_base_address() + SAME_LINE_ADDR)
+        std::mem::transmute::<_, ImGuiSameLine>(*MARY_ADDRESS.read().unwrap() + SAME_LINE_ADDR)
     })
 }
 
 pub fn get_imgui_push_id() -> &'static ImGuiPushID {
     IMGUI_PUSH_ID.get_or_init(|| unsafe {
-        std::mem::transmute::<_, ImGuiPushID>(get_mary_base_address() + PUSH_ID_ADDR)
+        std::mem::transmute::<_, ImGuiPushID>(*MARY_ADDRESS.read().unwrap() + PUSH_ID_ADDR)
     })
 }
 
 pub fn get_imgui_pop_id() -> &'static BasicNothingFunc {
     IMGUI_POP_ID.get_or_init(|| unsafe {
-        std::mem::transmute::<_, BasicNothingFunc>(get_mary_base_address() + POP_ID_ADDR)
+        std::mem::transmute::<_, BasicNothingFunc>(*MARY_ADDRESS.read().unwrap() + POP_ID_ADDR)
     })
 }
 
 // pub fn get_imgui_checkbox() -> &'static ImGuiCheckbox {
 //     IMGUI_POS.get_or_init(|| unsafe {
-//         std::mem::transmute::<_, ImGuiCheckbox>(get_mary_base_address() + CHECKBOX_FUNC_ADDR)
+//         std::mem::transmute::<_, ImGuiCheckbox>(*MARY_ADDRESS.read().unwrap() + CHECKBOX_FUNC_ADDR)
 //     })
 // }

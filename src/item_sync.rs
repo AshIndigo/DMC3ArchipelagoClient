@@ -3,7 +3,7 @@ use crate::constants::GAME_NAME;
 use crate::hook::CLIENT;
 use crate::ui::ui;
 use crate::ui::ui::CHECKLIST;
-use crate::{archipelago, bank, constants, text_handler};
+use crate::{archipelago, bank, constants, text_handler, utilities};
 use archipelago_rs::client::ArchipelagoClient;
 use archipelago_rs::protocol::{NetworkItem, ReceivedItems};
 use log;
@@ -66,6 +66,9 @@ pub(crate) fn read_save_data() -> Result<SyncData, Box<dyn Error>> {
     }
 }
 
+pub static BLUE_ORBS_OBTAINED: AtomicI32 = AtomicI32::new(0);
+pub static PURPLE_ORBS_OBTAINED: AtomicI32 = AtomicI32::new(0);
+
 pub(crate) async fn handle_received_items_packet(
     received_items_packet: ReceivedItems,
     client: &mut ArchipelagoClient,
@@ -108,16 +111,27 @@ pub(crate) async fn handle_received_items_packet(
         // Clear bank - ?
         // Reset weapons - Need to do this on room transition
         // Checklist should be fine
+        BLUE_ORBS_OBTAINED.store(0, Ordering::SeqCst);
+        PURPLE_ORBS_OBTAINED.store(0, Ordering::SeqCst);
+        for item in &received_items_packet.items {
+            if item.item == 0x07 { // Blue orb
+                BLUE_ORBS_OBTAINED.fetch_add(1, Ordering::SeqCst);
+            }
+            if item.item == 0x08 {
+                PURPLE_ORBS_OBTAINED.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
     }
     log::debug!("Read the bank values");
     if received_items_packet.index > CURRENT_INDEX.load(Ordering::SeqCst) {
         for item in &received_items_packet.items {
-            unsafe {
-                text_handler::display_text(&format!(
-                    "Received {}!",
-                    constants::get_item_name(item.item as u8)
-                ), Duration::from_secs(1));
-            }
+            text_handler::display_text(
+                &format!("Received {}!", constants::get_item_name(item.item as u8)),
+                Duration::from_secs(1),
+                0,
+                0,
+            );
             if item.item < 0x14 {
                 if let Some(tx) = bank::TX_BANK_ADD.get() {
                     tx.send(NetworkItem {
@@ -128,6 +142,14 @@ pub(crate) async fn handle_received_items_packet(
                     })
                     .await?;
                 }
+            }
+            if item.item == 0x07 { // Blue orb
+                BLUE_ORBS_OBTAINED.fetch_add(1, Ordering::SeqCst);
+                utilities::give_hp(constants::ONE_ORB);
+            }
+            if item.item == 0x08 {
+                PURPLE_ORBS_OBTAINED.fetch_add(1, Ordering::SeqCst);
+                utilities::give_magic(constants::ONE_ORB);
             }
         }
         CURRENT_INDEX.store(received_items_packet.index, Ordering::SeqCst);
@@ -238,20 +260,3 @@ pub(crate) async fn send_offline_checks(
     }
     Ok(())
 }
-
-// TODO If validation is needed, wip
-/*pub(crate) fn validate_equipment(checklist: &RwLockReadGuard<HashMap<String, bool>>) -> Result<(), Box<dyn Error>> {
-    let melee_1_addr: usize = 0x045FF2D8;
-    let (melee_1, melee_2, gun_1, gun_2): (u8, u8, u8, u8) = (
-        utilities::read_byte_from_address_no_offset(melee_1_addr),
-        utilities::read_byte_from_address_no_offset(melee_1_addr + 0x01),
-        utilities::read_byte_from_address_no_offset(melee_1_addr + 0x02),
-        utilities::read_byte_from_address_no_offset(melee_1_addr + 0x03),
-    );
-    validate_melee(melee_1)?;
-    Ok(())
-}
-
-fn validate_melee(melee: u8) -> Result<(), Box<dyn Error>> {
-    Ok(())
-}*/

@@ -1,8 +1,8 @@
 use std::ops::Range;
-use crate::utilities::get_mary_base_address;
 use crate::ui::imgui_bindings::{ImGuiTextInput, INPUT_ADDR};
 use std::os::raw::{c_char, c_int, c_void};
 use imgui::{sys, HistoryDirection, InputTextCallback, InputTextFlags};
+use crate::utilities::MARY_ADDRESS;
 
 // CODE FROM IMGUI-RS, ONLY MODIFIED TO WORK WITH MY BS
 #[must_use]
@@ -213,7 +213,7 @@ where
             let label = s.as_ptr();
 
         let o = unsafe {
-            std::mem::transmute::<_, ImGuiTextInput>(get_mary_base_address() + INPUT_ADDR)(
+            std::mem::transmute::<_, ImGuiTextInput>(*MARY_ADDRESS.read().unwrap() + INPUT_ADDR)(
                 label as *const c_char,
                 ptr as *mut sys::cty::c_char,
                 capacity,

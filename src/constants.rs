@@ -10,9 +10,9 @@ pub static ORIGINAL_ITEM_PICKED_UP: OnceLock<
     unsafe extern "C" fn(loc_chk_id: c_longlong, param_2: c_short, item_id: c_int),
 > = OnceLock::new();
 
-pub const RESULT_SCREEN_ADDR: usize = 0x2a0850; //Constructor for result screen
-pub static ORIGINAL_HANDLE_MISSION_COMPLETE: OnceLock<unsafe extern "C" fn(this: c_longlong)> =
-    OnceLock::new(); //, param_2: c_longlong, param_3: c_longlong, param_4: c_longlong)> = OnceLock::new();
+pub const RESULT_CALC_ADDR: usize = 0x2a0f10;
+pub static ORIGINAL_RESULT_CALC: OnceLock<unsafe extern "C" fn(cuid_result: usize, ranking: i32) -> i32> =
+    OnceLock::new();
 
 pub const ITEM_HANDLE_PICKUP_ADDR: usize = 0x1b45a0;
 pub static ORIGINAL_HANDLE_PICKUP: OnceLock<unsafe extern "C" fn(item_struct: c_longlong)> =
@@ -33,9 +33,16 @@ pub const SECRET_MISSION_ITEM: usize = 0x1a7a4d;
 pub const ITEM_MODE_TABLE: usize = 0x1B4534;
 pub const EVENT_TABLE_ADDR: usize = 0x01A42680; // TODO is this gonna be ok?
 
-/*pub const STARTING_MELEE: usize = 0xC8F250 + 0x46; // TODO Think is the "obtained" bool, need the starting weapon inv
-pub const STARTING_GUN: usize = 0xC8F250 + 0x4C; // TODO
-*/
+pub const EQUIPMENT_SCREEN_ADDR: usize = 0x28CBD0;
+pub static ORIGINAL_EQUIPMENT_SCREEN: OnceLock<unsafe extern "C" fn(cuid_weapon: usize) -> i32> =
+    OnceLock::new();
+
+pub const DAMAGE_CALC_ADDR: usize = 0x088190;
+pub static ORIGINAL_DAMAGE_CALC: OnceLock<unsafe extern "C" fn(damage_calc: usize, param_1: usize, param_2: usize, param_3: usize)> =
+    OnceLock::new();
+pub const ONE_ORB: f32 = 1000.0; // One Blue/Purple orb is worth 1000 "points"
+pub const MAX_HP: f32 = 20000.0;
+pub const MAX_MAGIC: f32 = 10000.0;
 pub struct Item {
     pub id: u8,
     pub name: &'static str,
@@ -910,4 +917,30 @@ pub struct ItemEntry {
     pub x_coord: u32,
     pub y_coord: u32,
     pub z_coord: u32,
+}
+
+#[derive(Copy)]
+#[derive(Clone)]
+#[derive(strum_macros::Display)]
+#[allow(dead_code)]
+pub(crate) enum Difficulty { // TODO Missing HoH
+    Easy = 0,
+    Normal = 1,
+    Hard = 2,
+    VeryHard = 3,
+    DanteMustDie = 4,
+}
+
+#[derive(Copy)]
+#[derive(Clone)]
+#[derive(strum_macros::Display)]
+#[derive(strum_macros::FromRepr)]
+#[allow(dead_code)]
+pub(crate) enum Rank {
+    D = 0,
+    C = 1,
+    B = 2,
+    A = 3,
+    S = 4,
+    SSS = 5
 }

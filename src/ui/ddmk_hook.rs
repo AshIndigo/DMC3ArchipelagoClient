@@ -1,9 +1,9 @@
 use crate::constants::ItemCategory;
 use crate::ui::imgui_bindings::*;
 use crate::ui::ui;
-use crate::ui::ui::{get_status_text, LoginData, CHECKLIST};
-use crate::utilities::{get_mary_base_address, read_data_from_address};
-use crate::{bank, constants, text_handler};
+use crate::ui::ui::{CHECKLIST, LoginData, get_status_text};
+use crate::utilities::{MARY_ADDRESS, read_data_from_address};
+use crate::{archipelago, bank, check_handler, constants, text_handler};
 use imgui_sys::{ImGuiCond, ImGuiCond_Always, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
 use minhook::MinHook;
 use std::ffi::c_int;
@@ -16,14 +16,14 @@ use std::time::Duration;
 
 static SETUP: AtomicBool = AtomicBool::new(false);
 
-const MAIN_FUNC_ADDR: usize = 0xC65E0; // 0xC17B0 (For 2022 ddmk)
-const TIMESTEP_FUNC_ADDR: usize = 0x1DE20; // 0x1DC50 (For 2022 ddmk)
-const DDMK_UI_ENABLED: usize = 0x12c73a;
+const MAIN_FUNC_ADDR: usize = 0x0cb3c0; //0xC65E0; // 0xC17B0 (For 2022 ddmk)
+const TIMESTEP_FUNC_ADDR: usize = 0x01de20; //0x1DE20; // 0x1DC50 (For 2022 ddmk)
+const DDMK_UI_ENABLED: usize = 0x13374a; //0x12c73a;
 
 unsafe extern "C" fn hooked_timestep() {
     unsafe {
         if !SETUP.load(Ordering::SeqCst) {
-            MinHook::enable_hook((get_mary_base_address() + MAIN_FUNC_ADDR) as _)
+            MinHook::enable_hook((*MARY_ADDRESS.read().unwrap() + MAIN_FUNC_ADDR) as _)
                 .expect("Failed to enable hook");
             SETUP.store(true, Ordering::SeqCst);
         }
@@ -49,8 +49,9 @@ unsafe extern "C" fn hooked_render() {
                     // TODO: Hud for pause menu and main menu
                     on_screen_hud();
                 }
-                
-                if !read_data_from_address::<bool>(DDMK_UI_ENABLED + get_mary_base_address()) {
+
+                if !read_data_from_address::<bool>(DDMK_UI_ENABLED + *MARY_ADDRESS.read().unwrap())
+                {
                     return;
                 }
                 archipelago_window(instance); // For the archipelago window
@@ -74,7 +75,7 @@ unsafe fn tracking_window() {
     unsafe {
         let flag = &mut true;
         get_imgui_next_pos()(
-            &ImVec2 { x: 800.0, y: 300.0 },
+            &ImVec2 { x: 800.0, y: 340.0 }, // 300
             ImGuiCond_Appearing as ImGuiCond,
             &ImVec2 { x: 0.0, y: 0.0 },
         );
@@ -171,7 +172,8 @@ pub unsafe fn archipelago_window(mut instance: MutexGuard<LoginData>) {
             ui::connect_button_pressed(
                 instance.archipelago_url.clone().trim().to_string(),
                 instance.username.clone().trim().to_string(),
-                instance.password.clone().trim().to_string());
+                instance.password.clone().trim().to_string(),
+            );
         }
         if get_imgui_button()(
             "Disonnect\0".as_ptr() as *const c_char,
@@ -192,7 +194,44 @@ pub unsafe fn archipelago_window(mut instance: MutexGuard<LoginData>) {
             &ImVec2 { x: 0.0, y: 0.0 },
         ) {
             thread::spawn(move || {
-                text_handler::display_text(&"Test Message\x00\x2E".to_string(), Duration::from_secs(5));
+                text_handler::display_text(
+                    &"Test Message\x00\x2E".to_string(),
+                    Duration::from_secs(5),
+                    0,
+                    0,
+                );
+            });
+        }
+        if get_imgui_button()(
+            "Clear dummy flags\0".as_ptr() as *const c_char,
+            &ImVec2 { x: 0.0, y: 0.0 },
+        ) {
+            thread::spawn(move || {
+                check_handler::clear_high_roller();
+            });
+        }
+        if get_imgui_button()(
+            "Kill Dante\0".as_ptr() as *const c_char,
+            &ImVec2 { x: 0.0, y: 0.0 },
+        ) {
+            thread::spawn(move || {
+                archipelago::kill_dante();
+            });
+        }
+        // if get_imgui_button()(
+        //     "Modify Health\0".as_ptr() as *const c_char,
+        //     &ImVec2 { x: 0.0, y: 0.0 },
+        // ) {
+        //     thread::spawn(move || {
+        //         utilities::give_hp(constants::ONE_ORB);
+        //     });
+        // }
+        if get_imgui_button()(
+            "Edit Message Index\0".as_ptr() as *const c_char,
+            &ImVec2 { x: 0.0, y: 0.0 },
+        ) {
+            thread::spawn(move || {
+                text_handler::display_message_via_index("Testing test".to_string());
             });
         }
         get_imgui_end()();
@@ -201,11 +240,11 @@ pub unsafe fn archipelago_window(mut instance: MutexGuard<LoginData>) {
 
 pub fn setup_ddmk_hook() {
     log::info!("Starting up DDMK hook");
-    log::info!("Mary base ADDR: {:X}", get_mary_base_address());
+    log::info!("Mary base ADDR: {:X}", *MARY_ADDRESS.read().unwrap());
     init_render_func();
     init_timestep_func();
     unsafe {
-        MinHook::enable_hook((get_mary_base_address() + TIMESTEP_FUNC_ADDR) as _)
+        MinHook::enable_hook((*MARY_ADDRESS.read().unwrap() + TIMESTEP_FUNC_ADDR) as _)
             .expect("Failed to enable timestep hook");
     }
     log::info!("DDMK hook initialized");
@@ -218,7 +257,7 @@ fn init_render_func() {
         Some(unsafe {
             std::mem::transmute::<_, BasicNothingFunc>(
                 MinHook::create_hook(
-                    (get_mary_base_address() + MAIN_FUNC_ADDR) as _,
+                    (*MARY_ADDRESS.read().unwrap() + MAIN_FUNC_ADDR) as _,
                     hooked_render as _,
                 )
                 .expect("Failed to create hook"),
@@ -238,7 +277,7 @@ fn init_timestep_func() {
         Some(unsafe {
             std::mem::transmute::<_, BasicNothingFunc>(
                 MinHook::create_hook(
-                    (get_mary_base_address() + TIMESTEP_FUNC_ADDR) as _,
+                    (*MARY_ADDRESS.read().unwrap() + TIMESTEP_FUNC_ADDR) as _,
                     hooked_timestep as _,
                 )
                 .expect("Failed to create timestep hook"),

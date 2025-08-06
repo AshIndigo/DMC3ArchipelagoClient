@@ -247,15 +247,6 @@ pub unsafe extern "system" fn free_self() -> bool {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        // let result = add(2, 2);
-        // assert_eq!(result, 4);
-    }
-}
-
 #[tokio::main]
 pub(crate) async fn spawn_arch_thread() {
     log::info!("Archipelago Thread started");

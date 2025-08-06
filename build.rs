@@ -37,28 +37,6 @@ fn main() {
     output.push_str("    ])\
     });\n\n");
 
-/*    output.push_str("pub fn get_locations() -> HashMap<&'static str, ItemEntry> {\n");
-    output.push_str("    let mut map = HashMap::new();\n");
-
-    // Convert each entry into a HashMap entry
-    for (key, value) in data.as_object().expect("Expected JSON object") {
-        let offset = value["offset"].as_u64().unwrap();
-        let mission_number = value["mission_number"].as_u64().unwrap();
-        let room = value["room_number"].as_u64().unwrap();
-        let item_id = value["default_item"].as_u64().unwrap();
-        let adjudicator = value["adjudicator"].as_bool().unwrap();
-
-        output.push_str(&format!(
-            r#"    map.insert("{}", ItemEntry {{ offset: {}, mission: {}, room_number: {}, item_id: {}, adjudicator: {} }});"#,
-            key, offset, mission_number, room, item_id, adjudicator
-        ));
-        output.push('\n');
-    }
-
-    // Return map
-    output.push_str("    map\n");
-    output.push_str("}\n");*/
-
     // Write to src folder
     let out_dir = Path::new("src");
     let dest_path = Path::new(&out_dir).join("data/generated_locations.rs");

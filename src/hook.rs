@@ -1,21 +1,27 @@
 use crate::constants::ItemEntry;
 use crate::constants::*;
+use crate::data::generated_locations;
 use crate::mapping::Mapping;
 use crate::ui::ui::{CHECKLIST, CONNECTION_STATUS};
-use crate::utilities::{get_mission, get_room, DMC3_ADDRESS};
-use crate::{archipelago, check_handler, create_hook, mapping, save_handler, utilities};
+use crate::utilities::{
+    DMC3_ADDRESS, get_mission, get_room, read_data_from_address, replace_single_byte,
+};
+use crate::{archipelago, check_handler, create_hook, item_sync, mapping, save_handler, utilities};
 use archipelago_rs::client::ArchipelagoClient;
-use minhook::{MinHook, MH_STATUS};
+use archipelago_rs::protocol::{Bounce, ClientMessage};
+use log::error;
+use minhook::{MH_STATUS, MinHook};
 use std::arch::asm;
 use std::collections::HashMap;
 use std::ffi::c_longlong;
+use std::ptr::read_unaligned;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, OnceLock, RwLockReadGuard};
-use std::{ptr, slice};
+use std::{ptr, slice, thread};
+use serde_json::json;
 use tokio::sync::Mutex;
 use winapi::um::memoryapi::VirtualProtect;
 use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
-use crate::data::generated_locations;
 
 pub(crate) const DUMMY_ID: u8 = 0x20;
 static HOOKS_CREATED: AtomicBool = AtomicBool::new(false);
@@ -52,9 +58,9 @@ unsafe fn create_hooks() -> Result<(), MH_STATUS> {
             "Event item"
         );
         create_hook!(
-            RESULT_SCREEN_ADDR,
+            RESULT_CALC_ADDR,
             check_handler::mission_complete_check,
-            ORIGINAL_HANDLE_MISSION_COMPLETE,
+            ORIGINAL_RESULT_CALC,
             "Mission complete"
         );
         create_hook!(
@@ -75,6 +81,18 @@ unsafe fn create_hooks() -> Result<(), MH_STATUS> {
             ORIGINAL_MISSION_INV,
             "Setup mission inventory"
         );
+        create_hook!(
+            EQUIPMENT_SCREEN_ADDR,
+            edit_initial_index,
+            ORIGINAL_EQUIPMENT_SCREEN,
+            "Change equipment screen index"
+        );
+        create_hook!(
+            DAMAGE_CALC_ADDR,
+            monitor_hp,
+            ORIGINAL_DAMAGE_CALC,
+            "HP Monitor"
+        );
         save_handler::setup_save_hooks()?;
         // create_hook!(
         //     RENDER_TEXT_ADDR,
@@ -90,13 +108,15 @@ fn enable_hooks() {
     let addresses: Vec<usize> = vec![
         ITEM_HANDLE_PICKUP_ADDR,
         ITEM_PICKED_UP_ADDR,
-        RESULT_SCREEN_ADDR,
+        RESULT_CALC_ADDR,
         ITEM_SPAWNS_ADDR,
         EDIT_EVENT_HOOK_ADDR,
         0x23a7b0usize,
         // Save handler
         save_handler::LOAD_GAME_ADDR,
         save_handler::SAVE_GAME_ADDR,
+        EQUIPMENT_SCREEN_ADDR,
+        DAMAGE_CALC_ADDR,
     ];
     addresses.iter().for_each(|addr| unsafe {
         match MinHook::enable_hook((*DMC3_ADDRESS.read().unwrap() + addr) as *mut _) {
@@ -110,17 +130,6 @@ fn enable_hooks() {
 
 pub(crate) static CLIENT: LazyLock<Mutex<Option<ArchipelagoClient>>> =
     LazyLock::new(|| Mutex::new(None));
-
-
-/// Set the starting gun and melee weapon upon a new game
-// TODO If needed
-/*pub unsafe fn set_starting_weapons(melee_id: u8, gun_id: u8) {
-    unsafe {
-        utilities::replace_single_byte(STARTING_MELEE, melee_id); // Melee weapon
-        utilities::replace_single_byte(STARTING_GUN, gun_id); // Gun
-        todo!()
-    }
-}*/
 
 pub fn edit_event_drop(param_1: i64, param_2: i32, param_3: i64) {
     let (mapping, mission_event_tables, checked_locations) =
@@ -150,24 +159,21 @@ pub fn edit_event_drop(param_1: i64, param_2: i32, param_3: i64) {
                             log::debug!("Event loc checked: {}", &event_table.location);
                             match event.event_type {
                                 // If the location has already been checked use DUMMY_ID as a dummy item.
-                                EventCode::GIVE => utilities::replace_single_byte(
-                                    EVENT_TABLE_ADDR + event.offset,
-                                    DUMMY_ID,
-                                ),
-                                EventCode::CHECK => utilities::replace_single_byte(
-                                    EVENT_TABLE_ADDR + event.offset,
-                                    DUMMY_ID,
-                                ),
-                                EventCode::END => utilities::replace_single_byte(
-                                    EVENT_TABLE_ADDR + event.offset,
-                                    DUMMY_ID,
-                                ),
+                                EventCode::GIVE => {
+                                    replace_single_byte(EVENT_TABLE_ADDR + event.offset, DUMMY_ID)
+                                }
+                                EventCode::CHECK => {
+                                    replace_single_byte(EVENT_TABLE_ADDR + event.offset, DUMMY_ID)
+                                }
+                                EventCode::END => {
+                                    replace_single_byte(EVENT_TABLE_ADDR + event.offset, DUMMY_ID)
+                                }
                             }
                         } else {
                             log::debug!("Event loc not checked: {}", &event_table.location);
                             match event.event_type {
                                 // Location has not been checked off! TODO Make the "check" event, a dummied out item
-                                EventCode::GIVE => utilities::replace_single_byte(
+                                EventCode::GIVE => replace_single_byte(
                                     EVENT_TABLE_ADDR + event.offset,
                                     get_item_id(
                                         &*mapping
@@ -178,14 +184,12 @@ pub fn edit_event_drop(param_1: i64, param_2: i32, param_3: i64) {
                                     )
                                     .unwrap(),
                                 ),
-                                EventCode::CHECK => utilities::replace_single_byte(
-                                    EVENT_TABLE_ADDR + event.offset,
-                                    DUMMY_ID,
-                                ),
-                                EventCode::END => utilities::replace_single_byte(
-                                    EVENT_TABLE_ADDR + event.offset,
-                                    DUMMY_ID,
-                                ),
+                                EventCode::CHECK => {
+                                    replace_single_byte(EVENT_TABLE_ADDR + event.offset, DUMMY_ID)
+                                }
+                                EventCode::END => {
+                                    replace_single_byte(EVENT_TABLE_ADDR + event.offset, DUMMY_ID)
+                                }
                             }
                         }
                     }
@@ -256,9 +260,9 @@ fn item_spawns_hook(unknown: i64) {
             out("eax") item_addr, // Item address, needs to be [eax]'d
             clobber_abi("win64")
         );
-        log::debug!("Item count: {:x}", item_count);
+        log::debug!("Item count: {} ({:#X})", item_count, item_count);
         let room_num: u16 = get_room() as u16;
-        log::debug!("Room num: {:x}", room_num);
+        log::debug!("Room num: {} ({:#X})", room_num, room_num);
         //set_relevant_key_items();
         match mapping::MAPPING.read() {
             Ok(mapping) => match mapping.as_ref() {
@@ -279,11 +283,14 @@ fn item_spawns_hook(unknown: i64) {
                     modify_secret_mission_item(mapping);
                     for _i in 0..item_count {
                         let item_ref: &u32 = &*(item_addr as *const u32);
-                        log::debug!(
-                            "Item ID: {} ({:#X})",
-                            get_item_name(*item_ref as u8),
-                            *item_ref
-                        );
+                        const EXTRA_OUTPUT: bool = false;
+                        if EXTRA_OUTPUT {
+                            log::debug!(
+                                "Item ID: {} ({:#X})",
+                                get_item_name(*item_ref as u8),
+                                *item_ref
+                            );
+                        }
                         for (location_name, entry) in generated_locations::ITEM_MISSION_MAP.iter() {
                             check_and_replace_item(
                                 location_name,
@@ -319,9 +326,104 @@ fn modify_secret_mission_item(mapping: &Mapping) {
                 get_item_id(&*mapping.items.get(*location_name).unwrap().item_name).unwrap()
             );
             // Get the item ID and replace
-            utilities::replace_single_byte_with_base_addr(SECRET_MISSION_ITEM, 0x26);
+            utilities::replace_single_byte_with_base_addr(
+                SECRET_MISSION_ITEM,
+                *ITEM_ID_MAP.get("Remote").unwrap(),
+            );
         }
     }
+}
+
+fn monitor_hp(damage_calc: usize, param_1: usize, param_2: usize, param_3: usize) {
+    unsafe { ORIGINAL_DAMAGE_CALC.get().unwrap()(damage_calc, param_1, param_2, param_3) }
+    let char_data_ptr: usize =
+        read_data_from_address(*DMC3_ADDRESS.read().unwrap() + utilities::ACTIVE_CHAR_DATA);
+    unsafe {
+        let hp = read_unaligned((char_data_ptr + 0x411C) as *mut f32);
+        if hp == 0.0 {
+            log::debug!("Dante died!");
+            match mapping::MAPPING.read() {
+                Ok(mapping) => match mapping.as_ref() {
+                    None => {}
+                    Some(mapping) => {
+                        if mapping.death_link {
+                            thread::spawn(async move || {
+                                if let Some(ref mut client) = CLIENT.lock().await.as_mut() {
+                                    client
+                                        .send(ClientMessage::Bounce(Bounce {
+                                            games: None,
+                                            slots: None,
+                                            tags: Some(vec!["DeathLink".to_string()]),
+                                            data: json!({ // TODO Filling in data here
+                                                "time": "0.0",
+                                                "source": "Ash",
+                                                "cause": "skill issue"
+                                            }),
+                                        }))
+                                        .await
+                                        .expect("Failed to send DeathLink message");
+                                }
+                            });
+                        }
+                    }
+                },
+                Err(err) => {
+                    error!("Failed to get mapping lock: {}", err);
+                }
+            }
+        }
+    }
+}
+
+// TODO Consolidate this down?
+fn edit_initial_index(custom_weapon: usize) -> i32 {
+    let current_inv_addr = utilities::get_inv_address();
+    if current_inv_addr.is_none() {
+        log::error!(
+            "Failed to get inventory address in {}",
+            "edit_initial_index"
+        );
+        unsafe {
+            if let Some(original) = ORIGINAL_EQUIPMENT_SCREEN.get() {
+                return original(custom_weapon);
+            }
+        }
+    }
+    let base = *DMC3_ADDRESS.read().unwrap();
+    let mut starting_index = 0;
+    if read_data_from_address::<u8>(custom_weapon + 0x419E) == 4 {
+        // Gun
+        for index in 0..5 {
+            if read_data_from_address::<bool>(current_inv_addr.unwrap() + 0x58 + index) {
+                starting_index = index;
+                break;
+            }
+        }
+        if read_data_from_address::<bool>(current_inv_addr.unwrap() + 0x5D) {
+            // Kalina Ann
+            starting_index = 4;
+        }
+    } else {
+        // Melee
+        for index in 0..3 {
+            if read_data_from_address::<bool>(current_inv_addr.unwrap() + 0x52 + index) {
+                starting_index = index;
+                break;
+            }
+        }
+        if read_data_from_address::<bool>(current_inv_addr.unwrap() + 0x56) {
+            // Nevan
+            starting_index = 3;
+        }
+        if read_data_from_address::<bool>(current_inv_addr.unwrap() + 0x57) {
+            // Beowulf
+            starting_index = 4;
+        }
+    }
+    unsafe {
+        replace_single_byte(base + 0x28CC36, starting_index as u8);
+    }
+    unsafe { ORIGINAL_EQUIPMENT_SCREEN.get().unwrap()(custom_weapon) }
 }
 
 unsafe fn check_and_replace_item(
@@ -344,7 +446,7 @@ unsafe fn check_and_replace_item(
                 let ins_val = get_item_id(&*mapping.items.get(*location_name).unwrap().item_name); // Scary
 
                 if ITEM_MAP.get(&entry.item_id).unwrap().category == ItemCategory::Key {
-                    *item_addr = 0x26i32; // 0x26 is high roller card, what is used for remote items.
+                    *item_addr = *(ITEM_ID_MAP.get("Remote").unwrap()) as i32; // 0x26 is high roller card, what is used for remote items.
                 } else {
                     *item_addr = ins_val.unwrap() as i32;
                 }
@@ -398,7 +500,10 @@ fn set_relevant_key_items() {
     let checklist: RwLockReadGuard<HashMap<String, bool>> =
         CHECKLIST.get().unwrap().read().unwrap();
     let current_inv_addr = utilities::get_inv_address();
-    log::debug!("Current INV Addr: {:#X}", current_inv_addr);
+    if current_inv_addr.is_none() {
+        return;
+    }
+    log::debug!("Current INV Addr: {:#X}", current_inv_addr.unwrap());
     let mut flag: u8;
     log::debug!("Current mission: {}", get_mission());
     match MISSION_ITEM_MAP.get(&(get_mission())) {
@@ -412,13 +517,13 @@ fn set_relevant_key_items() {
                     flag = 0x00;
                 }
                 let item_addr =
-                    current_inv_addr + ITEM_OFFSET_MAP.get(item).unwrap().clone() as usize;
+                    current_inv_addr.unwrap() + ITEM_OFFSET_MAP.get(item).unwrap().clone() as usize;
                 log::debug!(
                     "Attempting to replace at address: {:#X} with flag {:#X}",
                     item_addr,
                     flag
                 );
-                unsafe { utilities::replace_single_byte(item_addr, flag) };
+                unsafe { replace_single_byte(item_addr, flag) };
             }
         }
     }
@@ -428,26 +533,23 @@ fn set_relevant_key_items() {
         if *checklist.get(weapon).unwrap_or(&false) {
             flag = 0x01;
             log::debug!("Adding weapon/style to inventory {}", weapon);
-            if weapon == "Cerberus"
-                && utilities::read_data_from_address::<u8>(0x045FF2D8 + 0x01) == 0xFF
-            {
-                unsafe { utilities::replace_single_byte(0x045FF2D8 + 0x01, 0x01) };
+            if weapon == "Cerberus" && read_data_from_address::<u8>(0x045FF2D8 + 0x01) == 0xFF {
+                unsafe { replace_single_byte(0x045FF2D8 + 0x01, 0x01) };
             }
-            if weapon == "Shotgun"
-                && utilities::read_data_from_address::<u8>(0x045FF2D8 + 0x03) == 0xFF
-            {
-                unsafe { utilities::replace_single_byte(0x045FF2D8 + 0x03, 0x06) };
+            if weapon == "Shotgun" && read_data_from_address::<u8>(0x045FF2D8 + 0x03) == 0xFF {
+                unsafe { replace_single_byte(0x045FF2D8 + 0x03, 0x06) };
             }
         } else {
             flag = 0x00;
         }
-        let item_addr = current_inv_addr + ITEM_OFFSET_MAP.get(weapon).unwrap().clone() as usize;
+        let item_addr =
+            current_inv_addr.unwrap() + ITEM_OFFSET_MAP.get(weapon).unwrap().clone() as usize;
         log::trace!(
             "Attempting to replace at address: {:#X} with flag {:#X}",
             item_addr,
             flag
         );
-        unsafe { utilities::replace_single_byte(item_addr, flag) };
+        unsafe { replace_single_byte(item_addr, flag) };
     }
     //item_sync::validate_equipment(&checklist);
 }
@@ -458,13 +560,14 @@ pub fn disable_hooks() -> Result<(), MH_STATUS> {
     unsafe {
         MinHook::disable_hook((base_address + ITEM_HANDLE_PICKUP_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + ITEM_PICKED_UP_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + RESULT_SCREEN_ADDR) as *mut _)?;
+        MinHook::disable_hook((base_address + RESULT_CALC_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + ITEM_SPAWNS_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + EDIT_EVENT_HOOK_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + 0x23a7b0usize) as *mut _)?;
         MinHook::disable_hook((base_address + save_handler::LOAD_GAME_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + save_handler::SAVE_GAME_ADDR) as *mut _)?;
-
+        MinHook::disable_hook((base_address + EQUIPMENT_SCREEN_ADDR) as *mut _)?;
+        MinHook::disable_hook((base_address + DAMAGE_CALC_ADDR) as *mut _)?;
         Ok(())
     }
 }
@@ -480,11 +583,16 @@ pub fn setup_inventory_for_mission(param_1: c_longlong) -> bool {
         }
     }
     set_relevant_key_items();
+    utilities::set_max_hp(f32::min(
+        (6.0 * ONE_ORB) + item_sync::BLUE_ORBS_OBTAINED.load(Ordering::SeqCst) as f32 * ONE_ORB,
+        MAX_HP,
+    ));
+    utilities::set_max_magic(f32::min(
+        item_sync::BLUE_ORBS_OBTAINED.load(Ordering::SeqCst) as f32 * ONE_ORB,
+        MAX_MAGIC,
+    ));
     res
 }
-
-
-
 
 /// The mapping data at dmc3.exe+5c4c20+1A00
 /// This table dictates what item is in what room. Only relevant for consumables and blue orb fragments
