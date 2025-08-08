@@ -4,13 +4,14 @@ use crate::data::generated_locations;
 use crate::mapping::Mapping;
 use crate::ui::ui::{CHECKLIST, CONNECTION_STATUS};
 use crate::utilities::{
-    DMC3_ADDRESS, get_mission, get_room, read_data_from_address, replace_single_byte,
+    get_mission, get_room, read_data_from_address, replace_single_byte, DMC3_ADDRESS,
 };
 use crate::{archipelago, check_handler, create_hook, item_sync, mapping, save_handler, utilities};
 use archipelago_rs::client::ArchipelagoClient;
 use archipelago_rs::protocol::{Bounce, ClientMessage};
 use log::error;
-use minhook::{MH_STATUS, MinHook};
+use minhook::{MinHook, MH_STATUS};
+use serde_json::json;
 use std::arch::asm;
 use std::collections::HashMap;
 use std::ffi::c_longlong;
@@ -18,7 +19,6 @@ use std::ptr::read_unaligned;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, OnceLock, RwLockReadGuard};
 use std::{ptr, slice, thread};
-use serde_json::json;
 use tokio::sync::Mutex;
 use winapi::um::memoryapi::VirtualProtect;
 use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
@@ -76,7 +76,7 @@ unsafe fn create_hooks() -> Result<(), MH_STATUS> {
             "Event table"
         );
         create_hook!(
-            0x23a7b0usize,
+            SETUP_PLAYER_DATA_ADDR,
             setup_inventory_for_mission,
             ORIGINAL_MISSION_INV,
             "Setup mission inventory"
@@ -92,6 +92,12 @@ unsafe fn create_hooks() -> Result<(), MH_STATUS> {
             monitor_hp,
             ORIGINAL_DAMAGE_CALC,
             "HP Monitor"
+        );
+        create_hook!(
+            ADJUDICATOR_DATA_ADDR,
+            modify_adjudicator,
+            ORIGINAL_ADJUDICATOR_DATA,
+            "Modify Adjudicator Data"
         );
         save_handler::setup_save_hooks()?;
         // create_hook!(
@@ -111,12 +117,13 @@ fn enable_hooks() {
         RESULT_CALC_ADDR,
         ITEM_SPAWNS_ADDR,
         EDIT_EVENT_HOOK_ADDR,
-        0x23a7b0usize,
+        SETUP_PLAYER_DATA_ADDR,
         // Save handler
         save_handler::LOAD_GAME_ADDR,
         save_handler::SAVE_GAME_ADDR,
         EQUIPMENT_SCREEN_ADDR,
         DAMAGE_CALC_ADDR,
+        ADJUDICATOR_DATA_ADDR,
     ];
     addresses.iter().for_each(|addr| unsafe {
         match MinHook::enable_hook((*DMC3_ADDRESS.read().unwrap() + addr) as *mut _) {
@@ -182,7 +189,7 @@ pub fn edit_event_drop(param_1: i64, param_2: i32, param_3: i64) {
                                             .unwrap()
                                             .item_name,
                                     )
-                                    .unwrap(),
+                                        .unwrap(),
                                 ),
                                 EventCode::CHECK => {
                                     replace_single_byte(EVENT_TABLE_ADDR + event.offset, DUMMY_ID)
@@ -229,8 +236,68 @@ pub(crate) fn rewrite_mode_table() {
     }
 }
 
+fn modify_adjudicator(param_1: usize, param_2: usize, param_3: usize, adjudicator_data: usize) {
+    const RANKING_OFFSET: usize = 0x04;
+    const WEAPON_OFFSET: usize = 0x06;
+    for (location_name, entry) in generated_locations::ITEM_MISSION_MAP.iter() {
+        // Run through all locations
+        if entry.adjudicator && entry.mission == get_mission() {
+            //log::debug!("Adjudicator found at location {}", &location_name);
+            unsafe {
+                /*  log::debug!(
+                    "Rank Needed: {}",
+                    Rank::from_repr(
+                        read_data_from_address::<u8>(adjudicator_data + RANKING_OFFSET) as usize - 1
+                    )
+                    .unwrap()
+                );
+                log::debug!(
+                    "Melee: {}",
+                    read_data_from_address::<u8>(
+                        adjudicator_data +
+                        WEAPON_OFFSET
+                    )
+                );*/
+                match mapping::MAPPING.read().as_ref() {
+                    Ok(mapping_opt) => match &**mapping_opt {
+                        Some(mappings) => {
+                            let data = mappings.adjudicators.get(*location_name).unwrap();
+                            replace_single_byte(
+                                adjudicator_data + RANKING_OFFSET,
+                                data.ranking + 1,
+                            );
+                            replace_single_byte(
+                                adjudicator_data + WEAPON_OFFSET,
+                                get_weapon_id(&*data.weapon),
+                            );
+                        }
+                        None => {}
+                    },
+                    Err(err) => {
+                        log::error!("Failed to read mapping: {:?}", err);
+                    }
+                }
+                /*  log::debug!(
+                    "New Rank Needed: {}",
+                    Rank::from_repr(
+                        read_data_from_address::<u8>(adjudicator_data + RANKING_OFFSET) as usize - 1
+                    )
+                    .unwrap()
+                );
+                log::debug!(
+                    "New Melee: {}",
+                    read_data_from_address::<u8>(adjudicator_data + WEAPON_OFFSET)
+                );*/
+                if let Some(original) = ORIGINAL_ADJUDICATOR_DATA.get() {
+                    original(param_1, param_2, param_3, adjudicator_data)
+                }
+            }
+        }
+    }
+}
+
 /// Modifies Adjudicator Drops
-pub(crate) unsafe fn modify_adjudicator_drop(mapping: &Mapping) {
+fn modify_adjudicator_drop(mapping: &Mapping) {
     for (location_name, entry) in generated_locations::ITEM_MISSION_MAP.iter() {
         // Run through all locations
         if entry.adjudicator && entry.mission == get_mission() {
@@ -551,7 +618,6 @@ fn set_relevant_key_items() {
         );
         unsafe { replace_single_byte(item_addr, flag) };
     }
-    //item_sync::validate_equipment(&checklist);
 }
 
 /// Disable hooks, used for disconnecting
@@ -563,14 +629,18 @@ pub fn disable_hooks() -> Result<(), MH_STATUS> {
         MinHook::disable_hook((base_address + RESULT_CALC_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + ITEM_SPAWNS_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + EDIT_EVENT_HOOK_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + 0x23a7b0usize) as *mut _)?;
+        MinHook::disable_hook((base_address + SETUP_PLAYER_DATA_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + save_handler::LOAD_GAME_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + save_handler::SAVE_GAME_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + EQUIPMENT_SCREEN_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + DAMAGE_CALC_ADDR) as *mut _)?;
+        MinHook::disable_hook((base_address + ADJUDICATOR_DATA_ADDR) as *mut _)?;
+
         Ok(())
     }
 }
+
+pub const SETUP_PLAYER_DATA_ADDR: usize = 0x23a7b0;
 
 pub static ORIGINAL_MISSION_INV: OnceLock<unsafe extern "C" fn(param_1: c_longlong) -> bool> =
     OnceLock::new();

@@ -1,17 +1,17 @@
-use crate::archipelago::{SLOT_NUMBER, TEAM_NUMBER, connect_archipelago};
+use crate::archipelago::{connect_archipelago, SLOT_NUMBER, TEAM_NUMBER};
 use crate::bank::{setup_bank_add_channel, setup_bank_to_inv_channel};
 use crate::constants::Status;
 use crate::hook::CLIENT;
 use crate::ui::ui::CHECKLIST;
-use anyhow::{Error, anyhow};
+use anyhow::{anyhow, Error};
 use archipelago_rs::protocol::ClientStatus;
 use log::{LevelFilter, Log};
 use simple_logger::SimpleLogger;
 use std::collections::HashMap;
 use std::env::current_exe;
 use std::ffi::c_void;
-use std::sync::RwLock;
 use std::sync::atomic::Ordering;
+use std::sync::RwLock;
 use std::{ptr, thread};
 use ui::ui::CONNECTION_STATUS;
 use winapi::shared::guiddef::REFIID;
@@ -19,13 +19,13 @@ use winapi::shared::minwindef::{DWORD, LPVOID};
 use winapi::um::errhandlingapi::AddVectoredExceptionHandler;
 use winapi::um::libloaderapi::{GetModuleHandleW, LoadLibraryA};
 use winapi::um::winnt::{EXCEPTION_POINTERS, HRESULT};
+use windows::core::BOOL;
 use windows::Win32::Foundation::*;
 use windows::Win32::System::Console::{
-    AllocConsole, ENABLE_VIRTUAL_TERMINAL_PROCESSING, FreeConsole, GetConsoleMode, GetStdHandle,
-    STD_OUTPUT_HANDLE, SetConsoleMode,
+    AllocConsole, FreeConsole, GetConsoleMode, GetStdHandle, SetConsoleMode,
+    ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_OUTPUT_HANDLE,
 };
 use windows::Win32::System::Diagnostics::Debug::EXCEPTION_CONTINUE_SEARCH;
-use windows::core::BOOL;
 
 mod archipelago;
 mod bank;
@@ -305,7 +305,7 @@ pub(crate) async fn spawn_arch_thread() {
                 &mut rx_bank_add,
                 &mut rx_disconnect,
             )
-            .await;
+                .await;
         }
         CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::SeqCst);
         setup = false;

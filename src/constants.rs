@@ -40,6 +40,10 @@ pub static ORIGINAL_EQUIPMENT_SCREEN: OnceLock<unsafe extern "C" fn(cuid_weapon:
 pub const DAMAGE_CALC_ADDR: usize = 0x088190;
 pub static ORIGINAL_DAMAGE_CALC: OnceLock<unsafe extern "C" fn(damage_calc: usize, param_1: usize, param_2: usize, param_3: usize)> =
     OnceLock::new();
+
+pub const ADJUDICATOR_DATA_ADDR: usize = 0x24f970;
+pub static ORIGINAL_ADJUDICATOR_DATA: OnceLock<unsafe extern "C" fn(param_1: usize, param_2: usize, param_3: usize, param_4: usize)> =
+    OnceLock::new();
 pub const ONE_ORB: f32 = 1000.0; // One Blue/Purple orb is worth 1000 "points"
 pub const MAX_HP: f32 = 20000.0;
 pub const MAX_MAGIC: f32 = 10000.0;
@@ -942,5 +946,16 @@ pub(crate) enum Rank {
     B = 2,
     A = 3,
     S = 4,
-    SSS = 5
+    SSS = 5,
+}
+
+pub fn get_weapon_id(weapon: &str) -> u8 {
+    match weapon {
+        "Rebellion (Normal)" => 0,
+        "Cerberus" => 1,
+        "Agni and Rudra" => 2,
+        "Nevan" => 3,
+        "Beowulf" => 4,
+        _ => 0
+    }
 }

@@ -1,8 +1,8 @@
 // Nothing wrong with this. Runs as a separate window so would have to alt-tab if full screen. Could at least be a backup HUD if DDMK isn't available
 
-use crate::ui::ui::{CHECKLIST, CONNECTION_STATUS};
 use crate::constants::{ItemCategory, Status};
 use crate::ui::ui;
+use crate::ui::ui::{CHECKLIST, CONNECTION_STATUS};
 use crate::{bank, constants, item_sync};
 use eframe::epaint::Color32;
 use eframe::{EventLoopBuilderHook, Frame};
@@ -72,8 +72,7 @@ impl eframe::App for ArchipelagoClient {
             if ui.button("Sync").clicked() {
                 item_sync::sync_items();
             };
-            if ui.button("Debug: Add Vit Star S").clicked() {
-            }
+            if ui.button("Debug: Add Vit Star S").clicked() {}
         });
 
         /*        egui::Window::new("Log").show(ctx, |ui| {
@@ -151,5 +150,5 @@ pub fn start_egui() {
             Ok(Box::new(ArchipelagoClient))
         }),
     )
-    .unwrap();
+        .unwrap();
 }

@@ -1,7 +1,7 @@
 use crate::bank::{get_bank, get_bank_key};
 use crate::cache::read_cache;
 use crate::check_handler::Location;
-use crate::constants::{EventCode, GAME_NAME, ItemCategory, Status, ITEM_ID_MAP};
+use crate::constants::{EventCode, ItemCategory, Status, GAME_NAME, ITEM_ID_MAP};
 use crate::data::generated_locations;
 use crate::ui::ui;
 use crate::ui::ui::CONNECTION_STATUS;
@@ -18,9 +18,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::fs::{File, remove_file};
+use std::fs::{remove_file, File};
 use std::io::Write;
-use std::ptr::{write_unaligned};
+use std::ptr::write_unaligned;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Mutex, OnceLock, RwLock, RwLockReadGuard};
 use std::time::Duration;
@@ -75,7 +75,7 @@ pub struct ArchipelagoConnection {
 
 impl Display for ArchipelagoConnection {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        Ok(write!(f, "URL: {:#} Name: {:#}", self.url, self.name,)
+        Ok(write!(f, "URL: {:#} Name: {:#}", self.url, self.name, )
             .expect("Failed to print connection data"))
     }
 }
@@ -101,7 +101,7 @@ pub async fn get_archipelago_client(
             &login_data.url,
             None, //Some(vec![GAME_NAME.parse().expect("Failed to parse string")]),
         )
-        .await?;
+            .await?;
         match &cl.data_package() {
             // Write the data package to a local cache file
             None => {
@@ -392,7 +392,7 @@ async fn handle_client_messages(
                 name: data.username.clone(),
                 password: data.username.clone(),
             })
-            .await?;
+                .await?;
             Ok(())
         }
         Err(ArchipelagoError::IllegalResponse { received, expected }) => {
@@ -481,8 +481,8 @@ pub fn get_location_item_name(received_item: &Location) -> Result<&'static str, 
         if item_entry.room_number as i32 == received_item.room {
             if item_entry.x_coord == 0
                 || (item_entry.x_coord == received_item.x_coord
-                    && item_entry.y_coord == received_item.y_coord
-                    && item_entry.z_coord == received_item.z_coord)
+                && item_entry.y_coord == received_item.y_coord
+                && item_entry.z_coord == received_item.z_coord)
             {
                 let location_data = mapping_data.items.get(*location_key).unwrap();
                 log::debug!("Believe this to be: {}", location_key);

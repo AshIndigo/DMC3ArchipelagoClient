@@ -17,7 +17,7 @@ pub fn item_non_event(item_struct: i64) {
     unsafe {
         let base_ptr = item_struct as *const u8;
         let item_id_ptr = base_ptr.add(0x60) as *const i32; // Don't remove this
-        let item_id = *item_id_ptr;
+        let item_id = *(base_ptr.add(0x60));
         if item_id > 0x04 {
             // Ignore red orbs
             if item_id < 0x3A {
@@ -44,7 +44,7 @@ pub fn item_non_event(item_struct: i64) {
                 Z Coord: {} (Z Addr: {:?})\n\
                 Location Name: {:?}\n---
                 ",
-                    constants::get_item_name(item_id as u8),
+                    constants::get_item_name(item_id),
                     item_id,
                     item_id_ptr,
                     x_coord_val,
@@ -205,8 +205,8 @@ async fn send_off_location(item_id: i32) {
             y_coord: 0,
             z_coord: 0,
         })
-        .await
-        .expect("Failed to send Location!");
+            .await
+            .expect("Failed to send Location!");
         clear_high_roller();
     }
 }

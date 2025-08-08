@@ -1,9 +1,9 @@
-use std::fs;
 use anyhow::Error;
 use archipelago_rs::protocol::{DataPackageObject, RoomInfo};
-use serde::{Deserialize};
+use serde::Deserialize;
+use std::fs;
 use std::fs::File;
-use std::io::{BufReader};
+use std::io::BufReader;
 use std::path::Path;
 
 pub const CACHE_FILENAME: &str = "cache.json";

@@ -121,7 +121,6 @@ pub(crate) async fn handle_received_items_packet(
                 PURPLE_ORBS_OBTAINED.fetch_add(1, Ordering::SeqCst);
             }
         }
-
     }
     log::debug!("Read the bank values");
     if received_items_packet.index > CURRENT_INDEX.load(Ordering::SeqCst) {
@@ -140,7 +139,7 @@ pub(crate) async fn handle_received_items_packet(
                         player: item.player,
                         flags: item.flags,
                     })
-                    .await?;
+                        .await?;
                 }
             }
             if item.item == 0x07 { // Blue orb

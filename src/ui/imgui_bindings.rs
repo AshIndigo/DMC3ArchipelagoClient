@@ -1,12 +1,11 @@
-
+use crate::utilities::MARY_ADDRESS;
 use imgui_sys::{cty, ImGuiCond, ImGuiInputTextCallback, ImGuiInputTextFlags, ImGuiWindowFlags, ImVec2};
 use std::ffi::{c_float, c_int};
 use std::os::raw::c_char;
 use std::sync::OnceLock;
-use crate::utilities::MARY_ADDRESS;
 
 pub type ImGuiBegin =
-    extern "C" fn(name: *const cty::c_char, p_open: *mut bool, flags: ImGuiWindowFlags) -> bool;
+extern "C" fn(name: *const cty::c_char, p_open: *mut bool, flags: ImGuiWindowFlags) -> bool;
 pub type ImGuiButton = extern "C" fn(label: *const cty::c_char, size: &ImVec2) -> bool;
 pub type ImGuiText = extern "C" fn(text: *const cty::c_char, text_end: *const cty::c_char);
 pub type ImGuiTextInput = extern "C" fn(
@@ -18,10 +17,10 @@ pub type ImGuiTextInput = extern "C" fn(
     user_data: *mut cty::c_void,
 ) -> bool;
 //pub type ImGuiWindowPos = extern "C" fn(pos: &ImVec2, cond: ImGuiCond);
-pub type ImGuiNextWindowPos = extern "C" fn (pos: &ImVec2, cond: ImGuiCond, pivot: &ImVec2);
+pub type ImGuiNextWindowPos = extern "C" fn(pos: &ImVec2, cond: ImGuiCond, pivot: &ImVec2);
 
-pub type ImGuiSameLine = extern "C" fn (offset_from_start_x: c_float, spacing_w: c_float);
-pub type ImGuiPushID = extern "C" fn (offset_from_start_x: c_int);
+pub type ImGuiSameLine = extern "C" fn(offset_from_start_x: c_float, spacing_w: c_float);
+pub type ImGuiPushID = extern "C" fn(offset_from_start_x: c_int);
 
 //pub type ImGuiCheckbox = extern "C" fn (text: *const cty::c_char, p_open: *mut bool);
 
@@ -60,7 +59,7 @@ static IMGUI_BUTTON: OnceLock<ImGuiButton> = OnceLock::new();
 static IMGUI_POS: OnceLock<ImGuiNextWindowPos> = OnceLock::new();
 static IMGUI_SAME_LINE: OnceLock<ImGuiSameLine> = OnceLock::new();
 static IMGUI_PUSH_ID: OnceLock<ImGuiPushID> = OnceLock::new();
-static IMGUI_POP_ID: OnceLock<BasicNothingFunc> = OnceLock::new(); 
+static IMGUI_POP_ID: OnceLock<BasicNothingFunc> = OnceLock::new();
 //static IMGUI_CHECKBOX: OnceLock<ImGuiNextWindowPos> = OnceLock::new();
 
 // Helpers to retrieve values

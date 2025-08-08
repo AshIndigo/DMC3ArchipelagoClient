@@ -1,12 +1,12 @@
 use crate::archipelago::ArchipelagoConnection;
 use crate::constants::Status;
 use crate::{archipelago, bank};
+use serde::Deserialize;
 use std::collections::HashMap;
+use std::io::BufReader;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::{Mutex, OnceLock, RwLock};
 use std::{fs, path};
-use std::io::BufReader;
-use serde::Deserialize;
 
 pub struct LoginData {
     pub(crate) archipelago_url: String,
@@ -51,8 +51,8 @@ pub(crate) async fn connect_button_pressed(url: String, name: String, password: 
                 name,
                 password,
             })
-            .await
-            .expect("Failed to send data");
+                .await
+                .expect("Failed to send data");
         }
     }
 }

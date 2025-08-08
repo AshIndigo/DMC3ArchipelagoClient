@@ -1,12 +1,11 @@
 use crate::archipelago::get_connected;
+use crate::data::generated_locations;
 use crate::hook::modify_item_table;
 use crate::{archipelago, constants, hook};
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::{Value, from_value};
+use serde_json::{from_value, Value};
 use std::collections::HashMap;
-use std::sync::{RwLock};
-use crate::data::generated_locations;
-
+use std::sync::RwLock;
 
 pub static MAPPING: RwLock<Option<Mapping>> = RwLock::new(None);
 
@@ -70,6 +69,27 @@ where
     }
 }
 
+fn parse_death_link<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let val = Value::deserialize(deserializer)?;
+    match val {
+        Value::Number(n) => match n.as_i64().unwrap_or_default() {
+            0 => Ok(false),
+            1 => Ok(true),
+            _ => Err(serde::de::Error::custom(format!(
+                "Invalid Death link option: {}",
+                n
+            ))),
+        },
+        other => Err(serde::de::Error::custom(format!(
+            "Unexpected type: {:?}",
+            other
+        ))),
+    }
+}
+
 #[derive(Deserialize, Serialize, Debug)]
 pub struct Mapping {
     // For mapping JSON
@@ -85,7 +105,8 @@ pub struct Mapping {
     #[serde(default = "default_melee")]
     #[serde(deserialize_with = "parse_melee_number")]
     pub start_melee: String,
-    pub death_link: bool
+    #[serde(deserialize_with = "parse_death_link")]
+    pub death_link: bool,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -120,7 +141,7 @@ pub fn use_mappings() {
                                     // Replace the item ID with the new one
                                     modify_item_table(entry.offset, id)
                                 }
-                            },
+                            }
                             None => {
                                 log::warn!("Item not found: {}", location_data.item_name);
                             }

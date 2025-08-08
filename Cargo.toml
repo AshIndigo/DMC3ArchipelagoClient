@@ -40,4 +40,4 @@ strum_macros = "0.27"
 
 # Experimental
 egui-directx11 = "0.9.1"
-egui_overlay = {git="https://github.com/loud2pro/egui_overlay"}
+egui_overlay = { git = "https://github.com/loud2pro/egui_overlay" }

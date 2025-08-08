@@ -1,8 +1,8 @@
 use crate::constants::ItemCategory;
 use crate::ui::imgui_bindings::*;
 use crate::ui::ui;
-use crate::ui::ui::{CHECKLIST, LoginData, get_status_text};
-use crate::utilities::{MARY_ADDRESS, read_data_from_address};
+use crate::ui::ui::{get_status_text, LoginData, CHECKLIST};
+use crate::utilities::{read_data_from_address, MARY_ADDRESS};
 use crate::{archipelago, bank, check_handler, constants, text_handler};
 use imgui_sys::{ImGuiCond, ImGuiCond_Always, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
 use minhook::MinHook;
@@ -260,7 +260,7 @@ fn init_render_func() {
                     (*MARY_ADDRESS.read().unwrap() + MAIN_FUNC_ADDR) as _,
                     hooked_render as _,
                 )
-                .expect("Failed to create hook"),
+                    .expect("Failed to create hook"),
             )
         })
     });
@@ -280,7 +280,7 @@ fn init_timestep_func() {
                     (*MARY_ADDRESS.read().unwrap() + TIMESTEP_FUNC_ADDR) as _,
                     hooked_timestep as _,
                 )
-                .expect("Failed to create timestep hook"),
+                    .expect("Failed to create timestep hook"),
             )
         })
     });

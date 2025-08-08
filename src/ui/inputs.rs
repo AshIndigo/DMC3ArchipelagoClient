@@ -1,8 +1,8 @@
-use std::ops::Range;
 use crate::ui::imgui_bindings::{ImGuiTextInput, INPUT_ADDR};
-use std::os::raw::{c_char, c_int, c_void};
-use imgui::{sys, HistoryDirection, InputTextCallback, InputTextFlags};
 use crate::utilities::MARY_ADDRESS;
+use imgui::{sys, HistoryDirection, InputTextCallback, InputTextFlags};
+use std::ops::Range;
+use std::os::raw::{c_char, c_int, c_void};
 
 // CODE FROM IMGUI-RS, ONLY MODIFIED TO WORK WITH MY BS
 #[must_use]
@@ -210,7 +210,7 @@ where
         };
         let data = &mut data as *mut _ as *mut c_void;
         let s = self.label.as_ref();
-            let label = s.as_ptr();
+        let label = s.as_ptr();
 
         let o = unsafe {
             std::mem::transmute::<_, ImGuiTextInput>(*MARY_ADDRESS.read().unwrap() + INPUT_ADDR)(
@@ -289,15 +289,17 @@ impl TextCallbackData {
     /// [set_dirty]: Self::set_dirty
     /// [insert_chars]: Self::insert_chars
     /// [push_str]: Self::push_str
-    pub unsafe fn str_as_bytes_mut(&mut self) -> &mut [u8] { unsafe {
-        let str = std::str::from_utf8_mut(std::slice::from_raw_parts_mut(
-            (*(self.0)).Buf as *const _ as *mut _,
-            (*(self.0)).BufTextLen as usize,
-        ))
-            .expect("internal imgui error -- it boofed a utf8");
+    pub unsafe fn str_as_bytes_mut(&mut self) -> &mut [u8] {
+        unsafe {
+            let str = std::str::from_utf8_mut(std::slice::from_raw_parts_mut(
+                (*(self.0)).Buf as *const _ as *mut _,
+                (*(self.0)).BufTextLen as usize,
+            ))
+                .expect("internal imgui error -- it boofed a utf8");
 
-        str.as_bytes_mut()
-    }}
+            str.as_bytes_mut()
+        }
+    }
 
     /// Sets the dirty flag on the text to imgui, indicating that
     /// it should reapply this string to its internal state.
@@ -394,17 +396,19 @@ impl TextCallbackData {
     /// It is up to the caller to confirm that the `pos` is a valid byte
     /// position, or use [insert_chars](Self::insert_chars) which will panic
     /// if it isn't.
-    pub unsafe fn insert_chars_unsafe(&mut self, pos: usize, s: &str) { unsafe {
-        let start = s.as_ptr();
-        let end = start.add(s.len());
+    pub unsafe fn insert_chars_unsafe(&mut self, pos: usize, s: &str) {
+        unsafe {
+            let start = s.as_ptr();
+            let end = start.add(s.len());
 
-        sys::ImGuiInputTextCallbackData_InsertChars(
-            self.0,
-            pos as i32,
-            start as *const c_char,
-            end as *const c_char,
-        );
-    }}
+            sys::ImGuiInputTextCallbackData_InsertChars(
+                self.0,
+                pos as i32,
+                start as *const c_char,
+                end as *const c_char,
+            );
+        }
+    }
 
     /// Clears the string to an empty buffer.
     pub fn clear(&mut self) {
@@ -439,9 +443,11 @@ impl TextCallbackData {
     ///
     /// It is up to the caller to ensure that the position is at a valid utf8 char_boundary
     /// and that there are enough bytes within the string remaining.
-    pub unsafe fn remove_chars_unchecked(&mut self, pos: usize, byte_count: usize) { unsafe {
-        sys::ImGuiInputTextCallbackData_DeleteChars(self.0, pos as i32, byte_count as i32);
-    }}
+    pub unsafe fn remove_chars_unchecked(&mut self, pos: usize, byte_count: usize) {
+        unsafe {
+            sys::ImGuiInputTextCallbackData_DeleteChars(self.0, pos as i32, byte_count as i32);
+        }
+    }
 
     /// Get a reference to the text callback buffer's cursor pos.
     pub fn cursor_pos(&self) -> usize {
