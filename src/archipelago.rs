@@ -11,7 +11,10 @@ use crate::{
 };
 use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
-use archipelago_rs::protocol::{Bounced, Connected, DataPackageObject, JSONColor, JSONMessagePart, NetworkItem, PrintJSON, Retrieved, ServerMessage};
+use archipelago_rs::protocol::{
+    Bounced, Connected, DataPackageObject, JSONColor, JSONMessagePart, NetworkItem, PrintJSON,
+    Retrieved, ServerMessage,
+};
 use once_cell::sync::Lazy;
 use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
@@ -186,7 +189,7 @@ pub async fn connect_archipelago(
 }
 
 /// This is run when a there is a valid connection to a room.
-pub async fn run_setup(cl: &mut ArchipelagoClient) {
+pub async fn run_setup(cl: &mut ArchipelagoClient) -> Result<(), Box<dyn Error>> {
     log::info!("Running setup");
     hook::rewrite_mode_table();
     match cl.data_package() {
@@ -201,9 +204,7 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) {
         }
     }
 
-    let mut sync_data = item_sync::get_sync_data()
-        .lock()
-        .expect("Failed to get sync data");
+    let mut sync_data = item_sync::get_sync_data().lock()?;
     *sync_data = item_sync::read_save_data().unwrap_or_default();
     if sync_data
         .room_sync_info
@@ -228,12 +229,12 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) {
             log::debug!("Mapping data: {:#?}", mapping::MAPPING.read().unwrap());
         }
         Err(err) => {
-            log::error!("Failed to load mappings from slot data, aborting: {}", err);
-            return;
+            return Err(format!("Failed to load mappings from slot data, aborting: {}", err).into());
         }
     }
-    mapping::use_mappings();
-    save_handler::create_special_save().unwrap();
+    mapping::use_mappings()?;
+    save_handler::create_special_save()?;
+    Ok(())
 }
 
 pub(crate) fn location_is_checked_and_end(location_key: &str) -> bool {
@@ -365,9 +366,7 @@ async fn handle_client_messages(
                 Ok(())
             }
             Some(ServerMessage::DataPackage(_)) => Ok(()), // Ignore
-            Some(ServerMessage::Bounced(bounced_msg)) => {
-                handle_bounced(bounced_msg, client).await
-            }
+            Some(ServerMessage::Bounced(bounced_msg)) => handle_bounced(bounced_msg, client).await,
             Some(ServerMessage::InvalidPacket(invalid_packet)) => {
                 log::error!("Invalid packet: {:?}", invalid_packet);
                 Ok(())
@@ -419,7 +418,10 @@ async fn handle_client_messages(
     }
 }
 
-async fn handle_bounced(bounced: Bounced, _client: &mut ArchipelagoClient) -> Result<(), Box<dyn Error>> {
+async fn handle_bounced(
+    bounced: Bounced,
+    _client: &mut ArchipelagoClient,
+) -> Result<(), Box<dyn Error>> {
     const DEATH_LINK: &str = "Deathlink";
     if bounced.tags.contains(&DEATH_LINK.to_string()) {
         log::debug!("Deathlink detected");
@@ -433,10 +435,7 @@ pub(crate) fn kill_dante() {
     let char_data_ptr: usize =
         read_data_from_address(*DMC3_ADDRESS.read().unwrap() + utilities::ACTIVE_CHAR_DATA);
     unsafe {
-        write_unaligned(
-            (char_data_ptr + 0x411C) as *mut f32,
-            0.0,
-        );
+        write_unaligned((char_data_ptr + 0x411C) as *mut f32, 0.0);
     }
 }
 

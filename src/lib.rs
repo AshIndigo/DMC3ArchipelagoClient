@@ -289,7 +289,9 @@ pub(crate) async fn spawn_arch_thread() {
         // Client is successfully connected
         if let Some(ref mut client) = client_lock.as_mut() {
             if !setup {
-                archipelago::run_setup(client).await;
+                if let Err(err) = archipelago::run_setup(client).await {
+                    log::error!("{}", err);
+                }
                 //item_sync::sync_items(client).await;
                 //setup = true; // TODO Marker
             }

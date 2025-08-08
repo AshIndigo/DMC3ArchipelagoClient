@@ -5,9 +5,11 @@ use crate::{archipelago, constants, hook};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{from_value, Value};
 use std::collections::HashMap;
-use std::sync::RwLock;
 
-pub static MAPPING: RwLock<Option<Mapping>> = RwLock::new(None);
+use function_name::named;
+use std::sync::{LazyLock, RwLock};
+
+pub static MAPPING: LazyLock<RwLock<Option<Mapping>>> = LazyLock::new(|| RwLock::new(None));
 
 fn default_gun() -> String {
     "Ebony & Ivory".to_string()
@@ -122,41 +124,37 @@ pub struct LocationData {
     pub description: String,
 }
 
-pub fn use_mappings() {
-    match MAPPING.read() {
-        Ok(mapping_opt) => match mapping_opt.as_ref() {
-            None => log::error!("No mapping found"),
-            Some(mapping_data) => {
-                // Run through each mapping entry
-                for (location_name, location_data) in mapping_data.items.iter() {
-                    // Acquire the default location data for a specific location
-                    match generated_locations::ITEM_MISSION_MAP.get(location_name as &str) {
-                        Some(entry) => match constants::get_item_id(&*location_data.item_name) {
-                            // With the offset acquired, before the necessary replacement
-                            Some(id) => {
-                                if archipelago::location_is_checked_and_end(location_name) {
-                                    // If the item procs an end mission event, replace with a dummy ID in order to not immediately trigger a mission end
-                                    modify_item_table(entry.offset, hook::DUMMY_ID)
-                                } else {
-                                    // Replace the item ID with the new one
-                                    modify_item_table(entry.offset, id)
-                                }
-                            }
-                            None => {
-                                log::warn!("Item not found: {}", location_data.item_name);
-                            }
-                        },
-                        None => {
-                            log::warn!("Location not found: {}", location_name);
-                        }
+#[named]
+pub fn use_mappings() -> Result<(), Box<dyn std::error::Error>> {
+    let guard = MAPPING.read()?; // Annoying
+    let mapping = guard
+        .as_ref()
+        .ok_or(format!("No mapping found in {}", function_name!()))?;
+    // Run through each mapping entry
+    for (location_name, location_data) in mapping.items.iter() {
+        // Acquire the default location data for a specific location
+        match generated_locations::ITEM_MISSION_MAP.get(location_name as &str) {
+            Some(entry) => match constants::get_item_id(&*location_data.item_name) {
+                // With the offset acquired, before the necessary replacement
+                Some(id) => {
+                    if archipelago::location_is_checked_and_end(location_name) {
+                        // If the item procs an end mission event, replace with a dummy ID in order to not immediately trigger a mission end
+                        modify_item_table(entry.offset, hook::DUMMY_ID)
+                    } else {
+                        // Replace the item ID with the new one
+                        modify_item_table(entry.offset, id)
                     }
                 }
+                None => {
+                    log::warn!("Item not found: {}", location_data.item_name);
+                }
+            },
+            None => {
+                log::warn!("Location not found: {}", location_name);
             }
-        },
-        Err(e) => {
-            log::error!("Mapping error: {}", e);
         }
     }
+    Ok(())
 }
 
 pub(crate) fn parse_slot_data() -> Result<(), Box<dyn std::error::Error>> {

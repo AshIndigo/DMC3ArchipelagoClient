@@ -1,6 +1,7 @@
+use crate::mapping::MAPPING;
 use crate::ui::ui;
 use crate::utilities::DMC3_ADDRESS;
-use crate::{constants, mapping};
+use crate::constants;
 use crate::{create_hook, utilities};
 use minhook::MinHook;
 use minhook::MH_STATUS;
@@ -25,16 +26,11 @@ static SAVE_DATA: RwLock<Vec<u8>> = RwLock::new(vec![]);
 
 pub fn get_save_path() -> Result<String, Box<dyn std::error::Error>> {
     // Load up the mappings to get the seed
-    if let Ok(mappings_opt) = mapping::MAPPING.read() {
-        return match mappings_opt.as_ref() {
-            None => Err(Box::from("Mappings is none, seed is unavailable")),
-            Some(mappings) => Ok(format!(
-                "archipelago/{}",
-                format!("dmc3_{}.sav", &mappings.seed)
-            )),
-        };
-    }
-    Err(Box::from("Unable to read mapping file"))
+    let guard = MAPPING.read()?;
+    let mappings = guard
+        .as_ref()
+        .ok_or("No mapping found, seed is unavailable")?;
+    Ok(format!("archipelago/dmc3_{}.sav", &mappings.seed))
 }
 /* Default save
 - All difficulties available
@@ -59,6 +55,7 @@ pub static ORIGINAL_WRITE_CRC: OnceLock<
 
 /// If the seed save does not exist, create it
 pub(crate) fn create_special_save() -> Result<(), Box<dyn std::error::Error>> {
+    const ORIGINAL_CRC_ADDR: usize = 0x33eed0;
     const BASE_BYTES: &[u8; SAVE_SIZE] = include_bytes!("data/dmc3_all.sav");
     let save_bytes = BASE_BYTES.clone();
     let save_path = get_save_path()?;
@@ -68,7 +65,7 @@ pub(crate) fn create_special_save() -> Result<(), Box<dyn std::error::Error>> {
     let save_bytes = set_starting_weapons(save_bytes)?;
     unsafe {
         ORIGINAL_WRITE_CRC
-            .get_or_init(|| std::mem::transmute(*DMC3_ADDRESS.read().unwrap() + 0x33eed0))(
+            .get_or_init(|| std::mem::transmute(*DMC3_ADDRESS.read().unwrap() + ORIGINAL_CRC_ADDR))(
             save_bytes.as_ptr().addr() + 0x3B8,
             0x708,
         );
@@ -82,32 +79,30 @@ pub(crate) fn create_special_save() -> Result<(), Box<dyn std::error::Error>> {
 fn set_starting_weapons(
     mut save_bytes: [u8; SAVE_SIZE],
 ) -> Result<[u8; SAVE_SIZE], Box<dyn std::error::Error>> {
-    let mapping_opt = mapping::MAPPING.read()?;
-    match mapping_opt.as_ref() {
-        None => Err(Box::from("Mapping is none, starting weapons are unknown")),
-        Some(mappings) => {
-            let mut melee = 0;
-            let mut gun = 5;
+    let guard = MAPPING.read()?;
+    let mappings = guard
+        .as_ref()
+        .ok_or("No mapping found, starting weapons are unavailable")?;
+    let mut melee = 0;
+    let mut gun = 5;
 
-            if !&mappings.start_melee.as_str().eq("Rebellion") {
-                melee = constants::ITEM_ID_MAP
-                    .get(&mappings.start_melee.as_str())
-                    .unwrap()
-                    - 0x16;
-            }
-            if !&mappings.start_gun.as_str().eq("Ebony & Ivory") {
-                gun = constants::ITEM_ID_MAP
-                    .get(&mappings.start_gun.as_str())
-                    .unwrap()
-                    - 0x1C
-                    + 0x05;
-            }
-            log::debug!("Gun ID: {} - Melee ID: {}", gun, melee);
-            save_bytes[0x414] = melee;
-            save_bytes[0x416] = gun;
-            Ok(save_bytes)
-        }
+    if !&mappings.start_melee.as_str().eq("Rebellion") {
+        melee = constants::ITEM_ID_MAP
+            .get(&mappings.start_melee.as_str())
+            .unwrap()
+            - 0x16;
     }
+    if !&mappings.start_gun.as_str().eq("Ebony & Ivory") {
+        gun = constants::ITEM_ID_MAP
+            .get(&mappings.start_gun.as_str())
+            .unwrap()
+            - 0x1C
+            + 0x05;
+    }
+    log::debug!("Gun ID: {} - Melee ID: {}", gun, melee);
+    save_bytes[0x414] = melee;
+    save_bytes[0x416] = gun;
+    Ok(save_bytes)
 }
 
 pub fn setup_save_hooks() -> Result<(), MH_STATUS> {
