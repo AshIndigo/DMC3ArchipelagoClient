@@ -4,9 +4,12 @@ use crate::data::generated_locations;
 use crate::mapping::Mapping;
 use crate::ui::ui::{CHECKLIST, CONNECTION_STATUS};
 use crate::utilities::{
-    get_mission, get_room, read_data_from_address, replace_single_byte, DMC3_ADDRESS,
+    get_mission, get_room, read_data_from_address, replace_single_byte, set_item, DMC3_ADDRESS,
 };
-use crate::{archipelago, check_handler, create_hook, item_sync, mapping, save_handler, utilities};
+use crate::{
+    archipelago, check_handler, create_hook, item_sync, mapping, save_handler, text_handler,
+    utilities,
+};
 use archipelago_rs::client::ArchipelagoClient;
 use archipelago_rs::protocol::{Bounce, ClientMessage};
 use log::error;
@@ -14,7 +17,6 @@ use minhook::{MinHook, MH_STATUS};
 use serde_json::json;
 use std::arch::asm;
 use std::collections::HashMap;
-use std::ffi::c_longlong;
 use std::ptr::read_unaligned;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, OnceLock, RwLockReadGuard};
@@ -45,24 +47,7 @@ pub(crate) fn install_initial_functions() {
 // 23d680 - Pause menu event? Hook in here to do rendering
 unsafe fn create_hooks() -> Result<(), MH_STATUS> {
     unsafe {
-        create_hook!(
-            ITEM_HANDLE_PICKUP_ADDR,
-            check_handler::item_non_event,
-            ORIGINAL_HANDLE_PICKUP,
-            "Non event item"
-        );
-        create_hook!(
-            ITEM_PICKED_UP_ADDR,
-            check_handler::item_event,
-            ORIGINAL_ITEM_PICKED_UP,
-            "Event item"
-        );
-        create_hook!(
-            RESULT_CALC_ADDR,
-            check_handler::mission_complete_check,
-            ORIGINAL_RESULT_CALC,
-            "Mission complete"
-        );
+        check_handler::setup_check_hooks()?;
         create_hook!(
             ITEM_SPAWNS_ADDR,
             item_spawns_hook,
@@ -99,31 +84,32 @@ unsafe fn create_hooks() -> Result<(), MH_STATUS> {
             ORIGINAL_ADJUDICATOR_DATA,
             "Modify Adjudicator Data"
         );
+        text_handler::setup_text_hooks()?;
         save_handler::setup_save_hooks()?;
-        // create_hook!(
-        //     RENDER_TEXT_ADDR,
-        //     parry_text,
-        //     ORIGINAL_RENDER_TEXT,
-        //     "Render Text"
-        // );
     }
     Ok(())
 }
 
 fn enable_hooks() {
     let addresses: Vec<usize> = vec![
-        ITEM_HANDLE_PICKUP_ADDR,
-        ITEM_PICKED_UP_ADDR,
-        RESULT_CALC_ADDR,
+        // Check handling
+        check_handler::ITEM_HANDLE_PICKUP_ADDR,
+        check_handler::ITEM_PICKED_UP_ADDR,
+        check_handler::RESULT_CALC_ADDR,
+        // Misc
         ITEM_SPAWNS_ADDR,
         EDIT_EVENT_HOOK_ADDR,
         SETUP_PLAYER_DATA_ADDR,
-        // Save handler
-        save_handler::LOAD_GAME_ADDR,
-        save_handler::SAVE_GAME_ADDR,
         EQUIPMENT_SCREEN_ADDR,
         DAMAGE_CALC_ADDR,
         ADJUDICATOR_DATA_ADDR,
+        // Save handler
+        save_handler::LOAD_GAME_ADDR,
+        save_handler::SAVE_GAME_ADDR,
+        // Text Handler
+        text_handler::DISPLAY_ITEM_GET_ADDR,
+        text_handler::DISPLAY_ITEM_GET_DESTRUCTOR_ADDR,
+        text_handler::SETUP_ITEM_GET_SCREEN_ADDR,
     ];
     addresses.iter().for_each(|addr| unsafe {
         match MinHook::enable_hook((*DMC3_ADDRESS.read().unwrap() + addr) as *mut _) {
@@ -583,40 +569,27 @@ fn set_relevant_key_items() {
                 } else {
                     flag = 0x00;
                 }
-                let item_addr =
-                    current_inv_addr.unwrap() + ITEM_OFFSET_MAP.get(item).unwrap().clone() as usize;
-                log::debug!(
-                    "Attempting to replace at address: {:#X} with flag {:#X}",
-                    item_addr,
-                    flag
-                );
-                unsafe { replace_single_byte(item_addr, flag) };
+                set_item(item, flag != 0);
             }
         }
     }
+    const WEAPON_SLOT: usize = 0x045FF2D8;
     // Setting weapons
     // TODO Probably need to modify equipped values as well
     for weapon in get_items_by_category(ItemCategory::Weapon) {
         if *checklist.get(weapon).unwrap_or(&false) {
             flag = 0x01;
             log::debug!("Adding weapon/style to inventory {}", weapon);
-            if weapon == "Cerberus" && read_data_from_address::<u8>(0x045FF2D8 + 0x01) == 0xFF {
-                unsafe { replace_single_byte(0x045FF2D8 + 0x01, 0x01) };
+            if weapon == "Cerberus" && read_data_from_address::<u8>(WEAPON_SLOT + 0x01) == 0xFF {
+                unsafe { replace_single_byte(WEAPON_SLOT + 0x01, 0x01) };
             }
-            if weapon == "Shotgun" && read_data_from_address::<u8>(0x045FF2D8 + 0x03) == 0xFF {
-                unsafe { replace_single_byte(0x045FF2D8 + 0x03, 0x06) };
+            if weapon == "Shotgun" && read_data_from_address::<u8>(WEAPON_SLOT + 0x03) == 0xFF {
+                unsafe { replace_single_byte(WEAPON_SLOT + 0x03, 0x06) };
             }
         } else {
             flag = 0x00;
         }
-        let item_addr =
-            current_inv_addr.unwrap() + ITEM_OFFSET_MAP.get(weapon).unwrap().clone() as usize;
-        log::trace!(
-            "Attempting to replace at address: {:#X} with flag {:#X}",
-            item_addr,
-            flag
-        );
-        unsafe { replace_single_byte(item_addr, flag) };
+        set_item(weapon, flag != 0);
     }
 }
 
@@ -624,28 +597,25 @@ fn set_relevant_key_items() {
 pub fn disable_hooks() -> Result<(), MH_STATUS> {
     let base_address = *DMC3_ADDRESS.read().unwrap();
     unsafe {
-        MinHook::disable_hook((base_address + ITEM_HANDLE_PICKUP_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + ITEM_PICKED_UP_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + RESULT_CALC_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + ITEM_SPAWNS_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + EDIT_EVENT_HOOK_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + SETUP_PLAYER_DATA_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + save_handler::LOAD_GAME_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + save_handler::SAVE_GAME_ADDR) as *mut _)?;
+        save_handler::disable_save_hooks(base_address)?;
         MinHook::disable_hook((base_address + EQUIPMENT_SCREEN_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + DAMAGE_CALC_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + ADJUDICATOR_DATA_ADDR) as *mut _)?;
-
-        Ok(())
+        text_handler::disable_text_hooks(base_address)?;
+        check_handler::disable_check_hooks(base_address)?;
     }
+    Ok(())
 }
 
 pub const SETUP_PLAYER_DATA_ADDR: usize = 0x23a7b0;
 
-pub static ORIGINAL_MISSION_INV: OnceLock<unsafe extern "C" fn(param_1: c_longlong) -> bool> =
+pub static ORIGINAL_MISSION_INV: OnceLock<unsafe extern "C" fn(param_1: usize) -> bool> =
     OnceLock::new();
 
-pub fn setup_inventory_for_mission(param_1: c_longlong) -> bool {
+pub fn setup_inventory_for_mission(param_1: usize) -> bool {
     let mut res = false;
     unsafe {
         if let Some(original) = ORIGINAL_MISSION_INV.get() {
@@ -658,7 +628,7 @@ pub fn setup_inventory_for_mission(param_1: c_longlong) -> bool {
         MAX_HP,
     ));
     utilities::set_max_magic(f32::min(
-        item_sync::BLUE_ORBS_OBTAINED.load(Ordering::SeqCst) as f32 * ONE_ORB,
+        item_sync::PURPLE_ORBS_OBTAINED.load(Ordering::SeqCst) as f32 * ONE_ORB,
         MAX_MAGIC,
     ));
     res

@@ -3,6 +3,7 @@ use crate::cache::read_cache;
 use crate::check_handler::Location;
 use crate::constants::{EventCode, ItemCategory, Status, GAME_NAME, ITEM_ID_MAP};
 use crate::data::generated_locations;
+use crate::hook::DUMMY_ID;
 use crate::ui::ui;
 use crate::ui::ui::CONNECTION_STATUS;
 use crate::utilities::{get_mission, read_data_from_address, DMC3_ADDRESS};
@@ -24,9 +25,9 @@ use std::fmt::{Display, Formatter};
 use std::fs::{remove_file, File};
 use std::io::Write;
 use std::ptr::write_unaligned;
+use std::sync::atomic::Ordering::SeqCst;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Mutex, OnceLock, RwLock, RwLockReadGuard};
-use std::time::Duration;
 use tokio::sync;
 use tokio::sync::mpsc::Receiver;
 
@@ -495,7 +496,7 @@ pub fn get_location_item_name(received_item: &Location) -> Result<&'static str, 
                 {
                     // Then see if the item picked up matches the specified in the map
                     return Ok(location_key);
-                } else if received_item.item_id == *ITEM_ID_MAP.get("Remote").unwrap() as u64 {
+                } else if received_item.item_id == *ITEM_ID_MAP.get("Remote").unwrap() as u64 || received_item.item_id as u8 == DUMMY_ID {
                     // TODO This may be stupid
                     return Ok(location_key);
                 }
@@ -532,11 +533,8 @@ async fn handle_item_receive(
                 Some(loc_id) => {
                     edit_end_event(&location_key);
                     let desc = location_data.description.clone();
-                    tokio::spawn(async move {
-                        tokio::time::sleep(Duration::from_millis(15)).await;
-                        text_handler::display_message_via_index(desc);
-                    });
-                    text_handler::CANCEL_TEXT.store(true, Ordering::Relaxed);
+                    text_handler::replace_unused_with_text(desc);
+                    text_handler::CANCEL_TEXT.store(true, SeqCst);
                     if let Err(arch_err) = client.location_checks(vec![loc_id.clone()]).await {
                         log::error!("Failed to check location: {}", arch_err);
                         item_sync::add_offline_check(loc_id.clone(), client).await?;

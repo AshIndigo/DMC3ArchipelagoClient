@@ -1,19 +1,70 @@
-use crate::constants::{Rank, ITEM_OFFSET_MAP, ORIGINAL_HANDLE_PICKUP, ORIGINAL_ITEM_PICKED_UP, ORIGINAL_RESULT_CALC};
-use crate::utilities::get_mission;
-use crate::{archipelago, constants, data, utilities};
+use crate::constants::Rank;
+use crate::utilities::{get_mission, set_item, DMC3_ADDRESS};
+use crate::{archipelago, constants, create_hook, data, text_handler, utilities};
 use data::generated_locations;
+use minhook::{MinHook, MH_STATUS};
 use once_cell::sync::OnceCell;
 use std::ffi::c_int;
 use std::fmt::{Display, Formatter};
 use std::sync::atomic::AtomicU8;
 use std::sync::atomic::Ordering::SeqCst;
+use std::sync::OnceLock;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
+
+pub const ITEM_HANDLE_PICKUP_ADDR: usize = 0x1b45a0;
+pub static ORIGINAL_HANDLE_PICKUP: OnceLock<unsafe extern "C" fn(item_struct: usize)> =
+    OnceLock::new();
+
+pub const ITEM_PICKED_UP_ADDR: usize = 0x1aa6e0;
+pub static ORIGINAL_ITEM_PICKED_UP: OnceLock<
+    unsafe extern "C" fn(loc_chk_id: usize, param_2: i16, item_id: i32),
+> = OnceLock::new();
+
+pub const RESULT_CALC_ADDR: usize = 0x2a0f10;
+pub static ORIGINAL_RESULT_CALC: OnceLock<
+    unsafe extern "C" fn(cuid_result: usize, ranking: i32) -> i32,
+> = OnceLock::new();
+
+pub fn setup_check_hooks() -> Result<(), MH_STATUS> {
+    log::debug!("Setting up check related hooks");
+    unsafe {
+        create_hook!(
+            ITEM_HANDLE_PICKUP_ADDR,
+            item_non_event,
+            ORIGINAL_HANDLE_PICKUP,
+            "Non event item"
+        );
+        create_hook!(
+            ITEM_PICKED_UP_ADDR,
+            item_event,
+            ORIGINAL_ITEM_PICKED_UP,
+            "Event item"
+        );
+        create_hook!(
+            RESULT_CALC_ADDR,
+            mission_complete_check,
+            ORIGINAL_RESULT_CALC,
+            "Mission complete"
+        );
+    }
+    Ok(())
+}
+
+pub unsafe fn disable_check_hooks(base_address: usize) -> Result<(), MH_STATUS> {
+    log::debug!("Disabling check related hooks");
+    unsafe {
+        MinHook::disable_hook((base_address + ITEM_HANDLE_PICKUP_ADDR) as *mut _)?;
+        MinHook::disable_hook((base_address + ITEM_PICKED_UP_ADDR) as *mut _)?;
+        MinHook::disable_hook((base_address + RESULT_CALC_ADDR) as *mut _)?;
+    }
+    Ok(())
+}
 
 static ORIG_ID: AtomicU8 = AtomicU8::new(0);
 
 /// Hook into item handle method (1b45a0). Handles non-event item pick up locations
-pub fn item_non_event(item_struct: i64) {
+pub fn item_non_event(item_struct: usize) {
     unsafe {
         let base_ptr = item_struct as *const u8;
         let item_id_ptr = base_ptr.add(0x60) as *const i32; // Don't remove this
@@ -38,7 +89,7 @@ pub fn item_non_event(item_struct: i64) {
                 send_off_location_coords(loc.clone());
                 let location_name = archipelago::get_location_item_name(&loc);
                 log::debug!(
-                    "Item Non Event - Item is: {} ({:#X}) PTR: {:?}\n\
+                    "Item Non Event - Item is: {} ({:#X}) \nPTR: {:?}\n\
                 X Coord: {} (X Addr: {:?})\n\
                 Y Coord: {} (Y Addr: {:?})\n\
                 Z Coord: {} (Z Addr: {:?})\n\
@@ -61,7 +112,6 @@ pub fn item_non_event(item_struct: i64) {
                         return;
                     }
                 }
-
                 ORIG_ID.store(
                     generated_locations::ITEM_MISSION_MAP
                         .get(&location_name.unwrap())
@@ -69,7 +119,6 @@ pub fn item_non_event(item_struct: i64) {
                         .item_id,
                     SeqCst,
                 );
-                //utilities::replace_single_byte_no_offset(item_id_ptr.addr(), generated_locations::ITEM_MISSION_MAP.get(location_name).unwrap().item_id)
             } else {
                 if EXTRA_OUTPUT {
                     log::error!(
@@ -92,9 +141,8 @@ pub fn item_non_event(item_struct: i64) {
 const EXTRA_OUTPUT: bool = false;
 
 /// Hook into item picked up method (1aa6e0). Handles item pick up locations
-pub fn item_event(loc_chk_flg: i64, item_id: i16, unknown: i32) {
+pub fn item_event(loc_chk_flg: usize, item_id: i16, unknown: i32) {
     unsafe {
-        //utilities::replace_single_byte_no_offset(item_id, 0x11); // Just a little silly
         if item_id > 0x03 {
             if unknown == -1 {
                 // We only want items given via events, looks like if unknown is -1 then it'll always be an event item
@@ -133,9 +181,7 @@ pub fn mission_complete_check(cuid_result: usize, ranking: i32) -> i32 {
         ranking
     );
     if let Some(original) = ORIGINAL_RESULT_CALC.get() {
-        unsafe {
-            original(cuid_result, ranking)
-        }
+        unsafe { original(cuid_result, ranking) }
     } else {
         log::error!("Result Calc doesn't exist??");
         0
@@ -170,45 +216,22 @@ pub(crate) fn setup_items_channel() -> Receiver<Location> {
 }
 
 pub(crate) fn clear_high_roller() {
-    let current_inv_addr = utilities::get_inv_address();
-    if current_inv_addr.is_none() {
-        return;
-    }
     log::debug!("Resetting high roller card");
-    let item_addr =
-        current_inv_addr.unwrap() + ITEM_OFFSET_MAP.get("Remote").unwrap().clone() as usize;
-    log::debug!(
-        "Attempting to replace at address: {:#X} with flag {:#X}",
-        item_addr,
-        0x00
-    );
-    unsafe { utilities::replace_single_byte(item_addr, 0x00) };
+    set_item("Remote", false);
     log::debug!("Resetting bomb");
-    let item_addr =
-        current_inv_addr.unwrap() + ITEM_OFFSET_MAP.get("Dummy").unwrap().clone() as usize;
-    log::debug!(
-        "Attempting to replace at address: {:#X} with flag {:#X}",
-        item_addr,
-        0x00
-    );
-    unsafe { utilities::replace_single_byte(item_addr, 0x00) };
+    set_item("Dummy", false);
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
 async fn send_off_location(item_id: i32) {
-    if let Some(tx) = LOCATION_CHECK_TX.get() {
-        tx.send(Location {
-            item_id: item_id as u64,
-            room: utilities::get_room(),
-            _mission: get_mission(),
-            x_coord: 0,
-            y_coord: 0,
-            z_coord: 0,
-        })
-            .await
-            .expect("Failed to send Location!");
-        clear_high_roller();
-    }
+    send_off_location_coords(Location {
+        item_id: item_id as u64,
+        room: utilities::get_room(),
+        _mission: get_mission(),
+        x_coord: 0,
+        y_coord: 0,
+        z_coord: 0,
+    });
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
@@ -216,5 +239,6 @@ async fn send_off_location_coords(loc: Location) {
     if let Some(tx) = LOCATION_CHECK_TX.get() {
         tx.send(loc).await.expect("Failed to send Location!");
         clear_high_roller();
+        text_handler::LAST_OBTAINED_ID.store(loc.item_id as u8, SeqCst);
     }
 }

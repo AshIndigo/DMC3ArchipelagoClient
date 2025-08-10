@@ -1,53 +1,51 @@
-use crate::utilities::DMC3_ADDRESS;
-use std::sync::atomic::AtomicBool;
+use crate::create_hook;
+use crate::utilities::{replace_single_byte, DMC3_ADDRESS};
+use minhook::{MinHook, MH_STATUS};
+use std::ptr::write_unaligned;
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{LazyLock, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 use std::{ptr, thread};
+use winapi::um::memoryapi::VirtualProtect;
+use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
 
 pub static CANCEL_TEXT: AtomicBool = AtomicBool::new(false);
-// const TEXT_PTR: usize = 0xCB89B8;
-// const PTR_WRITE: usize = 0x00A38C03;
-// const TEXT_LENGTH_ADDRESS: usize = 0xCB89E0; // X + 30 apparently?
-// const TEXT_ADDRESS: usize = 0xCB8A0C; //0xCB8A1E; // Text string
-//
-// pub const RENDER_TEXT_ADDR: usize = 0x2f0440;
-// pub static ORIGINAL_RENDER_TEXT: OnceLock<
-//     unsafe extern "C" fn(
-//         param_1: c_longlong,
-//         param_2: c_longlong,
-//         param_3: c_longlong,
-//         param_4: c_longlong,
-//     ),
-// > = OnceLock::new();
-//
-// pub unsafe fn parry_text(
-//     param_1: c_longlong,
-//     param_2: c_longlong,
-//     param_3: c_longlong,
-//     param_4: c_longlong,
-// ) {
-//     //Parry text: param_1: 7ff7648d89a0, param_2: 120, param_3: 4140, param_4: 10000,
-//     // Parry text: param_1: 7ff7648d89a0, param_2: 120, param_3: 140, param_4: 10000,
-//     if param_1 == (*DMC3_ADDRESS.read().unwrap() + TEXT_DISPLAYED_ADDRESS) as c_longlong {
-//         // This might only be compatible with ENG?
-//         log::debug!(
-//             "Parry text: param_1: {:x}, param_2: {:x}, param_3: {:x}, param_4: {:x},",
-//             param_1,
-//             param_2,
-//             param_3,
-//             param_4
-//         );
-//         if CANCEL_TEXT.load(Ordering::Relaxed) {
-//             CANCEL_TEXT.store(false, Ordering::Relaxed);
-//             return;
-//         }
-//     }
-//     unsafe {
-//         if let Some(original) = ORIGINAL_RENDER_TEXT.get() {
-//             original(param_1, param_2, param_3, param_4);
-//         }
-//     }
-// }
+pub static LAST_OBTAINED_ID: AtomicU8 = AtomicU8::new(0);
+
+pub unsafe fn setup_text_hooks() -> Result<(), MH_STATUS> {
+    log::debug!("Setting up text related hooks");
+    unsafe {
+        create_hook!(
+            DISPLAY_ITEM_GET_ADDR,
+            replace_displayed_item_id,
+            DISPLAY_ITEM_GET_SCREEN,
+            "Modify Item Get Screen ID"
+        );
+        create_hook!(
+            DISPLAY_ITEM_GET_DESTRUCTOR_ADDR,
+            destroy_item_get_screen,
+            DISPLAY_ITEM_GET_SCREEN_DESTRUCTOR,
+            "Destroy Item Get Screen"
+        );
+        create_hook!(
+            SETUP_ITEM_GET_SCREEN_ADDR,
+            setup_item_get_screen,
+            SETUP_ITEM_GET_SCREEN,
+            "Setup Item Get Screen"
+        );
+    }
+    Ok(())
+}
+
+pub unsafe fn disable_text_hooks(base_address: usize) -> Result<(), MH_STATUS> {
+    log::debug!("Disabling text related hooks");
+    unsafe {
+        MinHook::disable_hook((base_address + DISPLAY_ITEM_GET_ADDR) as *mut _)?;
+        MinHook::disable_hook((base_address + DISPLAY_ITEM_GET_DESTRUCTOR_ADDR) as *mut _)?;
+        MinHook::disable_hook((base_address + SETUP_ITEM_GET_SCREEN_ADDR) as *mut _)?;
+    }
+    Ok(())
+}
 
 pub static RENDER_TEXT: OnceLock<
     unsafe extern "C" fn(
@@ -92,7 +90,14 @@ pub fn display_text(message: &String, duration: Duration, x_axis_mod: i32, y_axi
     let y_axis = -((x_axis & 0xffff) >> 1);
     while timer_start.elapsed() < duration {
         let frame_start = Instant::now();
-        display_message(text_displayed, message_ptr, x_axis, y_axis, x_axis_mod, y_axis_mod);
+        display_message(
+            text_displayed,
+            message_ptr,
+            x_axis,
+            y_axis,
+            x_axis_mod,
+            y_axis_mod,
+        );
         let elapsed = frame_start.elapsed();
         if elapsed < frame_duration {
             // Need the delay or the game becomes very unhappy. But also too fast of a repeat deep-fries it
@@ -130,17 +135,93 @@ pub static DISPLAY_MESSAGE_VIA_INDEX: OnceLock<
     unsafe extern "C" fn(text_enabled: usize, message_index: i32),
 > = OnceLock::new();
 
+pub static GET_MESSAGE_START: OnceLock<
+    unsafe extern "C" fn(ptr: usize, message_index: i32) -> usize,
+> = OnceLock::new();
+
+const UNUSED_INDEX: i32 = 11060; // Unused index, we like it
 pub fn display_message_via_index(message: String) {
-    const MESSAGE_BEGIN: usize = 0x1AC3113; // 0x1AC312C
-    let message = message.replace("\n", "<BR>");
-    let msg = format!("<PS 85 305><SZ 24><IT 0>{}<NE>\x00", message);
-    let bytes = msg.as_bytes();
     unsafe {
-        ptr::copy_nonoverlapping(bytes.as_ptr(), MESSAGE_BEGIN as *mut u8, bytes.len());
-    }
-    unsafe {
+        replace_unused_with_text(message);
         DISPLAY_MESSAGE_VIA_INDEX.get_or_init(|| {
             std::mem::transmute(*DMC3_ADDRESS.read().unwrap() + 0x2f08b0) // Offset to function
-        })(*TEXT_DISPLAYED.read().unwrap(), 11060); // Unused index, we like it
+        })(*TEXT_DISPLAYED.read().unwrap(), UNUSED_INDEX);
+    }
+}
+
+pub fn replace_unused_with_text(message: String) {
+    let base = *DMC3_ADDRESS.read().unwrap();
+    unsafe {
+        let message_begin: usize = GET_MESSAGE_START.get_or_init(|| {
+            std::mem::transmute(base + 0x2F1180) // Offset to function
+        })(base + 0xCB9340, UNUSED_INDEX);
+        let message = message.replace("\n", "<BR>");
+        let msg = format!("<PS 85 305><SZ 24><IT 0>{}<NE>\x00", message);
+        let bytes = msg.as_bytes();
+        ptr::copy_nonoverlapping(bytes.as_ptr(), message_begin as *mut u8, bytes.len());
+    }
+}
+
+pub static DISPLAY_ITEM_GET_SCREEN: OnceLock<unsafe extern "C" fn(ptr: usize)> = OnceLock::new();
+pub(crate) const DISPLAY_ITEM_GET_ADDR: usize = 0x2955a0;
+pub fn replace_displayed_item_id(item_get: usize) {
+    if CANCEL_TEXT.load(Ordering::SeqCst) {
+        let base = *DMC3_ADDRESS.read().unwrap();
+        let offset = base + 0x2957e3;
+        let mut old_protect = 0;
+        const LENGTH: usize = 6;
+        unsafe {
+            VirtualProtect(
+                offset as *mut _,
+                LENGTH,
+                PAGE_EXECUTE_READWRITE,
+                &mut old_protect,
+            );
+            write_unaligned(
+                offset as *mut [u8; LENGTH],
+                [0xBA, 60u8, 0x00, 0x00, 0x00, 0x90],
+            );
+            if let Some(original) = DISPLAY_ITEM_GET_SCREEN.get() {
+                original(item_get);
+            }
+            write_unaligned(
+                offset as *mut [u8; LENGTH],
+                [0x8B, 0x93, 0x44, 0x09, 0x00, 0x00],
+            );
+            VirtualProtect(offset as *mut _, LENGTH, old_protect, &mut old_protect);
+        }
+    } else {
+        unsafe {
+            if let Some(original) = DISPLAY_ITEM_GET_SCREEN.get() {
+                original(item_get);
+            }
+        }
+    }
+}
+
+pub const SETUP_ITEM_GET_SCREEN_ADDR: usize = 0x1B4750;
+pub static SETUP_ITEM_GET_SCREEN: OnceLock<unsafe extern "C" fn(ptr: usize)> = OnceLock::new();
+
+pub fn setup_item_get_screen(item_get: usize) {
+    unsafe {
+        replace_single_byte(item_get + 0x36, LAST_OBTAINED_ID.load(Ordering::SeqCst));
+        if let Some(original) = SETUP_ITEM_GET_SCREEN.get() {
+            original(item_get);
+        }
+    }
+}
+
+pub static DISPLAY_ITEM_GET_SCREEN_DESTRUCTOR: OnceLock<
+    unsafe extern "C" fn(ptr: usize, param_1: u32),
+> = OnceLock::new();
+pub(crate) const DISPLAY_ITEM_GET_DESTRUCTOR_ADDR: usize = 0x295280;
+pub fn destroy_item_get_screen(item_get: usize, _param_1: u32) {
+    if CANCEL_TEXT.load(Ordering::SeqCst) {
+        CANCEL_TEXT.store(false, Ordering::SeqCst);
+    }
+    unsafe {
+        if let Some(original) = DISPLAY_ITEM_GET_SCREEN.get() {
+            original(item_get);
+        }
     }
 }

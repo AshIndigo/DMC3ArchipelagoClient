@@ -1,4 +1,4 @@
-use crate::constants::{Difficulty, INVENTORY_PTR};
+use crate::constants::{Difficulty, INVENTORY_PTR, ITEM_OFFSET_MAP};
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::ptr::{read_unaligned, write_unaligned};
@@ -205,4 +205,16 @@ pub(crate) fn set_max_magic(max_magic: f32) {
             max_magic,
         );
     }
+}
+
+pub(crate) fn set_item(item_name: &str, has_item: bool) {
+    if get_inv_address().is_none() {
+        return;
+    }
+    unsafe {
+        replace_single_byte(
+            get_inv_address().unwrap() + ITEM_OFFSET_MAP.get(item_name).unwrap().clone() as usize,
+            has_item as u8,
+        )
+    };
 }

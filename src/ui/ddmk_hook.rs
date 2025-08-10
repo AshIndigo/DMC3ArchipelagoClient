@@ -1,4 +1,5 @@
 use crate::constants::ItemCategory;
+use crate::experiments::event_table_handler;
 use crate::ui::imgui_bindings::*;
 use crate::ui::ui;
 use crate::ui::ui::{get_status_text, LoginData, CHECKLIST};
@@ -181,14 +182,14 @@ pub unsafe fn archipelago_window(mut instance: MutexGuard<LoginData>) {
         ) {
             ui::disconnect_button_pressed();
         }
-        // if get_imgui_button()(
-        //     "Display Message\0".as_ptr() as *const c_char,
-        //     &ImVec2 { x: 0.0, y: 0.0 },
-        // ) {
-        //     thread::spawn(move || {
-        //         text_handler::display_message(&"Test Message".to_string());
-        //     });
-        // }
+        if get_imgui_button()(
+            "Display Message\0".as_ptr() as *const c_char,
+            &ImVec2 { x: 0.0, y: 0.0 },
+        ) {
+            thread::spawn(move || {
+                event_table_handler::call_event()
+            });
+        }
         if get_imgui_button()(
             "Display Message New\0".as_ptr() as *const c_char,
             &ImVec2 { x: 0.0, y: 0.0 },

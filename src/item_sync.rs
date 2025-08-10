@@ -1,8 +1,9 @@
 use crate::cache::read_cache;
-use crate::constants::GAME_NAME;
+use crate::constants::{GAME_NAME, ITEM_OFFSET_MAP};
 use crate::hook::CLIENT;
 use crate::ui::ui;
 use crate::ui::ui::CHECKLIST;
+use crate::utilities::{get_inv_address, replace_single_byte};
 use crate::{archipelago, bank, constants, text_handler, utilities};
 use archipelago_rs::client::ArchipelagoClient;
 use archipelago_rs::protocol::{NetworkItem, ReceivedItems};
@@ -149,6 +150,16 @@ pub(crate) async fn handle_received_items_packet(
             if item.item == 0x08 {
                 PURPLE_ORBS_OBTAINED.fetch_add(1, Ordering::SeqCst);
                 utilities::give_magic(constants::ONE_ORB);
+            }
+            if item.item >= 0x24 && item.item <= 0x39 {
+                if let Some(current_inv) = get_inv_address() {
+                    unsafe {
+                        replace_single_byte(
+                            current_inv + ITEM_OFFSET_MAP.get(constants::get_item_name(item.item as u8)).unwrap().clone() as usize,
+                            0x01u8,
+                        )
+                    };
+                }
             }
         }
         CURRENT_INDEX.store(received_items_packet.index, Ordering::SeqCst);

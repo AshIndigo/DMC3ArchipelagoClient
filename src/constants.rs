@@ -1,22 +1,9 @@
 use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::ffi::{c_int, c_longlong};
-use std::os::raw::c_short;
 use std::sync::{LazyLock, OnceLock};
 
 // DMC3 Offsets+Functions - Offsets are from 2022 DDMK's version
-pub const ITEM_PICKED_UP_ADDR: usize = 0x1aa6e0;
-pub static ORIGINAL_ITEM_PICKED_UP: OnceLock<
-    unsafe extern "C" fn(loc_chk_id: c_longlong, param_2: c_short, item_id: c_int),
-> = OnceLock::new();
-
-pub const RESULT_CALC_ADDR: usize = 0x2a0f10;
-pub static ORIGINAL_RESULT_CALC: OnceLock<unsafe extern "C" fn(cuid_result: usize, ranking: i32) -> i32> =
-    OnceLock::new();
-
-pub const ITEM_HANDLE_PICKUP_ADDR: usize = 0x1b45a0;
-pub static ORIGINAL_HANDLE_PICKUP: OnceLock<unsafe extern "C" fn(item_struct: c_longlong)> =
-    OnceLock::new();
 
 pub const ITEM_SPAWNS_ADDR: usize = 0x1b4440; // 0x1b4480
 pub static ORIGINAL_ITEM_SPAWNS: OnceLock<unsafe extern "C" fn(loc_chk_id: c_longlong)> =
@@ -38,12 +25,14 @@ pub static ORIGINAL_EQUIPMENT_SCREEN: OnceLock<unsafe extern "C" fn(cuid_weapon:
     OnceLock::new();
 
 pub const DAMAGE_CALC_ADDR: usize = 0x088190;
-pub static ORIGINAL_DAMAGE_CALC: OnceLock<unsafe extern "C" fn(damage_calc: usize, param_1: usize, param_2: usize, param_3: usize)> =
-    OnceLock::new();
+pub static ORIGINAL_DAMAGE_CALC: OnceLock<
+    unsafe extern "C" fn(damage_calc: usize, param_1: usize, param_2: usize, param_3: usize),
+> = OnceLock::new();
 
 pub const ADJUDICATOR_DATA_ADDR: usize = 0x24f970;
-pub static ORIGINAL_ADJUDICATOR_DATA: OnceLock<unsafe extern "C" fn(param_1: usize, param_2: usize, param_3: usize, param_4: usize)> =
-    OnceLock::new();
+pub static ORIGINAL_ADJUDICATOR_DATA: OnceLock<
+    unsafe extern "C" fn(param_1: usize, param_2: usize, param_3: usize, param_4: usize),
+> = OnceLock::new();
 pub const ONE_ORB: f32 = 1000.0; // One Blue/Purple orb is worth 1000 "points"
 pub const MAX_HP: f32 = 20000.0;
 pub const MAX_MAGIC: f32 = 10000.0;
@@ -923,11 +912,10 @@ pub struct ItemEntry {
     pub z_coord: u32,
 }
 
-#[derive(Copy)]
-#[derive(Clone)]
-#[derive(strum_macros::Display)]
+#[derive(Copy, Clone, strum_macros::Display)]
 #[allow(dead_code)]
-pub(crate) enum Difficulty { // TODO Missing HoH
+pub(crate) enum Difficulty {
+    // TODO Missing HoH
     Easy = 0,
     Normal = 1,
     Hard = 2,
@@ -935,10 +923,7 @@ pub(crate) enum Difficulty { // TODO Missing HoH
     DanteMustDie = 4,
 }
 
-#[derive(Copy)]
-#[derive(Clone)]
-#[derive(strum_macros::Display)]
-#[derive(strum_macros::FromRepr)]
+#[derive(Copy, Clone, strum_macros::Display, strum_macros::FromRepr)]
 #[allow(dead_code)]
 pub(crate) enum Rank {
     D = 0,
@@ -956,6 +941,6 @@ pub fn get_weapon_id(weapon: &str) -> u8 {
         "Agni and Rudra" => 2,
         "Nevan" => 3,
         "Beowulf" => 4,
-        _ => 0
+        _ => 0,
     }
 }
