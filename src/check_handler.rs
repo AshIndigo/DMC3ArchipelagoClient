@@ -222,7 +222,6 @@ pub(crate) fn clear_high_roller() {
     set_item("Dummy", false);
 }
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 1)]
 async fn send_off_location(item_id: i32) {
     send_off_location_coords(Location {
         item_id: item_id as u64,
