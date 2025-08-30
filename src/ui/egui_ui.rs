@@ -9,6 +9,7 @@ use eframe::{EventLoopBuilderHook, Frame};
 use egui::{Context, Theme, Ui};
 use std::sync::atomic::Ordering;
 use winit::platform::windows::EventLoopBuilderExtWindows;
+use crate::item_sync::{BLUE_ORBS_OBTAINED, PURPLE_ORBS_OBTAINED};
 
 #[derive(Default)]
 struct ArchipelagoClient;
@@ -16,9 +17,9 @@ struct ArchipelagoClient;
 impl eframe::App for ArchipelagoClient {
     fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
         ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-        egui::TopBottomPanel::bottom("log_panel").show(ctx, |ui| {
-            egui_logger::LoggerUi::default().enable_regex(true).show(ui);
-        });
+        // egui::TopBottomPanel::bottom("log_panel").show(ctx, |ui| {
+        //     egui_logger::LoggerUi::default().enable_regex(true).show(ui);
+        // });
         egui::SidePanel::right("tracker_bank").show(ctx, |ui| {
             ui.heading("Key items");
             setup_tracker_grid(ui);
@@ -69,25 +70,18 @@ impl eframe::App for ArchipelagoClient {
             if ui.button("Disconnect").clicked() {
                 ui::disconnect_button_pressed();
             }
-            if ui.button("Sync").clicked() {
+            if ui.button("Sync (May or may not work)").clicked() {
                 item_sync::sync_items();
             };
-            if ui.button("Debug: Add Vit Star S").clicked() {}
         });
-
-        /*        egui::Window::new("Log").show(ctx, |ui| {
-            // draws the actual logger ui
-            egui_logger::LoggerUi::default().enable_regex(true).show(ui);
-        });*/
     }
 }
 
 fn setup_bank_grid(ui: &mut Ui) {
     let bank = bank::get_bank().read().unwrap();
     let mut id = 50;
-    egui::Grid::new(id).spacing([25.0, 4.0]).show(ui, |ui| {
+    egui::Grid::new(id).num_columns(3).spacing([4.0, 4.0]).show(ui, |ui| {
         for item in constants::get_items_by_category(ItemCategory::Consumable) {
-            ui.horizontal(|ui| {
                 ui.label(format!("{}:", item));
                 ui.label(bank.get(item).unwrap().to_string());
                 if ui.button("Retrieve 1").clicked() {
@@ -95,7 +89,6 @@ fn setup_bank_grid(ui: &mut Ui) {
                         ui::retrieve_button_pressed(item);
                     }
                 };
-            });
             id += 1;
             ui.end_row();
         }
@@ -129,6 +122,8 @@ fn setup_tracker_grid(ui: &mut Ui) {
                 id += 1;
                 ui.end_row();
             }
+            ui.label(format!("Blue Orbs: {}", BLUE_ORBS_OBTAINED.load(Ordering::Relaxed)));
+            ui.label(format!("Purple Orbs: {}", PURPLE_ORBS_OBTAINED.load(Ordering::Relaxed)));
         });
 }
 

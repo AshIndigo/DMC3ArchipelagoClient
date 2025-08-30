@@ -5,18 +5,23 @@ use crate::hook::CLIENT;
 use crate::ui::ui::CHECKLIST;
 use anyhow::{anyhow, Error};
 use archipelago_rs::protocol::ClientStatus;
-use log::{LevelFilter};
+use log::LevelFilter;
+use log4rs::append::console::ConsoleAppender;
+use log4rs::append::rolling_file::policy::compound::roll::fixed_window::{
+    FixedWindowRoller,
+};
+use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
+use log4rs::append::rolling_file::RollingFileAppender;
+use log4rs::config::{Appender, Logger, Root};
+use log4rs::encode::pattern::PatternEncoder;
+use log4rs::Config;
 use std::collections::HashMap;
 use std::env::current_exe;
 use std::ffi::c_void;
 use std::sync::atomic::Ordering;
 use std::sync::RwLock;
 use std::{ptr, thread};
-use log4rs::append::console::ConsoleAppender;
-use log4rs::append::file::FileAppender;
-use log4rs::Config;
-use log4rs::config::{Appender, Root};
-use log4rs::encode::pattern::PatternEncoder;
+use log4rs::append::rolling_file::policy::compound::trigger::onstartup::OnStartUpTrigger;
 use ui::ui::CONNECTION_STATUS;
 use winapi::shared::guiddef::REFIID;
 use winapi::shared::minwindef::{DWORD, LPVOID};
@@ -38,15 +43,15 @@ mod check_handler;
 mod constants;
 mod data;
 mod experiments;
+mod game_manager;
 mod hook;
 mod item_sync;
+mod location_handler;
 mod mapping;
 mod save_handler;
 mod text_handler;
 mod ui;
 mod utilities;
-mod game_manager;
-mod location_handler;
 
 #[macro_export]
 /// Does not enable the hook, that needs to be done separately
@@ -158,16 +163,38 @@ fn setup_logger() {
         .encoder(Box::new(PatternEncoder::new("{d} {h({l})} {t} - {m}{n}")))
         .build();
 
-    // TODO I need to make this log to a new file each time, or wipe the previous log.
-    let log_file = FileAppender::builder()
+    // let log_file = FileAppender::builder()
+    //     .encoder(Box::new(PatternEncoder::new("{d} {l} {t} - {m}{n}")))
+    //     .append(false)
+    //     .build("log/dmc3a.log")
+    //     .unwrap();
+
+    let log_file = RollingFileAppender::builder()
         .encoder(Box::new(PatternEncoder::new("{d} {l} {t} - {m}{n}")))
-        .build("log/dmc3a.log")
+        .append(false)
+        .build(
+            "logs/dmc3_rando_latest.log",
+            Box::new(CompoundPolicy::new(
+                Box::new(OnStartUpTrigger::new(10)), // 0x35c Rough guess based on the usual log output I spill out
+                Box::new(FixedWindowRoller::builder().build("logs/dmc3_rando_{}.log", 3).unwrap()),
+            )),
+        )
         .unwrap();
 
     let config = Config::builder()
         .appender(Appender::builder().build("stdout", Box::new(stdout)))
         .appender(Appender::builder().build("log_file", Box::new(log_file)))
-        .build(Root::builder().appender("stdout").appender("log_file").build(LevelFilter::Debug))
+
+        .logger(Logger::builder().build("tracing::span", LevelFilter::Warn))
+        .logger(Logger::builder().build("winit::window", LevelFilter::Warn))
+        .logger(Logger::builder().build("eframe::native::run", LevelFilter::Warn))
+        .logger(Logger::builder().build("eframe::native::glow_integration", LevelFilter::Warn))
+        .build(
+            Root::builder()
+                .appender("stdout")
+                .appender("log_file")
+                .build(LevelFilter::Debug),
+        )
         .unwrap();
 
     let _handle = log4rs::init_config(config).unwrap();
@@ -206,10 +233,7 @@ fn main_setup() {
         log::info!("DDMK is not loaded!");
         thread::spawn(move || ui::egui_ui::start_egui());
     }
-    log::info!(
-        "DMC3 Base Address is: {:X}",
-        *utilities::DMC3_ADDRESS
-    );
+    log::info!("DMC3 Base Address is: {:X}", *utilities::DMC3_ADDRESS);
     thread::Builder::new()
         .name("Archipelago Client".to_string())
         .spawn(move || {
@@ -335,7 +359,7 @@ pub(crate) async fn spawn_arch_thread() {
                 &mut rx_bank_add,
                 &mut rx_disconnect,
             )
-                .await;
+            .await;
         }
         CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::SeqCst);
         setup = false;
