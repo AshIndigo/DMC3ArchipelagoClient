@@ -1,14 +1,14 @@
 use crate::constants::ItemCategory;
 use crate::experiments::event_table_handler;
+use crate::item_sync::{BLUE_ORBS_OBTAINED, PURPLE_ORBS_OBTAINED};
 use crate::ui::imgui_bindings::*;
 use crate::ui::ui;
 use crate::ui::ui::{get_status_text, LoginData, CHECKLIST};
 use crate::utilities::{read_data_from_address, MARY_ADDRESS};
-use crate::{archipelago, bank, check_handler, constants, text_handler};
+use crate::{bank, check_handler, constants, game_manager, text_handler};
 use imgui_sys::{ImGuiCond, ImGuiCond_Always, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
 use minhook::MinHook;
 use std::ffi::c_int;
-use std::ops::DerefMut;
 use std::os::raw::c_char;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{MutexGuard, OnceLock};
@@ -24,7 +24,7 @@ const DDMK_UI_ENABLED: usize = 0x13374a; //0x12c73a;
 unsafe extern "C" fn hooked_timestep() {
     unsafe {
         if !SETUP.load(Ordering::SeqCst) {
-            MinHook::enable_hook((*MARY_ADDRESS.read().unwrap() + MAIN_FUNC_ADDR) as _)
+            MinHook::enable_hook((*MARY_ADDRESS + MAIN_FUNC_ADDR) as _)
                 .expect("Failed to enable hook");
             SETUP.store(true, Ordering::SeqCst);
         }
@@ -51,7 +51,7 @@ unsafe extern "C" fn hooked_render() {
                     on_screen_hud();
                 }
 
-                if !read_data_from_address::<bool>(DDMK_UI_ENABLED + *MARY_ADDRESS.read().unwrap())
+                if !read_data_from_address::<bool>(DDMK_UI_ENABLED + *MARY_ADDRESS)
                 {
                     return;
                 }
@@ -76,7 +76,7 @@ unsafe fn tracking_window() {
     unsafe {
         let flag = &mut true;
         get_imgui_next_pos()(
-            &ImVec2 { x: 800.0, y: 340.0 }, // 300
+            &ImVec2 { x: 800.0, y: 320.0 }, // 300
             ImGuiCond_Appearing as ImGuiCond,
             &ImVec2 { x: 0.0, y: 0.0 },
         );
@@ -93,6 +93,14 @@ unsafe fn tracking_window() {
                 .join("  "); // TODO Pretty this up later
             text(format!("{}\0", row_text));
         }
+        text(format!(
+            "Blue Orbs: {}\0",
+            BLUE_ORBS_OBTAINED.load(Ordering::SeqCst)
+        ));
+        text(format!(
+            "Purple Orbs: {}\0",
+            PURPLE_ORBS_OBTAINED.load(Ordering::SeqCst)
+        ));
         get_imgui_end()();
     }
 }
@@ -166,10 +174,10 @@ pub unsafe fn archipelago_window(mut instance: MutexGuard<LoginData>) {
             "Connect\0".as_ptr() as *const c_char,
             &ImVec2 { x: 0.0, y: 0.0 },
         ) {
-            log::debug!(
-                "Given URL: {}\0",
-                &mut instance.deref_mut().archipelago_url.trim().to_string()
-            );
+            // log::debug!(
+            //     "Given URL: {}\0",
+            //     &mut instance.deref_mut().archipelago_url.trim().to_string()
+            // );
             ui::connect_button_pressed(
                 instance.archipelago_url.clone().trim().to_string(),
                 instance.username.clone().trim().to_string(),
@@ -182,58 +190,59 @@ pub unsafe fn archipelago_window(mut instance: MutexGuard<LoginData>) {
         ) {
             ui::disconnect_button_pressed();
         }
-        if get_imgui_button()(
-            "Display Message\0".as_ptr() as *const c_char,
-            &ImVec2 { x: 0.0, y: 0.0 },
-        ) {
-            thread::spawn(move || {
-                event_table_handler::call_event()
-            });
-        }
-        if get_imgui_button()(
-            "Display Message New\0".as_ptr() as *const c_char,
-            &ImVec2 { x: 0.0, y: 0.0 },
-        ) {
-            thread::spawn(move || {
-                text_handler::display_text(
-                    &"Test Message\x00\x2E".to_string(),
-                    Duration::from_secs(5),
-                    0,
-                    0,
-                );
-            });
-        }
-        if get_imgui_button()(
-            "Clear dummy flags\0".as_ptr() as *const c_char,
-            &ImVec2 { x: 0.0, y: 0.0 },
-        ) {
-            thread::spawn(move || {
-                check_handler::clear_high_roller();
-            });
-        }
-        if get_imgui_button()(
-            "Kill Dante\0".as_ptr() as *const c_char,
-            &ImVec2 { x: 0.0, y: 0.0 },
-        ) {
-            thread::spawn(move || {
-                archipelago::kill_dante();
-            });
-        }
-        // if get_imgui_button()(
-        //     "Modify Health\0".as_ptr() as *const c_char,
-        //     &ImVec2 { x: 0.0, y: 0.0 },
-        // ) {
-        //     thread::spawn(move || {
-        //         utilities::give_hp(constants::ONE_ORB);
-        //     });
-        // }
-        if get_imgui_button()(
-            "Edit Message Index\0".as_ptr() as *const c_char,
-            &ImVec2 { x: 0.0, y: 0.0 },
-        ) {
-            thread::spawn(move || {
-                text_handler::display_message_via_index("Testing test".to_string());
-            });
+        const DEBUG: bool = false;
+        if DEBUG {
+            if get_imgui_button()(
+                "Display Message\0".as_ptr() as *const c_char,
+                &ImVec2 { x: 0.0, y: 0.0 },
+            ) {
+                thread::spawn(move || event_table_handler::call_event());
+            }
+            if get_imgui_button()(
+                "Display Message New\0".as_ptr() as *const c_char,
+                &ImVec2 { x: 0.0, y: 0.0 },
+            ) {
+                thread::spawn(move || {
+                    text_handler::display_text(
+                        &"Test Message\x00\x2E".to_string(),
+                        Duration::from_secs(5),
+                        200,
+                        -100,
+                    );
+                });
+            }
+            if get_imgui_button()(
+                "Clear dummy flags\0".as_ptr() as *const c_char,
+                &ImVec2 { x: 0.0, y: 0.0 },
+            ) {
+                thread::spawn(move || {
+                    check_handler::clear_high_roller();
+                });
+            }
+            if get_imgui_button()(
+                "Kill Dante\0".as_ptr() as *const c_char,
+                &ImVec2 { x: 0.0, y: 0.0 },
+            ) {
+                thread::spawn(move || {
+                    game_manager::kill_dante();
+                });
+            }
+            // if get_imgui_button()(
+            //     "Modify Health\0".as_ptr() as *const c_char,
+            //     &ImVec2 { x: 0.0, y: 0.0 },
+            // ) {
+            //     thread::spawn(move || {
+            //         utilities::give_hp(constants::ONE_ORB);
+            //     });
+            // }
+            if get_imgui_button()(
+                "Edit Message Index\0".as_ptr() as *const c_char,
+                &ImVec2 { x: 0.0, y: 0.0 },
+            ) {
+                thread::spawn(move || {
+                    text_handler::display_message_via_index("Testing test".to_string());
+                });
+            }
         }
         get_imgui_end()();
     }
@@ -241,11 +250,11 @@ pub unsafe fn archipelago_window(mut instance: MutexGuard<LoginData>) {
 
 pub fn setup_ddmk_hook() {
     log::info!("Starting up DDMK hook");
-    log::info!("Mary base ADDR: {:X}", *MARY_ADDRESS.read().unwrap());
+    log::info!("Mary base ADDR: {:X}", *MARY_ADDRESS);
     init_render_func();
     init_timestep_func();
     unsafe {
-        MinHook::enable_hook((*MARY_ADDRESS.read().unwrap() + TIMESTEP_FUNC_ADDR) as _)
+        MinHook::enable_hook((*MARY_ADDRESS + TIMESTEP_FUNC_ADDR) as _)
             .expect("Failed to enable timestep hook");
     }
     log::info!("DDMK hook initialized");
@@ -258,10 +267,10 @@ fn init_render_func() {
         Some(unsafe {
             std::mem::transmute::<_, BasicNothingFunc>(
                 MinHook::create_hook(
-                    (*MARY_ADDRESS.read().unwrap() + MAIN_FUNC_ADDR) as _,
+                    (*MARY_ADDRESS + MAIN_FUNC_ADDR) as _,
                     hooked_render as _,
                 )
-                    .expect("Failed to create hook"),
+                .expect("Failed to create hook"),
             )
         })
     });
@@ -278,10 +287,10 @@ fn init_timestep_func() {
         Some(unsafe {
             std::mem::transmute::<_, BasicNothingFunc>(
                 MinHook::create_hook(
-                    (*MARY_ADDRESS.read().unwrap() + TIMESTEP_FUNC_ADDR) as _,
+                    (*MARY_ADDRESS + TIMESTEP_FUNC_ADDR) as _,
                     hooked_timestep as _,
                 )
-                    .expect("Failed to create timestep hook"),
+                .expect("Failed to create timestep hook"),
             )
         })
     });

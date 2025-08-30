@@ -15,6 +15,7 @@ fn main() {
     let mut output = String::from("// Auto-generated constants file\n\n");
     output.push_str("use std::collections::HashMap;\n");
     output.push_str("use crate::constants::ItemEntry;\nuse std::sync::LazyLock;\n\n");
+    output.push_str("use crate::constants::Coordinates;\nuse crate::constants::EMPTY_COORDINATES;\n");
 
     output.push_str("pub static ITEM_MISSION_MAP: LazyLock<HashMap<&'static str, ItemEntry>> = LazyLock::new(|| {
     HashMap::from([\n");
@@ -27,15 +28,25 @@ fn main() {
         let x_coord = value["xCoord"].as_u64().unwrap();
         let y_coord = value["yCoord"].as_u64().unwrap();
         let z_coord = value["zCoord"].as_u64().unwrap();
-
         output.push_str(&format!(
-            r#"        ("{}", ItemEntry {{ offset: {}, mission: {}, room_number: {}, item_id: {}, adjudicator: {}, x_coord: {}, y_coord: {}, z_coord: {} }}),"#,
-            key, offset, mission_number, room, item_id, adjudicator, x_coord, y_coord, z_coord
+            r#"        ("{}", ItemEntry {{ offset: {}, mission: {}, room_number: {}, item_id: {}, adjudicator: {}, coordinates: "#,
+            key, offset, mission_number, room, item_id, adjudicator
         ));
-        output.push('\n');
+        if x_coord != 0 {
+            output.push_str(&format!(
+                "Coordinates {{ x: {}, y: {}, z: {} }}",
+                x_coord, y_coord, z_coord
+            ));
+        } else {
+            output.push_str("EMPTY_COORDINATES");
+        }
+
+        output.push_str("}),\n");
     }
-    output.push_str("    ])\
-    });\n\n");
+    output.push_str(
+        "    ])\
+    });\n\n",
+    );
 
     // Write to src folder
     let out_dir = Path::new("src");

@@ -53,7 +53,7 @@ pub(crate) async fn add_item_to_bank(
 ) -> Result<(), ArchipelagoError> {
     client
         .send(ClientMessage::Set(Set {
-            key: get_bank_key(&constants::get_item_name(item.item as u8)),
+            key: get_bank_key(&constants::get_item_name(item.item as u32)),
             default: Value::from(1),
             want_reply: true,
             operations: vec![DataStorageOperation::Add(Value::from(1))],

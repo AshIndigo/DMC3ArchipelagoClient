@@ -65,7 +65,7 @@ pub(crate) fn create_special_save() -> Result<(), Box<dyn std::error::Error>> {
     let save_bytes = set_starting_weapons(save_bytes)?;
     unsafe {
         ORIGINAL_WRITE_CRC
-            .get_or_init(|| std::mem::transmute(*DMC3_ADDRESS.read().unwrap() + ORIGINAL_CRC_ADDR))(
+            .get_or_init(|| std::mem::transmute(*DMC3_ADDRESS + ORIGINAL_CRC_ADDR))(
             save_bytes.as_ptr().addr() + 0x3B8,
             0x708,
         );
@@ -100,8 +100,8 @@ fn set_starting_weapons(
             + 0x05;
     }
     log::debug!("Gun ID: {} - Melee ID: {}", gun, melee);
-    save_bytes[0x414] = melee;
-    save_bytes[0x416] = gun;
+    save_bytes[0x414] = melee as u8;
+    save_bytes[0x416] = gun as u8;
     Ok(save_bytes)
 }
 
@@ -137,7 +137,7 @@ pub unsafe fn disable_save_hooks(base_address: usize) -> Result<(), MH_STATUS> {
 fn new_save_game(param_1: i32) {
     // param_1 has just been 0 so far
     log::debug!("Saving game (1) Param_1: {}", param_1);
-    let base = *DMC3_ADDRESS.read().unwrap();
+    let base = *DMC3_ADDRESS;
     unsafe {
         if param_1 == 0 && (utilities::read_data_from_address::<u8>(base + 0x5EAE81) != 0) {
             let save_file_ptr = (base + SAVE_FILE_PTR) as *const usize;
@@ -165,13 +165,13 @@ fn new_save_game(param_1: i32) {
 /// Triggers everytime the 10 save slots are displayed. Probably when the game is also first loaded to control Vergil access, but that shouldn't matter
 fn new_load_game(param_1: i64, param_2: i64, save_data_ptr: *mut usize, length: i32) -> i32 {
     // Returns 1 (loaded successfully?) or -1 (failed for whatever reason)
-    log::info!("Loading game!");
+    log::debug!("Loading save slot selection screen!");
     if ui::CONNECTION_STATUS.load(Ordering::SeqCst) == 1 {
         return match get_save_data() {
             Ok(..) => {
                 unsafe {
                     write(
-                        (*DMC3_ADDRESS.read().unwrap() + SAVE_FILE_PTR) as *mut usize,
+                        (*DMC3_ADDRESS + SAVE_FILE_PTR) as *mut usize,
                         SAVE_DATA.read().unwrap().as_ptr().addr(),
                     );
                 }

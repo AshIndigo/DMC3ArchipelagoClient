@@ -1,15 +1,11 @@
 use crate::bank::{get_bank, get_bank_key};
 use crate::cache::read_cache;
 use crate::check_handler::Location;
-use crate::constants::{EventCode, ItemCategory, Status, GAME_NAME, ITEM_ID_MAP};
+use crate::constants::{ItemCategory, Status, GAME_NAME};
 use crate::data::generated_locations;
-use crate::hook::DUMMY_ID;
 use crate::ui::ui;
 use crate::ui::ui::CONNECTION_STATUS;
-use crate::utilities::{get_mission, read_data_from_address, DMC3_ADDRESS};
-use crate::{
-    bank, cache, constants, hook, item_sync, mapping, save_handler, text_handler, utilities,
-};
+use crate::{bank, cache, constants, game_manager, hook, item_sync, location_handler, mapping, save_handler, text_handler};
 use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
 use archipelago_rs::protocol::{
@@ -24,8 +20,6 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::fs::{remove_file, File};
 use std::io::Write;
-use std::ptr::write_unaligned;
-use std::sync::atomic::Ordering::SeqCst;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Mutex, OnceLock, RwLock, RwLockReadGuard};
 use tokio::sync;
@@ -33,7 +27,7 @@ use tokio::sync::mpsc::Receiver;
 
 static DATA_PACKAGE: Lazy<RwLock<Option<DataPackageObject>>> = Lazy::new(|| RwLock::new(None));
 
-pub static CHECKED_LOCATIONS: OnceLock<Mutex<Vec<&'static str>>> = OnceLock::new();
+pub static CHECKED_LOCATIONS: OnceLock<RwLock<Vec<&'static str>>> = OnceLock::new();
 pub static CONNECTED: OnceLock<Mutex<Connected>> = OnceLock::new();
 pub static TX_ARCH: OnceLock<sync::mpsc::Sender<ArchipelagoConnection>> = OnceLock::new();
 pub static TX_DISCONNECT: OnceLock<sync::mpsc::Sender<bool>> = OnceLock::new();
@@ -41,8 +35,8 @@ pub static TX_DISCONNECT: OnceLock<sync::mpsc::Sender<bool>> = OnceLock::new();
 pub static SLOT_NUMBER: AtomicI32 = AtomicI32::new(-1);
 pub static TEAM_NUMBER: AtomicI32 = AtomicI32::new(-1);
 
-pub fn get_checked_locations() -> &'static Mutex<Vec<&'static str>> {
-    CHECKED_LOCATIONS.get_or_init(|| Mutex::new(vec![]))
+pub fn get_checked_locations() -> &'static RwLock<Vec<&'static str>> {
+    CHECKED_LOCATIONS.get_or_init(|| RwLock::new(vec![]))
 }
 
 pub fn get_connected() -> &'static Mutex<Connected> {
@@ -155,7 +149,7 @@ pub async fn connect_archipelago(
         )
         .await?;
     *get_connected().lock().expect("Failed to get connected") = connected;
-    let Ok(mut checked_locations) = get_checked_locations().lock() else {
+    let Ok(mut checked_locations) = get_checked_locations().write() else {
         log::error!("Failed to get checked locations");
         return Err(ArchipelagoError::ConnectionClosed);
     };
@@ -236,34 +230,6 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) -> Result<(), Box<dyn Error>>
     mapping::use_mappings()?;
     save_handler::create_special_save()?;
     Ok(())
-}
-
-pub(crate) fn location_is_checked_and_end(location_key: &str) -> bool {
-    match constants::EVENT_TABLES.get(&get_mission()) {
-        None => false,
-        Some(event_tables) => {
-            for event_table in event_tables {
-                if event_table.location == location_key {
-                    for event in event_table.events.iter() {
-                        if event.event_type == EventCode::END {
-                            match get_checked_locations().lock() {
-                                Ok(checked_locations) => {
-                                    if checked_locations.contains(&location_key) {
-                                        return true;
-                                    }
-                                }
-                                Err(err) => {
-                                    log::error!("Failed to get checked locations: {}", err);
-                                    return false;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            false
-        }
-    }
 }
 
 pub async fn handle_things(
@@ -427,17 +393,9 @@ async fn handle_bounced(
     if bounced.tags.contains(&DEATH_LINK.to_string()) {
         log::debug!("Deathlink detected");
         log::info!("{}", bounced.data.get("cause").unwrap().as_str().unwrap());
-        kill_dante();
+        game_manager::kill_dante();
     }
     Ok(())
-}
-
-pub(crate) fn kill_dante() {
-    let char_data_ptr: usize =
-        read_data_from_address(*DMC3_ADDRESS.read().unwrap() + utilities::ACTIVE_CHAR_DATA);
-    unsafe {
-        write_unaligned((char_data_ptr + 0x411C) as *mut f32, 0.0);
-    }
 }
 
 fn handle_retrieved(retrieved: Retrieved) -> Result<(), Box<dyn Error>> {
@@ -469,43 +427,6 @@ pub fn get_data_package() -> Option<RwLockReadGuard<'static, Option<DataPackageO
     }
 }
 
-pub fn get_location_item_name(received_item: &Location) -> Result<&'static str, anyhow::Error> {
-    let Ok(mapping_data) = mapping::MAPPING.read() else {
-        return Err(anyhow!("Unable to get mapping data"));
-    };
-    let Some(mapping_data) = mapping_data.as_ref() else {
-        return Err(anyhow!("No mapping data"));
-    };
-    for (location_key, item_entry) in generated_locations::ITEM_MISSION_MAP.iter() {
-        //log::debug!("Checking room {} vs {} and mission {} vs {}", item_entry.room_number as i32, received_item.room, item_entry.mission as i32, received_item._mission);
-        if item_entry.room_number as i32 == received_item.room {
-            if item_entry.x_coord == 0
-                || (item_entry.x_coord == received_item.x_coord
-                && item_entry.y_coord == received_item.y_coord
-                && item_entry.z_coord == received_item.z_coord)
-            {
-                let location_data = mapping_data.items.get(*location_key).unwrap();
-                log::debug!("Believe this to be: {}", location_key);
-                log::debug!(
-                    "Checking location items: {:#X} vs {:#X}",
-                    constants::get_item_id(&*location_data.item_name).unwrap(),
-                    received_item.item_id as u8
-                );
-                if constants::get_item_id(&*location_data.item_name).unwrap()
-                    == received_item.item_id as u8
-                {
-                    // Then see if the item picked up matches the specified in the map
-                    return Ok(location_key);
-                } else if received_item.item_id == *ITEM_ID_MAP.get("Remote").unwrap() as u64 || received_item.item_id as u8 == DUMMY_ID {
-                    // TODO This may be stupid
-                    return Ok(location_key);
-                }
-            }
-        }
-    }
-    Err(anyhow!("No location found"))
-}
-
 async fn handle_item_receive(
     client: &mut ArchipelagoClient,
     received_item: Location,
@@ -520,7 +441,7 @@ async fn handle_item_receive(
     };
     if let Some(data_guard) = get_data_package() {
         if let Some(data) = data_guard.as_ref() {
-            let location_key = get_location_item_name(&received_item)?;
+            let location_key = location_handler::get_location_name_by_data(&received_item)?;
             let location_data = mapping_data.items.get(location_key).unwrap();
             // Then see if the item picked up matches the specified in the map
             match data
@@ -531,19 +452,23 @@ async fn handle_item_receive(
                 .get(location_key)
             {
                 Some(loc_id) => {
-                    edit_end_event(&location_key);
+                    location_handler::edit_end_event(&location_key); // Needed so a mission will end properly after picking up its trigger.
                     let desc = location_data.description.clone();
                     text_handler::replace_unused_with_text(desc);
-                    text_handler::CANCEL_TEXT.store(true, SeqCst);
+                    text_handler::CANCEL_TEXT.store(true, Ordering::SeqCst);
                     if let Err(arch_err) = client.location_checks(vec![loc_id.clone()]).await {
                         log::error!("Failed to check location: {}", arch_err);
                         item_sync::add_offline_check(loc_id.clone(), client).await?;
                     }
-                    if constants::get_items_by_category(ItemCategory::Key)
-                        .contains(&&*location_data.item_name)
-                    {
+                    if constants::get_item_id(&*location_data.item_name).unwrap() > 0x14 {
+
+
+                    // if constants::get_items_by_category(ItemCategory::Key)
+                    //     .contains(&&*location_data.item_name)
+                    // {
                         ui::set_checklist_item(&*location_data.item_name, true);
-                        log::debug!("Key Item checked off: {}", location_data.item_name);
+                        log::debug!("Item checked off: {}", location_data.item_name);
+                    //}
                     }
                     log::info!(
                         "Location check successful: {} ({}), Item: {}",
@@ -557,28 +482,6 @@ async fn handle_item_receive(
         }
     }
     Ok(())
-}
-
-fn edit_end_event(location_key: &str) {
-    match constants::EVENT_TABLES.get(&get_mission()) {
-        None => {}
-        Some(event_tables) => {
-            for event_table in event_tables {
-                if event_table.location == location_key {
-                    for event in event_table.events.iter() {
-                        if event.event_type == EventCode::END {
-                            unsafe {
-                                utilities::replace_single_byte(
-                                    constants::EVENT_TABLE_ADDR + event.offset,
-                                    0x00, // (TODO) NOTE: This will fail if something like DDMK's arcade mode is used, due to the player having no officially picked up red orbs. But this shouldn't occur in normal gameplay.
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 fn handle_print_json(print_json: PrintJSON) -> String {

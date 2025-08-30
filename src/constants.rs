@@ -1,22 +1,17 @@
 use std::cmp::PartialEq;
 use std::collections::HashMap;
-use std::ffi::{c_int, c_longlong};
 use std::sync::{LazyLock, OnceLock};
 
 // DMC3 Offsets+Functions - Offsets are from 2022 DDMK's version
 
 pub const ITEM_SPAWNS_ADDR: usize = 0x1b4440; // 0x1b4480
-pub static ORIGINAL_ITEM_SPAWNS: OnceLock<unsafe extern "C" fn(loc_chk_id: c_longlong)> =
+pub static ORIGINAL_ITEM_SPAWNS: OnceLock<unsafe extern "C" fn(loc_chk_id: usize)> =
     OnceLock::new();
 
 pub const EDIT_EVENT_HOOK_ADDR: usize = 0x1a9bc0;
 pub static ORIGINAL_EDIT_EVENT: OnceLock<
-    unsafe extern "C" fn(param_1: c_longlong, param_2: c_int, param_3: c_longlong),
+    unsafe extern "C" fn(param_1: usize, param_2: i32, param_3: usize),
 > = OnceLock::new();
-pub const INVENTORY_PTR: usize = 0xC90E28 + 0x8;
-pub const ADJUDICATOR_ITEM_ID_1: usize = 0x250594;
-pub const ADJUDICATOR_ITEM_ID_2: usize = 0x25040d;
-pub const SECRET_MISSION_ITEM: usize = 0x1a7a4d;
 pub const ITEM_MODE_TABLE: usize = 0x1B4534;
 pub const EVENT_TABLE_ADDR: usize = 0x01A42680; // TODO is this gonna be ok?
 
@@ -34,16 +29,17 @@ pub static ORIGINAL_ADJUDICATOR_DATA: OnceLock<
     unsafe extern "C" fn(param_1: usize, param_2: usize, param_3: usize, param_4: usize),
 > = OnceLock::new();
 pub const ONE_ORB: f32 = 1000.0; // One Blue/Purple orb is worth 1000 "points"
+pub const BASE_HP: f32 = 6.0 * ONE_ORB;
 pub const MAX_HP: f32 = 20000.0;
 pub const MAX_MAGIC: f32 = 10000.0;
 pub struct Item {
-    pub id: u8,
+    pub id: u32,
     pub name: &'static str,
     pub offset: Option<u8>, // Inventory offset
     pub category: ItemCategory,
-    pub mission: Option<u8>, // Mission the key item is used in, typically the same that it is acquired in
+    pub mission: Option<u32>, // Mission the key item is used in, typically the same that it is acquired in
     pub max_amount: Option<i32>, // Max amount of a consumable
-    pub _value: Option<i32>, // Value of an orb, used only for red orbs
+    pub _value: Option<i32>,  // Value of an orb, used only for red orbs
 }
 
 #[derive(PartialEq)]
@@ -141,7 +137,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
         Item {
             id: 0x09,
             name: "Blue Orb Fragment",
-            offset: None,
+            offset: Some(0x45),
             category: ItemCategory::Misc,
             mission: None,
             max_amount: Some(4),
@@ -239,7 +235,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
         },
         Item {
             id: 0x14,
-            name: "Dummy", // Scent of Fear test item
+            name: "Scent of Fear", // Scent of Fear test item, old dummy
             offset: None,
             category: ItemCategory::Misc,
             mission: None,
@@ -285,7 +281,8 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
         Item {
             id: 0x19,
             name: "Rebellion (Awakened)",
-            offset: Some(0x52), // TODO, using the same offset as rebellion even if not correct. Need to determine what awakens Rebellion
+            offset: Some(0x55), // TODO Setting it as 0x55 instead of 0x52 for now
+            // TODO, using the same offset as rebellion even if not correct. Need to determine what awakens Rebellion
             category: ItemCategory::Weapon,
             mission: None,
             max_amount: None,
@@ -589,8 +586,8 @@ pub static ITEM_OFFSET_MAP: LazyLock<HashMap<&'static str, u8>> = LazyLock::new(
         .collect()
 });
 
-pub static MISSION_ITEM_MAP: LazyLock<HashMap<u8, Vec<&'static str>>> = LazyLock::new(|| {
-    let mut map: HashMap<u8, Vec<&'static str>> = HashMap::new();
+pub static MISSION_ITEM_MAP: LazyLock<HashMap<u32, Vec<&'static str>>> = LazyLock::new(|| {
+    let mut map: HashMap<u32, Vec<&'static str>> = HashMap::new();
     for item in ALL_ITEMS.iter() {
         if let Some(mission) = item.mission {
             map.entry(mission).or_default().push(item.name);
@@ -599,7 +596,7 @@ pub static MISSION_ITEM_MAP: LazyLock<HashMap<u8, Vec<&'static str>>> = LazyLock
     map
 });
 
-pub static ITEM_ID_MAP: LazyLock<HashMap<&'static str, u8>> =
+pub static ITEM_ID_MAP: LazyLock<HashMap<&'static str, u32>> =
     LazyLock::new(|| ALL_ITEMS.iter().map(|item| (item.name, item.id)).collect());
 
 pub static ITEM_MAX_COUNT_MAP: LazyLock<HashMap<&'static str, Option<i32>>> = LazyLock::new(|| {
@@ -609,19 +606,19 @@ pub static ITEM_MAX_COUNT_MAP: LazyLock<HashMap<&'static str, Option<i32>>> = La
         .collect()
 });
 
-pub static ID_ITEM_MAP: LazyLock<HashMap<u8, &'static str>> =
+pub static ID_ITEM_MAP: LazyLock<HashMap<u32, &'static str>> =
     LazyLock::new(|| ALL_ITEMS.iter().map(|item| (item.id, item.name)).collect());
-pub static ITEM_MAP: LazyLock<HashMap<u8, &'static Item>> =
+pub static ITEM_MAP: LazyLock<HashMap<u32, &'static Item>> =
     LazyLock::new(|| ALL_ITEMS.iter().map(|item| (item.id, item)).collect());
 
-pub fn get_item_name(item_id: u8) -> &'static str {
+pub fn get_item_name(item_id: u32) -> &'static str {
     ID_ITEM_MAP.get(&item_id).copied().unwrap_or_else(|| {
         log::error!("No item found with id {}", item_id);
         "Unknown"
     })
 }
 
-pub fn get_item_id(name: &str) -> Option<u8> {
+pub fn get_item_id(name: &str) -> Option<u32> {
     ITEM_ID_MAP.get(name).copied()
 }
 pub fn get_items_by_category(category: ItemCategory) -> Vec<&'static str> {
@@ -632,7 +629,7 @@ pub fn get_items_by_category(category: ItemCategory) -> Vec<&'static str> {
         .collect()
 }
 
-pub static EVENT_TABLES: LazyLock<HashMap<u8, Vec<EventTable>>> = LazyLock::new(|| {
+pub static EVENT_TABLES: LazyLock<HashMap<u32, Vec<EventTable>>> = LazyLock::new(|| {
     HashMap::from([
         (
             3,
@@ -900,19 +897,18 @@ impl From<isize> for Status {
     }
 }
 
+#[derive(Debug)]
 pub struct ItemEntry {
     // Represents an item on the ground
     pub offset: usize,     // Offset for the item table
-    pub room_number: u16,  // Room number
-    pub item_id: u8,       // Default Item ID
-    pub mission: u8,       // Mission Number
+    pub room_number: i32,  // Room number
+    pub item_id: u32,      // Default Item ID
+    pub mission: u32,      // Mission Number
     pub adjudicator: bool, // Adjudicator
-    pub x_coord: u32,
-    pub y_coord: u32,
-    pub z_coord: u32,
+    pub coordinates: Coordinates,
 }
 
-#[derive(Copy, Clone, strum_macros::Display)]
+#[derive(Copy, Clone, strum_macros::Display, strum_macros::FromRepr)]
 #[allow(dead_code)]
 pub(crate) enum Difficulty {
     // TODO Missing HoH
@@ -931,8 +927,28 @@ pub(crate) enum Rank {
     B = 2,
     A = 3,
     S = 4,
-    SSS = 5,
+    SS = 5,
+    SSS = 6
 }
+
+pub static GUN_NAMES: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
+    Vec::from([
+        "Ebony & Ivory",
+        "Shotgun",
+        "Artemis",
+        "Spiral",
+        "Kalina Ann",
+    ])
+});
+pub static MELEE_NAMES: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
+    Vec::from([
+        "Rebellion (Normal)",
+        "Cerberus",
+        "Agni and Rudra",
+        "Nevan",
+        "Beowulf",
+    ])
+});
 
 pub fn get_weapon_id(weapon: &str) -> u8 {
     match weapon {
@@ -941,6 +957,32 @@ pub fn get_weapon_id(weapon: &str) -> u8 {
         "Agni and Rudra" => 2,
         "Nevan" => 3,
         "Beowulf" => 4,
+        "Ebony & Ivory" => 5,
+        "Shotgun" => 6,
+        "Artemis" => 7,
+        "Spiral" => 8,
+        "Kalina Ann" => 9,
         _ => 0,
+    }
+}
+
+pub const EMPTY_COORDINATES: Coordinates = Coordinates { x: 0, y: 0, z: 0 };
+
+#[derive(Clone, Copy, Debug)]
+pub struct Coordinates {
+    pub(crate) x: u32,
+    pub(crate) y: u32,
+    pub(crate) z: u32,
+}
+
+impl Coordinates {
+    pub fn has_coords(&self) -> bool {
+        self.x > 0
+    }
+}
+
+impl PartialEq for Coordinates {
+    fn eq(&self, other: &Self) -> bool {
+        self.x == other.x && self.y == self.y && self.z == other.z
     }
 }

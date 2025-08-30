@@ -1,13 +1,14 @@
+use crate::archipelago::get_checked_locations;
 use crate::constants::ItemEntry;
 use crate::constants::*;
 use crate::data::generated_locations;
-use crate::mapping::Mapping;
+use crate::game_manager::{get_mission, get_room, set_item, set_loc_chk_flg, set_weapons_in_inv};
+use crate::location_handler::in_key_item_room;
+use crate::mapping::{Mapping, MAPPING};
 use crate::ui::ui::{CHECKLIST, CONNECTION_STATUS};
-use crate::utilities::{
-    get_mission, get_room, read_data_from_address, replace_single_byte, set_item, DMC3_ADDRESS,
-};
+use crate::utilities::{read_data_from_address, replace_single_byte, DMC3_ADDRESS};
 use crate::{
-    archipelago, check_handler, create_hook, item_sync, mapping, save_handler, text_handler,
+    check_handler, create_hook, game_manager, save_handler, text_handler,
     utilities,
 };
 use archipelago_rs::client::ArchipelagoClient;
@@ -25,7 +26,9 @@ use tokio::sync::Mutex;
 use winapi::um::memoryapi::VirtualProtect;
 use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
 
-pub(crate) const DUMMY_ID: u8 = 0x20;
+pub(crate) const DUMMY_ID: LazyLock<u32> = LazyLock::new(|| *ITEM_ID_MAP.get("Dummy").unwrap()); //0x20;
+pub(crate) const REMOTE_ID: LazyLock<u32> = LazyLock::new(|| *ITEM_ID_MAP.get("Remote").unwrap()); //0x26;
+
 static HOOKS_CREATED: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn install_initial_functions() {
@@ -61,10 +64,16 @@ unsafe fn create_hooks() -> Result<(), MH_STATUS> {
             "Event table"
         );
         create_hook!(
+            LOAD_NEW_ROOM_ADDR,
+            load_new_room,
+            ORIGINAL_LOAD_NEW_ROOM,
+            "Load new room"
+        );
+        create_hook!(
             SETUP_PLAYER_DATA_ADDR,
-            setup_inventory_for_mission,
-            ORIGINAL_MISSION_INV,
-            "Setup mission inventory"
+            set_player_data,
+            ORIGINAL_SETUP_PLAYER_DATA,
+            "Setup player data"
         );
         create_hook!(
             EQUIPMENT_SCREEN_ADDR,
@@ -97,10 +106,11 @@ fn enable_hooks() {
         check_handler::ITEM_PICKED_UP_ADDR,
         check_handler::RESULT_CALC_ADDR,
         // Misc
-        ITEM_SPAWNS_ADDR,
+        ITEM_SPAWNS_ADDR, // Handles replacing item spawns.
         EDIT_EVENT_HOOK_ADDR,
-        SETUP_PLAYER_DATA_ADDR,
+        LOAD_NEW_ROOM_ADDR,
         EQUIPMENT_SCREEN_ADDR,
+        SETUP_PLAYER_DATA_ADDR,
         DAMAGE_CALC_ADDR,
         ADJUDICATOR_DATA_ADDR,
         // Save handler
@@ -112,7 +122,7 @@ fn enable_hooks() {
         text_handler::SETUP_ITEM_GET_SCREEN_ADDR,
     ];
     addresses.iter().for_each(|addr| unsafe {
-        match MinHook::enable_hook((*DMC3_ADDRESS.read().unwrap() + addr) as *mut _) {
+        match MinHook::enable_hook((*DMC3_ADDRESS + addr) as *mut _) {
             Ok(_) => {}
             Err(err) => {
                 log::error!("Failed to enable {:#X} hook: {:?}", addr, err);
@@ -124,12 +134,12 @@ fn enable_hooks() {
 pub(crate) static CLIENT: LazyLock<Mutex<Option<ArchipelagoClient>>> =
     LazyLock::new(|| Mutex::new(None));
 
-pub fn edit_event_drop(param_1: i64, param_2: i32, param_3: i64) {
+pub fn edit_event_drop(param_1: usize, param_2: i32, param_3: usize) {
     let (mapping, mission_event_tables, checked_locations) =
         if let (Ok(mapping), Some(mission_event_tables), Some(checked_locations)) = (
-            mapping::MAPPING.read(),
+            MAPPING.read(),
             EVENT_TABLES.get(&get_mission()),
-            archipelago::get_checked_locations().lock().ok(),
+            get_checked_locations().read().ok(),
         ) && mapping.is_some()
         {
             (mapping, mission_event_tables, checked_locations)
@@ -143,7 +153,7 @@ pub fn edit_event_drop(param_1: i64, param_2: i32, param_3: i64) {
         };
     match mapping.as_ref() {
         None => log::debug!("How did we get here?"),
-        Some(mapping) => {
+        Some(_mapping) => {
             unsafe {
                 // For each table
                 for event_table in mission_event_tables {
@@ -152,21 +162,24 @@ pub fn edit_event_drop(param_1: i64, param_2: i32, param_3: i64) {
                             log::debug!("Event loc checked: {}", &event_table.location);
                             match event.event_type {
                                 // If the location has already been checked use DUMMY_ID as a dummy item.
-                                EventCode::GIVE => {
-                                    replace_single_byte(EVENT_TABLE_ADDR + event.offset, DUMMY_ID)
-                                }
-                                EventCode::CHECK => {
-                                    replace_single_byte(EVENT_TABLE_ADDR + event.offset, DUMMY_ID)
-                                }
-                                EventCode::END => {
-                                    replace_single_byte(EVENT_TABLE_ADDR + event.offset, DUMMY_ID)
-                                }
+                                EventCode::GIVE => replace_single_byte(
+                                    EVENT_TABLE_ADDR + event.offset,
+                                    *DUMMY_ID as u8,
+                                ),
+                                EventCode::CHECK => replace_single_byte(
+                                    EVENT_TABLE_ADDR + event.offset,
+                                    *DUMMY_ID as u8,
+                                ),
+                                EventCode::END => replace_single_byte(
+                                    EVENT_TABLE_ADDR + event.offset,
+                                    *DUMMY_ID as u8,
+                                ),
                             }
                         } else {
                             log::debug!("Event loc not checked: {}", &event_table.location);
                             match event.event_type {
-                                // Location has not been checked off! TODO Make the "check" event, a dummied out item
-                                EventCode::GIVE => replace_single_byte(
+                                // Location has not been checked off!
+                                EventCode::GIVE => log::debug!("Give event")/*replace_single_byte(
                                     EVENT_TABLE_ADDR + event.offset,
                                     get_item_id(
                                         &*mapping
@@ -175,13 +188,15 @@ pub fn edit_event_drop(param_1: i64, param_2: i32, param_3: i64) {
                                             .unwrap()
                                             .item_name,
                                     )
-                                        .unwrap(),
-                                ),
+                                    .unwrap(),
+                                )*/,
                                 EventCode::CHECK => {
-                                    replace_single_byte(EVENT_TABLE_ADDR + event.offset, DUMMY_ID)
+                                    log::debug!("Replaced check at {:#X}", &event.offset);
+                                    replace_single_byte(EVENT_TABLE_ADDR + event.offset, *DUMMY_ID as u8)
                                 }
                                 EventCode::END => {
-                                    replace_single_byte(EVENT_TABLE_ADDR + event.offset, DUMMY_ID)
+                                    log::debug!("Replaced end at {:#X}", &event.offset);
+                                    replace_single_byte(EVENT_TABLE_ADDR + event.offset, *DUMMY_ID as u8)
                                 }
                             }
                         }
@@ -199,7 +214,7 @@ pub fn edit_event_drop(param_1: i64, param_2: i32, param_3: i64) {
 // start at 1B3944 -> 1B395A
 // Set these from 02 to 01
 pub(crate) fn rewrite_mode_table() {
-    let table_address = ITEM_MODE_TABLE + *DMC3_ADDRESS.read().unwrap();
+    let table_address = ITEM_MODE_TABLE + *DMC3_ADDRESS;
     let mut old_protect = 0;
     let length = 16;
     unsafe {
@@ -222,29 +237,30 @@ pub(crate) fn rewrite_mode_table() {
     }
 }
 
+/// Modify adjudicator weapon and rank info
 fn modify_adjudicator(param_1: usize, param_2: usize, param_3: usize, adjudicator_data: usize) {
+    const LOG_ADJU_DATA: bool = true;
     const RANKING_OFFSET: usize = 0x04;
     const WEAPON_OFFSET: usize = 0x06;
     for (location_name, entry) in generated_locations::ITEM_MISSION_MAP.iter() {
         // Run through all locations
         if entry.adjudicator && entry.mission == get_mission() {
-            //log::debug!("Adjudicator found at location {}", &location_name);
-            unsafe {
-                /*  log::debug!(
+            if LOG_ADJU_DATA {
+                log::debug!("Adjudicator found at location {}", &location_name);
+                log::debug!(
                     "Rank Needed: {}",
                     Rank::from_repr(
-                        read_data_from_address::<u8>(adjudicator_data + RANKING_OFFSET) as usize - 1
-                    )
-                    .unwrap()
+                        read_data_from_address::<u8>(adjudicator_data + RANKING_OFFSET) as usize
+                            - 1
+                    ).expect(format!("Unable to get rank from adjudicator: {}", read_data_from_address::<u8>(adjudicator_data + RANKING_OFFSET)).as_str())
                 );
                 log::debug!(
                     "Melee: {}",
-                    read_data_from_address::<u8>(
-                        adjudicator_data +
-                        WEAPON_OFFSET
-                    )
-                );*/
-                match mapping::MAPPING.read().as_ref() {
+                    read_data_from_address::<u8>(adjudicator_data + WEAPON_OFFSET)
+                );
+            }
+            unsafe {
+                match MAPPING.read().as_ref() {
                     Ok(mapping_opt) => match &**mapping_opt {
                         Some(mappings) => {
                             let data = mappings.adjudicators.get(*location_name).unwrap();
@@ -263,42 +279,29 @@ fn modify_adjudicator(param_1: usize, param_2: usize, param_3: usize, adjudicato
                         log::error!("Failed to read mapping: {:?}", err);
                     }
                 }
-                /*  log::debug!(
+            }
+            if LOG_ADJU_DATA {
+                log::debug!(
                     "New Rank Needed: {}",
                     Rank::from_repr(
-                        read_data_from_address::<u8>(adjudicator_data + RANKING_OFFSET) as usize - 1
+                        read_data_from_address::<u8>(adjudicator_data + RANKING_OFFSET) as usize
+                            - 1
                     )
                     .unwrap()
                 );
                 log::debug!(
                     "New Melee: {}",
                     read_data_from_address::<u8>(adjudicator_data + WEAPON_OFFSET)
-                );*/
-                if let Some(original) = ORIGINAL_ADJUDICATOR_DATA.get() {
-                    original(param_1, param_2, param_3, adjudicator_data)
-                }
+                );
+            }
+            if let Some(original) = ORIGINAL_ADJUDICATOR_DATA.get() {
+                unsafe { original(param_1, param_2, param_3, adjudicator_data) }
             }
         }
     }
 }
 
-/// Modifies Adjudicator Drops
-fn modify_adjudicator_drop(mapping: &Mapping) {
-    for (location_name, entry) in generated_locations::ITEM_MISSION_MAP.iter() {
-        // Run through all locations
-        if entry.adjudicator && entry.mission == get_mission() {
-            // If Location is adjudicator and mission numbers match
-            let item_id =
-                get_item_id(&*mapping.items.get(*location_name).unwrap().item_name).unwrap(); // Get the item ID and replace
-            unsafe {
-                utilities::replace_single_byte_with_base_addr(ADJUDICATOR_ITEM_ID_1, item_id);
-                utilities::replace_single_byte_with_base_addr(ADJUDICATOR_ITEM_ID_2, item_id);
-            }
-        }
-    }
-}
-
-fn item_spawns_hook(unknown: i64) {
+fn item_spawns_hook(unknown: usize) {
     unsafe {
         #[allow(unused_assignments)]
         let mut item_addr: *mut i32 = ptr::null_mut();
@@ -314,35 +317,26 @@ fn item_spawns_hook(unknown: i64) {
             clobber_abi("win64")
         );
         log::debug!("Item count: {} ({:#X})", item_count, item_count);
-        let room_num: u16 = get_room() as u16;
+        let room_num = get_room();
         log::debug!("Room num: {} ({:#X})", room_num, room_num);
-        //set_relevant_key_items();
-        match mapping::MAPPING.read() {
+        match MAPPING.read() {
             Ok(mapping) => match mapping.as_ref() {
                 None => {
                     log::warn!("Mapping's are not set up. Logging debug info:");
                     for _i in 0..item_count {
                         let item_ref: &u32 = &*(item_addr as *const u32);
-                        log::debug!(
-                            "Item ID: {} ({:#X})",
-                            get_item_name(*item_ref as u8),
-                            *item_ref
-                        );
+                        log::debug!("Item ID: {} ({:#X})", get_item_name(*item_ref), *item_ref);
                         item_addr = item_addr.byte_offset(0x14);
                     }
                 }
                 Some(mapping) => {
-                    modify_adjudicator_drop(mapping);
-                    modify_secret_mission_item(mapping);
+                    //modify_adjudicator_drop(mapping);
+                    // modify_secret_mission_item(mapping);
                     for _i in 0..item_count {
                         let item_ref: &u32 = &*(item_addr as *const u32);
-                        const EXTRA_OUTPUT: bool = false;
+                        const EXTRA_OUTPUT: bool = true;
                         if EXTRA_OUTPUT {
-                            log::debug!(
-                                "Item ID: {} ({:#X})",
-                                get_item_name(*item_ref as u8),
-                                *item_ref
-                            );
+                            log::debug!("Item ID: {} ({:#X})", get_item_name(*item_ref), *item_ref);
                         }
                         for (location_name, entry) in generated_locations::ITEM_MISSION_MAP.iter() {
                             check_and_replace_item(
@@ -368,34 +362,17 @@ fn item_spawns_hook(unknown: i64) {
     }
 }
 
-fn modify_secret_mission_item(mapping: &Mapping) {
-    unsafe {
-        for (location_name, _entry) in generated_locations::ITEM_MISSION_MAP
-            .iter()
-            .filter(|(_location_name, entry)| entry.room_number as i32 == get_room())
-        {
-            log::debug!(
-                "Replaced secret mission with: {:#X}",
-                get_item_id(&*mapping.items.get(*location_name).unwrap().item_name).unwrap()
-            );
-            // Get the item ID and replace
-            utilities::replace_single_byte_with_base_addr(
-                SECRET_MISSION_ITEM,
-                *ITEM_ID_MAP.get("Remote").unwrap(),
-            );
-        }
-    }
-}
+
 
 fn monitor_hp(damage_calc: usize, param_1: usize, param_2: usize, param_3: usize) {
     unsafe { ORIGINAL_DAMAGE_CALC.get().unwrap()(damage_calc, param_1, param_2, param_3) }
     let char_data_ptr: usize =
-        read_data_from_address(*DMC3_ADDRESS.read().unwrap() + utilities::ACTIVE_CHAR_DATA);
+        read_data_from_address(*DMC3_ADDRESS + game_manager::ACTIVE_CHAR_DATA);
     unsafe {
         let hp = read_unaligned((char_data_ptr + 0x411C) as *mut f32);
         if hp == 0.0 {
             log::debug!("Dante died!");
-            match mapping::MAPPING.read() {
+            match MAPPING.read() {
                 Ok(mapping) => match mapping.as_ref() {
                     None => {}
                     Some(mapping) => {
@@ -429,6 +406,7 @@ fn monitor_hp(damage_calc: usize, param_1: usize, param_2: usize, param_3: usize
 }
 
 // TODO Consolidate this down?
+/// Edits the initially selected index when viewing weapons in the status screen
 fn edit_initial_index(custom_weapon: usize) -> i32 {
     let current_inv_addr = utilities::get_inv_address();
     if current_inv_addr.is_none() {
@@ -442,7 +420,7 @@ fn edit_initial_index(custom_weapon: usize) -> i32 {
             }
         }
     }
-    let base = *DMC3_ADDRESS.read().unwrap();
+    let base = *DMC3_ADDRESS;
     let mut starting_index = 0;
     if read_data_from_address::<u8>(custom_weapon + 0x419E) == 4 {
         // Gun
@@ -482,8 +460,8 @@ fn edit_initial_index(custom_weapon: usize) -> i32 {
 unsafe fn check_and_replace_item(
     location_name: &&str,
     entry: &ItemEntry,
-    room_num: u16,
-    mapping: &Mapping,
+    room_num: i32,
+    _mapping: &Mapping,
     item_ref: &u32,
     item_addr: *mut i32,
 ) {
@@ -492,22 +470,22 @@ unsafe fn check_and_replace_item(
         if entry.room_number == 0 {
             return;
         }
-        //log::debug!("Room number X: {} Room number memory: {}, Item ID X: 0x{:x}, Item ID Memory: 0x{:x}", entry.room_number, room_num, entry.item_id, *item_ref);
-        if entry.room_number == room_num && entry.item_id as u32 == *item_ref && !entry.adjudicator
-        {
-            if !dummy_replace(location_name, item_addr, entry.offset) {
-                let ins_val = get_item_id(&*mapping.items.get(*location_name).unwrap().item_name); // Scary
+        //log::debug!("Room number X: {} Room number memory: {}, Item ID X: {:#X}, Item ID Memory: {:#X}", entry.room_number, room_num, entry.item_id, *item_ref);
+        if entry.room_number == room_num && entry.item_id == *item_ref && !entry.adjudicator {
+            log::debug!("Seeing if item needs to be dummy");
+            if !dummy_replace(location_name, item_addr) {
+                //let ins_val = get_item_id(&*mapping.items.get(*location_name).unwrap().item_name); // Scary
 
                 if ITEM_MAP.get(&entry.item_id).unwrap().category == ItemCategory::Key {
-                    *item_addr = *(ITEM_ID_MAP.get("Remote").unwrap()) as i32; // 0x26 is high roller card, what is used for remote items.
+                    //*item_addr = *(ITEM_ID_MAP.get("Remote").unwrap()) as i32; // 0x26 is high roller card, what is used for remote items.
                 } else {
-                    *item_addr = ins_val.unwrap() as i32;
+                    //*item_addr = ins_val.unwrap() as i32;
                 }
                 log::info!(
                     "Replaced item in room {} ({}) with {} {:#X}",
                     entry.room_number,
                     location_name,
-                    get_item_name(*item_ref as u8),
+                    get_item_name(*item_ref),
                     *item_addr
                 );
             }
@@ -516,7 +494,7 @@ unsafe fn check_and_replace_item(
 }
 
 /// Replaces an item with a dummy one in order to not immediately proc end events upon entering the location's room
-fn dummy_replace(location_key: &&str, item_addr: *mut i32, _offset: usize) -> bool {
+fn dummy_replace(location_key: &&str, item_addr: *mut i32) -> bool {
     // Get event tables for mission and then each END event
     if let Some(event_tables) = EVENT_TABLES.get(&get_mission()) {
         for event_table in event_tables
@@ -529,10 +507,10 @@ fn dummy_replace(location_key: &&str, item_addr: *mut i32, _offset: usize) -> bo
                 .filter(|event| event.event_type == EventCode::END)
             {
                 // Then if location in question is checked, replace the item with a dummy and return true
-                if let Ok(checked_locations) = archipelago::get_checked_locations().lock() {
+                if let Ok(checked_locations) = get_checked_locations().read() {
                     if checked_locations.contains(location_key) {
                         unsafe {
-                            *item_addr = DUMMY_ID as i32;
+                            *item_addr = *DUMMY_ID as i32;
                         }
                         log::info!("Replaced item at {} with dummy item", location_key);
                         return true;
@@ -557,48 +535,65 @@ fn set_relevant_key_items() {
         return;
     }
     log::debug!("Current INV Addr: {:#X}", current_inv_addr.unwrap());
-    let mut flag: u8;
-    log::debug!("Current mission: {}", get_mission());
-    match MISSION_ITEM_MAP.get(&(get_mission())) {
-        None => {} // No items for the mission
-        Some(item_list) => {
-            for item in item_list.into_iter() {
-                if *checklist.get(*item).unwrap_or(&false) {
-                    flag = 0x01;
-                    log::debug!("Item Relevant to mission {}", *item)
-                } else {
-                    flag = 0x00;
+    game_manager::with_session(|s| {
+        log::debug!("Current mission: {}", s.mission);
+        match MISSION_ITEM_MAP.get(&(s.mission)) {
+            None => {} // No items for the mission
+            Some(item_list) => {
+                for item in item_list.into_iter() {
+                    if *checklist.get(*item).unwrap_or(&false) {
+                        let res = game_manager::has_item_by_flags(item);
+                        if !res {
+                            set_item(item, true, true);
+                        }
+                        log::debug!("Item Relevant to mission {} Flag: {}", *item, res);
+                    } else {
+                        set_item(item, false, true);
+                    }
                 }
-                set_item(item, flag != 0);
             }
         }
-    }
-    const WEAPON_SLOT: usize = 0x045FF2D8;
-    // Setting weapons
-    // TODO Probably need to modify equipped values as well
-    for weapon in get_items_by_category(ItemCategory::Weapon) {
-        if *checklist.get(weapon).unwrap_or(&false) {
-            flag = 0x01;
-            log::debug!("Adding weapon/style to inventory {}", weapon);
-            if weapon == "Cerberus" && read_data_from_address::<u8>(WEAPON_SLOT + 0x01) == 0xFF {
-                unsafe { replace_single_byte(WEAPON_SLOT + 0x01, 0x01) };
+        match MISSION_ITEM_MAP.get(&(s.mission)) {
+            None => {} // No items for the mission
+            Some(item_list) => {
+                for item in item_list.into_iter() {
+                    if *checklist.get(*item).unwrap_or(&false) {
+                        let res = game_manager::has_item_by_flags(item);
+                        if !res {
+                            set_loc_chk_flg(item, true)
+                        }
+                    }
+                }
             }
-            if weapon == "Shotgun" && read_data_from_address::<u8>(WEAPON_SLOT + 0x03) == 0xFF {
-                unsafe { replace_single_byte(WEAPON_SLOT + 0x03, 0x06) };
-            }
-        } else {
-            flag = 0x00;
         }
-        set_item(weapon, flag != 0);
-    }
+        if let Ok(loc) = in_key_item_room() {
+            log::debug!("In key room: {}", loc);
+            if get_checked_locations().read().unwrap().contains(&loc) {
+                //set_loc_chk_flg(get_item_name(generated_locations::ITEM_MISSION_MAP.get(loc).unwrap().item_id), true);
+            } else {
+                set_loc_chk_flg(
+                    get_item_name(
+                        generated_locations::ITEM_MISSION_MAP
+                            .get(loc)
+                            .unwrap()
+                            .item_id,
+                    ),
+                    false,
+                );
+            }
+        }
+    })
+    .unwrap();
+
 }
 
 /// Disable hooks, used for disconnecting
 pub fn disable_hooks() -> Result<(), MH_STATUS> {
-    let base_address = *DMC3_ADDRESS.read().unwrap();
+    let base_address = *DMC3_ADDRESS;
     unsafe {
         MinHook::disable_hook((base_address + ITEM_SPAWNS_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + EDIT_EVENT_HOOK_ADDR) as *mut _)?;
+        MinHook::disable_hook((base_address + LOAD_NEW_ROOM_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + SETUP_PLAYER_DATA_ADDR) as *mut _)?;
         save_handler::disable_save_hooks(base_address)?;
         MinHook::disable_hook((base_address + EQUIPMENT_SCREEN_ADDR) as *mut _)?;
@@ -610,27 +605,42 @@ pub fn disable_hooks() -> Result<(), MH_STATUS> {
     Ok(())
 }
 
-pub const SETUP_PLAYER_DATA_ADDR: usize = 0x23a7b0;
+pub const LOAD_NEW_ROOM_ADDR: usize = 0x23e610;
 
-pub static ORIGINAL_MISSION_INV: OnceLock<unsafe extern "C" fn(param_1: usize) -> bool> =
+pub static ORIGINAL_LOAD_NEW_ROOM: OnceLock<unsafe extern "C" fn(param_1: usize) -> bool> =
     OnceLock::new();
 
-pub fn setup_inventory_for_mission(param_1: usize) -> bool {
+pub fn load_new_room(param_1: usize) -> bool {
     let mut res = false;
     unsafe {
-        if let Some(original) = ORIGINAL_MISSION_INV.get() {
+        if let Some(original) = ORIGINAL_LOAD_NEW_ROOM.get() {
             res = original(param_1);
         }
     }
     set_relevant_key_items();
-    utilities::set_max_hp(f32::min(
-        (6.0 * ONE_ORB) + item_sync::BLUE_ORBS_OBTAINED.load(Ordering::SeqCst) as f32 * ONE_ORB,
-        MAX_HP,
-    ));
-    utilities::set_max_magic(f32::min(
-        item_sync::PURPLE_ORBS_OBTAINED.load(Ordering::SeqCst) as f32 * ONE_ORB,
-        MAX_MAGIC,
-    ));
+    set_weapons_in_inv();
+    check_handler::clear_high_roller();
+    //location_handler::room_transition();
+    res
+}
+
+pub const SETUP_PLAYER_DATA_ADDR: usize = 0x23a7b0;
+
+pub static ORIGINAL_SETUP_PLAYER_DATA: OnceLock<unsafe extern "C" fn(param_1: usize) -> bool> =
+    OnceLock::new();
+
+pub fn set_player_data(param_1: usize) -> bool {
+    let mut res = false;
+    game_manager::set_session_weapons();
+    game_manager::set_max_hp_and_magic();
+
+    unsafe {
+        if let Some(original) = ORIGINAL_SETUP_PLAYER_DATA.get() {
+            res = original(param_1)
+        } else {
+            log::error!("No setup player data found");
+        }
+    }
     res
 }
 
@@ -640,7 +650,7 @@ pub fn modify_item_table(offset: usize, id: u8) {
     unsafe {
         // let start_addr = 0x5C4C20usize; dmc3.exe+5c4c20+1A00
         // let end_addr = 0x5C4C20 + 0xC8; // 0x5C4CE8
-        let true_offset = offset + *DMC3_ADDRESS.read().unwrap() + 0x1A00usize; // MFW I can't do my offsets correctly
+        let true_offset = offset + *DMC3_ADDRESS + 0x1A00usize; // MFW I can't do my offsets correctly
         if offset == 0x0 {
             return; // Undecided/ignorable
         }
@@ -673,7 +683,7 @@ pub(crate) fn restore_item_table() {
         .filter(|item| item.1.offset != 0x0) // item.1 is the entry
         .for_each(|(_key, val)| {
             unsafe {
-                let true_offset = val.offset + *DMC3_ADDRESS.read().unwrap() + 0x1A00usize;
+                let true_offset = val.offset + *DMC3_ADDRESS + 0x1A00usize;
                 let mut old_protect = 0;
                 VirtualProtect(
                     true_offset as *mut _,
@@ -684,7 +694,7 @@ pub(crate) fn restore_item_table() {
 
                 let table = slice::from_raw_parts_mut(true_offset as *mut u8, 4);
 
-                table[3] = val.item_id;
+                table[3] = val.item_id as u8;
 
                 VirtualProtect(true_offset as *mut _, 4, old_protect, &mut old_protect);
             }
@@ -693,7 +703,7 @@ pub(crate) fn restore_item_table() {
 
 /// Set the modified modes back to 1 from 2
 pub(crate) fn restore_mode_table() {
-    let table_address = ITEM_MODE_TABLE + *DMC3_ADDRESS.read().unwrap();
+    let table_address = ITEM_MODE_TABLE + *DMC3_ADDRESS;
     let mut old_protect = 0;
     let length = 16;
     unsafe {

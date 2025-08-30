@@ -1,10 +1,9 @@
 use crate::cache::read_cache;
-use crate::constants::{GAME_NAME, ITEM_OFFSET_MAP};
+use crate::constants::{GAME_NAME, MISSION_ITEM_MAP};
 use crate::hook::CLIENT;
 use crate::ui::ui;
 use crate::ui::ui::CHECKLIST;
-use crate::utilities::{get_inv_address, replace_single_byte};
-use crate::{archipelago, bank, constants, text_handler, utilities};
+use crate::{archipelago, bank, constants, game_manager, text_handler};
 use archipelago_rs::client::ArchipelagoClient;
 use archipelago_rs::protocol::{NetworkItem, ReceivedItems};
 use log;
@@ -17,6 +16,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
+use crate::game_manager::get_mission;
 
 const SYNC_FILE: &str = "archipelago.json";
 pub(crate) static SYNC_DATA: OnceLock<Mutex<SyncData>> = OnceLock::new();
@@ -118,8 +118,11 @@ pub(crate) async fn handle_received_items_packet(
             if item.item == 0x07 { // Blue orb
                 BLUE_ORBS_OBTAINED.fetch_add(1, Ordering::SeqCst);
             }
-            if item.item == 0x08 {
+            if item.item == 0x08 { // Purple
                 PURPLE_ORBS_OBTAINED.fetch_add(1, Ordering::SeqCst);
+            }
+            if item.item == 0x19 { // Awakened Rebellion
+                PURPLE_ORBS_OBTAINED.fetch_add(3, Ordering::SeqCst);
             }
         }
     }
@@ -127,10 +130,11 @@ pub(crate) async fn handle_received_items_packet(
     if received_items_packet.index > CURRENT_INDEX.load(Ordering::SeqCst) {
         for item in &received_items_packet.items {
             text_handler::display_text(
-                &format!("Received {}!", constants::get_item_name(item.item as u8)),
+                &format!("Received {}!", constants::get_item_name(item.item as u32)),
                 Duration::from_secs(1),
-                0,
-                0,
+                // Roughly up and to the left
+                200,
+                -100,
             );
             if item.item < 0x14 {
                 if let Some(tx) = bank::TX_BANK_ADD.get() {
@@ -145,21 +149,35 @@ pub(crate) async fn handle_received_items_packet(
             }
             if item.item == 0x07 { // Blue orb
                 BLUE_ORBS_OBTAINED.fetch_add(1, Ordering::SeqCst);
-                utilities::give_hp(constants::ONE_ORB);
+                game_manager::give_hp(constants::ONE_ORB);
             }
             if item.item == 0x08 {
                 PURPLE_ORBS_OBTAINED.fetch_add(1, Ordering::SeqCst);
-                utilities::give_magic(constants::ONE_ORB);
+                game_manager::give_magic(constants::ONE_ORB);
             }
+            if item.item == 0x19 {
+                PURPLE_ORBS_OBTAINED.fetch_add(3, Ordering::SeqCst);
+                game_manager::give_magic(constants::ONE_ORB * 3.0);
+            }
+            // For key items
             if item.item >= 0x24 && item.item <= 0x39 {
-                if let Some(current_inv) = get_inv_address() {
-                    unsafe {
-                        replace_single_byte(
-                            current_inv + ITEM_OFFSET_MAP.get(constants::get_item_name(item.item as u8)).unwrap().clone() as usize,
-                            0x01u8,
-                        )
-                    };
-                }
+                //if let Some(_current_inv) = get_inv_address() {
+                    match MISSION_ITEM_MAP.get(&(get_mission())) {
+                        None => {} // No items for the mission
+                        Some(item_list) => {
+                            let item_name = constants::get_item_name(item.item as u32);
+                            if item_list.contains(&item_name) {
+                                game_manager::set_item(item_name, true, true);
+                                // unsafe {
+                                //     replace_single_byte(
+                                //         current_inv + ITEM_OFFSET_MAP.get(item_name).unwrap().clone() as usize,
+                                //         0x01u8,
+                                //     )
+                                // };
+                            }
+                        }
+                    }
+                //}
             }
         }
         CURRENT_INDEX.store(received_items_packet.index, Ordering::SeqCst);

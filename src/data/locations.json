@@ -223,7 +223,7 @@
     "mission_number": 8,
     "room_number": 305,
     "secret": false,
-    "default_item": 14,
+    "default_item": 46,
     "offset": 0,
     "adjudicator": false,
     "xCoord": 0,
@@ -540,7 +540,7 @@
   },
   "Mission #16 - Kalina Ann": {
     "mission_number": 16,
-    "room_number": 115,
+    "room_number": 119,
     "secret": false,
     "default_item": 33,
     "offset": 0,

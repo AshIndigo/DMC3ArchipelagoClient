@@ -213,7 +213,7 @@ where
         let label = s.as_ptr();
 
         let o = unsafe {
-            std::mem::transmute::<_, ImGuiTextInput>(*MARY_ADDRESS.read().unwrap() + INPUT_ADDR)(
+            std::mem::transmute::<_, ImGuiTextInput>(*MARY_ADDRESS + INPUT_ADDR)(
                 label as *const c_char,
                 ptr as *mut sys::cty::c_char,
                 capacity,

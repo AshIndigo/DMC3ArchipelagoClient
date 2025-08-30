@@ -1,0 +1,129 @@
+use crate::archipelago::get_checked_locations;
+use crate::check_handler::Location;
+use crate::constants::{
+    EventCode, ItemCategory, EVENT_TABLES,
+};
+use crate::data::generated_locations;
+use crate::game_manager::{get_mission};
+use crate::{constants, game_manager, mapping, utilities};
+use anyhow::anyhow;
+use std::error::Error;
+use crate::hook::{DUMMY_ID, REMOTE_ID};
+
+/// If we are in a room with a key item+appropriate mission, return Ok(location_key)
+pub fn in_key_item_room() -> Result<&'static str, Box<dyn Error>> {
+    game_manager::with_session_read(|s| {
+        for (location_key, item_entry) in generated_locations::ITEM_MISSION_MAP.iter() {
+            if constants::get_items_by_category(ItemCategory::Key)
+                .contains(&constants::get_item_name(item_entry.item_id))
+            {
+                if s.room == item_entry.room_number && s.mission == item_entry.mission {
+                    return Ok(*location_key);
+                }
+            }
+        }
+        Err(Box::from(anyhow!("Not a key item room")))
+    })
+    .unwrap()
+}
+
+pub fn get_location_name_by_data(location_data: &Location) -> Result<&'static str, Box<dyn Error>> {
+    let filtered_locs =
+        generated_locations::ITEM_MISSION_MAP
+            .iter()
+            .filter(|(_key, item_entry)| {
+                (item_entry.room_number == location_data.room)
+                    && ((!item_entry.coordinates.has_coords())
+                        || item_entry.coordinates == location_data.coordinates)
+            });
+    for (key, entry) in filtered_locs {
+        if entry.item_id == location_data.item_id
+            || location_data.item_id == *REMOTE_ID
+            || location_data.item_id == *DUMMY_ID
+        {
+            return Ok(key);
+        }
+    }
+    Err(Box::from("No location found"))
+}
+
+pub fn get_mapped_item_id(location_name: &str) -> Result<u32, Box<dyn Error>> {
+    let mapping_data = mapping::MAPPING.read()?;
+    let Some(mapping_data) = mapping_data.as_ref() else {
+        return Err(Box::from("No mapping data"));
+    };
+    Ok(constants::get_item_id(
+        &mapping_data
+            .items
+            .get(location_name)
+            .unwrap()
+            .item_name
+            .as_str(),
+    )
+    .unwrap())
+}
+
+pub fn edit_end_event(location_key: &str) {
+    match EVENT_TABLES.get(&get_mission()) {
+        None => {}
+        Some(event_tables) => {
+            for event_table in event_tables {
+                if event_table.location == location_key {
+                    for event in event_table.events.iter() {
+                        if event.event_type == EventCode::END {
+                            unsafe {
+                                log::debug!("Replaced END event at {:#X} with red orb", event.offset);
+                                utilities::replace_single_byte(
+                                    constants::EVENT_TABLE_ADDR + event.offset,
+                                    0x00, // (TODO) NOTE: This will fail if something like DDMK's arcade mode is used, due to the player having no officially picked up red orbs. But this shouldn't occur in normal gameplay.
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// If the location key corresponds to an END event and is checked off, return true, otherwise false
+/// Used for dummy related item
+pub(crate) fn location_is_checked_and_end(location_key: &str) -> bool {
+    match EVENT_TABLES.get(&get_mission()) {
+        None => false,
+        Some(event_tables) => {
+            for event_table in event_tables {
+                if event_table.location == location_key {
+                    for event in event_table.events.iter() {
+                        if event.event_type == EventCode::END {
+                            match get_checked_locations().read() {
+                                Ok(checked_locations) => {
+                                    if checked_locations.contains(&location_key) {
+                                        return true;
+                                    }
+                                }
+                                Err(err) => {
+                                    log::error!("Failed to get checked locations: {}", err);
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            false
+        }
+    }
+}
+
+/*pub fn room_transition() {
+    log::debug!("Room transition");
+    // To set the end event to a dummy item until the location is checked off
+    with_session_read(|s| {
+        if let Some(event_tables) = EVENT_TABLES.get(&s.mission) {
+            for event_table in event_tables {
+
+            }
+        }
+    }).unwrap();
+}*/

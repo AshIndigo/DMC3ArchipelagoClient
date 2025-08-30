@@ -3,9 +3,10 @@ use crate::utilities::{replace_single_byte, DMC3_ADDRESS};
 use minhook::{MinHook, MH_STATUS};
 use std::ptr::write_unaligned;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::{LazyLock, OnceLock, RwLock};
+use std::sync::{LazyLock, OnceLock};
 use std::time::{Duration, Instant};
 use std::{ptr, thread};
+use std::ops::Add;
 use winapi::um::memoryapi::VirtualProtect;
 use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
 
@@ -60,8 +61,8 @@ pub static RENDER_TEXT: OnceLock<
     ),
 > = OnceLock::new();
 
-static TEXT_DISPLAYED: LazyLock<RwLock<usize>> =
-    LazyLock::new(|| RwLock::new(*DMC3_ADDRESS.read().unwrap() + 0xCB89A0)); // 0x01 if text is being displayed
+static TEXT_DISPLAYED: LazyLock<usize> =
+    LazyLock::new(|| *DMC3_ADDRESS + 0xCB89A0); // 0x01 if text is being displayed
 
 /// Arguments:
 ///
@@ -75,8 +76,9 @@ static TEXT_DISPLAYED: LazyLock<RwLock<usize>> =
 pub fn display_text(message: &String, duration: Duration, x_axis_mod: i32, y_axis_mod: i32) {
     const TARGET_FPS: f64 = 60.0;
     let message = message.replace("\n", "<BR>");
+    let message = message.add("<NE>\x00");
     let frame_duration = Duration::from_secs_f64(1.0 / TARGET_FPS);
-    let text_displayed = *TEXT_DISPLAYED.read().unwrap();
+    let text_displayed = *TEXT_DISPLAYED;
     let timer_start = Instant::now();
     let message_ptr = message.as_ptr();
     // I don't really know what this does, but I think it helps with centering?
@@ -84,7 +86,7 @@ pub fn display_text(message: &String, duration: Duration, x_axis_mod: i32, y_axi
         std::mem::transmute::<
             usize,
             extern "C" fn(param_1: usize, param_2: *const u8, param_3: u8) -> i32,
-        >(*DMC3_ADDRESS.read().unwrap() + 0x2f1020)(text_displayed, message_ptr, 0)
+        >(*DMC3_ADDRESS + 0x2f1020)(text_displayed, message_ptr, 0)
     };
 
     let y_axis = -((x_axis & 0xffff) >> 1);
@@ -117,7 +119,7 @@ fn display_message(
 ) {
     unsafe {
         RENDER_TEXT.get_or_init(|| {
-            std::mem::transmute(*DMC3_ADDRESS.read().unwrap() + RENDER_TEXT_ADDR_NEW)
+            std::mem::transmute(*DMC3_ADDRESS + RENDER_TEXT_ADDR_NEW)
         })(
             text_displayed,
             message_ptr,                           // The string itself
@@ -144,13 +146,13 @@ pub fn display_message_via_index(message: String) {
     unsafe {
         replace_unused_with_text(message);
         DISPLAY_MESSAGE_VIA_INDEX.get_or_init(|| {
-            std::mem::transmute(*DMC3_ADDRESS.read().unwrap() + 0x2f08b0) // Offset to function
-        })(*TEXT_DISPLAYED.read().unwrap(), UNUSED_INDEX);
+            std::mem::transmute(*DMC3_ADDRESS + 0x2f08b0) // Offset to function
+        })(*TEXT_DISPLAYED, UNUSED_INDEX);
     }
 }
 
 pub fn replace_unused_with_text(message: String) {
-    let base = *DMC3_ADDRESS.read().unwrap();
+    let base = *DMC3_ADDRESS;
     unsafe {
         let message_begin: usize = GET_MESSAGE_START.get_or_init(|| {
             std::mem::transmute(base + 0x2F1180) // Offset to function
@@ -166,7 +168,7 @@ pub static DISPLAY_ITEM_GET_SCREEN: OnceLock<unsafe extern "C" fn(ptr: usize)> =
 pub(crate) const DISPLAY_ITEM_GET_ADDR: usize = 0x2955a0;
 pub fn replace_displayed_item_id(item_get: usize) {
     if CANCEL_TEXT.load(Ordering::SeqCst) {
-        let base = *DMC3_ADDRESS.read().unwrap();
+        let base = *DMC3_ADDRESS;
         let offset = base + 0x2957e3;
         let mut old_protect = 0;
         const LENGTH: usize = 6;
@@ -204,7 +206,9 @@ pub static SETUP_ITEM_GET_SCREEN: OnceLock<unsafe extern "C" fn(ptr: usize)> = O
 
 pub fn setup_item_get_screen(item_get: usize) {
     unsafe {
-        replace_single_byte(item_get + 0x36, LAST_OBTAINED_ID.load(Ordering::SeqCst));
+        if LAST_OBTAINED_ID.load(Ordering::SeqCst) != 0 {
+            replace_single_byte(item_get + 0x36, LAST_OBTAINED_ID.load(Ordering::SeqCst));
+        }
         if let Some(original) = SETUP_ITEM_GET_SCREEN.get() {
             original(item_get);
         }

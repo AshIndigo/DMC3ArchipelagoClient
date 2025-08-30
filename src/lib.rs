@@ -5,14 +5,18 @@ use crate::hook::CLIENT;
 use crate::ui::ui::CHECKLIST;
 use anyhow::{anyhow, Error};
 use archipelago_rs::protocol::ClientStatus;
-use log::{LevelFilter, Log};
-use simple_logger::SimpleLogger;
+use log::{LevelFilter};
 use std::collections::HashMap;
 use std::env::current_exe;
 use std::ffi::c_void;
 use std::sync::atomic::Ordering;
 use std::sync::RwLock;
 use std::{ptr, thread};
+use log4rs::append::console::ConsoleAppender;
+use log4rs::append::file::FileAppender;
+use log4rs::Config;
+use log4rs::config::{Appender, Root};
+use log4rs::encode::pattern::PatternEncoder;
 use ui::ui::CONNECTION_STATUS;
 use winapi::shared::guiddef::REFIID;
 use winapi::shared::minwindef::{DWORD, LPVOID};
@@ -41,12 +45,14 @@ mod save_handler;
 mod text_handler;
 mod ui;
 mod utilities;
+mod game_manager;
+mod location_handler;
 
 #[macro_export]
 /// Does not enable the hook, that needs to be done separately
 macro_rules! create_hook {
     ($offset:expr, $detour:expr, $storage:ident, $name:expr) => {{
-        let target = (*DMC3_ADDRESS.read().unwrap() + $offset) as *mut _;
+        let target = (*DMC3_ADDRESS + $offset) as *mut _;
         let detour_ptr = ($detour as *const ()) as *mut std::ffi::c_void;
         let original = MinHook::create_hook(target, detour_ptr)?;
         $storage
@@ -147,8 +153,26 @@ fn load_other_dlls() {
     let _ = unsafe { LoadLibraryA(b"Crimson.dll\0".as_ptr() as _) };
 }
 
-fn main_setup() {
-    let simple_logger = Box::new(
+fn setup_logger() {
+    let stdout = ConsoleAppender::builder()
+        .encoder(Box::new(PatternEncoder::new("{d} {h({l})} {t} - {m}{n}")))
+        .build();
+
+    // TODO I need to make this log to a new file each time, or wipe the previous log.
+    let log_file = FileAppender::builder()
+        .encoder(Box::new(PatternEncoder::new("{d} {l} {t} - {m}{n}")))
+        .build("log/dmc3a.log")
+        .unwrap();
+
+    let config = Config::builder()
+        .appender(Appender::builder().build("stdout", Box::new(stdout)))
+        .appender(Appender::builder().build("log_file", Box::new(log_file)))
+        .build(Root::builder().appender("stdout").appender("log_file").build(LevelFilter::Debug))
+        .unwrap();
+
+    let _handle = log4rs::init_config(config).unwrap();
+    // use handle to change logger configuration at runtime
+    /*    let simple_logger = Box::new(
         SimpleLogger::new()
             .with_module_level("tokio", LevelFilter::Warn)
             .with_module_level("tungstenite::protocol", LevelFilter::Warn)
@@ -165,8 +189,12 @@ fn main_setup() {
             egui_logger::builder().max_level(LevelFilter::Info).build(),
         )); // EGui will melt if this is anything higher
     }
-    multi_log::MultiLogger::init(loggers, log::Level::Debug).unwrap();
+    multi_log::MultiLogger::init(loggers, log::Level::Debug).unwrap();*/
+}
+
+fn main_setup() {
     create_console();
+    setup_logger();
     install_exception_handler();
     CHECKLIST
         .set(RwLock::new(HashMap::new()))
@@ -180,7 +208,7 @@ fn main_setup() {
     }
     log::info!(
         "DMC3 Base Address is: {:X}",
-        *utilities::DMC3_ADDRESS.read().unwrap()
+        *utilities::DMC3_ADDRESS
     );
     thread::Builder::new()
         .name("Archipelago Client".to_string())
@@ -267,7 +295,7 @@ pub(crate) async fn spawn_arch_thread() {
             break;
         };
 
-        log::info!("Processing connection request: {}", item);
+        log::info!("Processing connection request");
         let mut client_lock = CLIENT.lock().await;
 
         match connect_archipelago(item).await {

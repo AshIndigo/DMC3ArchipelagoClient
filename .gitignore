@@ -5,3 +5,5 @@ src/data/generated_locations.rs
 experiments/
 /src/experiments/
 /src/experiments
+/EventTableViewer/
+/EventTableViewer/src/

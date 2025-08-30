@@ -43,6 +43,7 @@ pub fn set_checklist_item(item: &str, value: bool) {
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
 pub(crate) async fn connect_button_pressed(url: String, name: String, password: String) {
+    log::debug!("Connecting to Archipelago");
     match archipelago::TX_ARCH.get() {
         None => log::error!("Connect TX doesn't exist"),
         Some(tx) => {

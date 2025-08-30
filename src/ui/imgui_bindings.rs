@@ -43,7 +43,7 @@ pub fn text<T: AsRef<str>>(text: T) {
     unsafe {
         let start = s.as_ptr();
         let end = start.add(s.len());
-        std::mem::transmute::<_, ImGuiText>(*MARY_ADDRESS.read().unwrap() + TEXT_ADDR)(start as *const c_char, end as *const c_char);
+        std::mem::transmute::<_, ImGuiText>(*MARY_ADDRESS + TEXT_ADDR)(start as *const c_char, end as *const c_char);
     }
 }
 
@@ -65,55 +65,55 @@ static IMGUI_POP_ID: OnceLock<BasicNothingFunc> = OnceLock::new();
 // Helpers to retrieve values
 pub fn get_imgui_end() -> &'static BasicNothingFunc {
     IMGUI_END.get_or_init(|| unsafe {
-        std::mem::transmute::<_, BasicNothingFunc>(*MARY_ADDRESS.read().unwrap() + END_FUNC_ADDR)
+        std::mem::transmute::<_, BasicNothingFunc>(*MARY_ADDRESS + END_FUNC_ADDR)
     })
 }
 
 pub fn get_imgui_begin() -> &'static ImGuiBegin {
     IMGUI_BEGIN.get_or_init(|| unsafe {
-        std::mem::transmute::<_, ImGuiBegin>(*MARY_ADDRESS.read().unwrap() + BEGIN_FUNC_ADDR)
+        std::mem::transmute::<_, ImGuiBegin>(*MARY_ADDRESS + BEGIN_FUNC_ADDR)
     })
 }
 
 pub fn get_imgui_button() -> &'static ImGuiButton {
     IMGUI_BUTTON.get_or_init(|| unsafe {
-        std::mem::transmute::<_, ImGuiButton>(*MARY_ADDRESS.read().unwrap() + BUTTON_ADDR)
+        std::mem::transmute::<_, ImGuiButton>(*MARY_ADDRESS + BUTTON_ADDR)
     })
 }
 
 pub fn get_imgui_next_pos() -> &'static ImGuiNextWindowPos {
     IMGUI_POS.get_or_init(|| unsafe {
-        std::mem::transmute::<_, ImGuiNextWindowPos>(*MARY_ADDRESS.read().unwrap() + NEXT_POS_FUNC_ADDR)
+        std::mem::transmute::<_, ImGuiNextWindowPos>(*MARY_ADDRESS + NEXT_POS_FUNC_ADDR)
     })
 }
 
 pub fn get_imgui_next_size() -> &'static ImGuiNextWindowPos {
     IMGUI_POS.get_or_init(|| unsafe {
-        std::mem::transmute::<_, ImGuiNextWindowPos>(*MARY_ADDRESS.read().unwrap() + NEXT_WINDOW_SIZE_ADDR)
+        std::mem::transmute::<_, ImGuiNextWindowPos>(*MARY_ADDRESS + NEXT_WINDOW_SIZE_ADDR)
     })
 }
 
 
 pub fn get_imgui_same_line() -> &'static ImGuiSameLine {
     IMGUI_SAME_LINE.get_or_init(|| unsafe {
-        std::mem::transmute::<_, ImGuiSameLine>(*MARY_ADDRESS.read().unwrap() + SAME_LINE_ADDR)
+        std::mem::transmute::<_, ImGuiSameLine>(*MARY_ADDRESS + SAME_LINE_ADDR)
     })
 }
 
 pub fn get_imgui_push_id() -> &'static ImGuiPushID {
     IMGUI_PUSH_ID.get_or_init(|| unsafe {
-        std::mem::transmute::<_, ImGuiPushID>(*MARY_ADDRESS.read().unwrap() + PUSH_ID_ADDR)
+        std::mem::transmute::<_, ImGuiPushID>(*MARY_ADDRESS + PUSH_ID_ADDR)
     })
 }
 
 pub fn get_imgui_pop_id() -> &'static BasicNothingFunc {
     IMGUI_POP_ID.get_or_init(|| unsafe {
-        std::mem::transmute::<_, BasicNothingFunc>(*MARY_ADDRESS.read().unwrap() + POP_ID_ADDR)
+        std::mem::transmute::<_, BasicNothingFunc>(*MARY_ADDRESS + POP_ID_ADDR)
     })
 }
 
 // pub fn get_imgui_checkbox() -> &'static ImGuiCheckbox {
 //     IMGUI_POS.get_or_init(|| unsafe {
-//         std::mem::transmute::<_, ImGuiCheckbox>(*MARY_ADDRESS.read().unwrap() + CHECKBOX_FUNC_ADDR)
+//         std::mem::transmute::<_, ImGuiCheckbox>(*MARY_ADDRESS + CHECKBOX_FUNC_ADDR)
 //     })
 // }
