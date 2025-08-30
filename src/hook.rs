@@ -268,10 +268,18 @@ fn modify_adjudicator(param_1: usize, param_2: usize, param_3: usize, adjudicato
                                 adjudicator_data + RANKING_OFFSET,
                                 data.ranking + 1,
                             );
-                            replace_single_byte(
-                                adjudicator_data + WEAPON_OFFSET,
-                                get_weapon_id(&*data.weapon),
-                            );
+                            if get_mission() != 14 {
+                                replace_single_byte(
+                                    adjudicator_data + WEAPON_OFFSET,
+                                    get_weapon_id(&*data.weapon),
+                                );
+                            } else {
+                                log::debug!("Mission 14 adjudicator moment");
+                                replace_single_byte(
+                                    adjudicator_data + WEAPON_OFFSET,
+                                    get_weapon_id(&*mappings.start_melee),
+                                );
+                            }
                         }
                         None => {}
                     },
