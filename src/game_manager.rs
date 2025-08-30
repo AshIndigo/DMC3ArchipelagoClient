@@ -121,20 +121,23 @@ pub(crate) fn give_magic(magic_val: f32) {
         ); // Max magic
         let char_data_ptr: usize =
             read_data_from_address(*DMC3_ADDRESS + ACTIVE_CHAR_DATA);
-        write_unaligned(
-            (char_data_ptr + 0x3EB8) as *mut f32,
-            read_unaligned((char_data_ptr + 0x3EB8) as *mut f32) + magic_val,
-        ); // Magic char
-        write_unaligned(
-            (char_data_ptr + 0x3EBC) as *mut f32,
-            read_unaligned((char_data_ptr + 0x3EBC) as *mut f32) + magic_val,
-        ); // Max magic char
+        if char_data_ptr != 0 {
+            write_unaligned(
+                (char_data_ptr + 0x3EB8) as *mut f32,
+                read_unaligned((char_data_ptr + 0x3EB8) as *mut f32) + magic_val,
+            ); // Magic char
+            write_unaligned(
+                (char_data_ptr + 0x3EBC) as *mut f32,
+                read_unaligned((char_data_ptr + 0x3EBC) as *mut f32) + magic_val,
+            ); // Max magic char
+        }
     }
 }
 
 pub(crate) fn give_hp(life_value: f32) {
     let base = *DMC3_ADDRESS;
     unsafe {
+        log::debug!("Normal data");
         write_unaligned(
             (base + CHARACTER_DATA + 0x16C + 0x64) as *mut f32,
             read_unaligned((base + CHARACTER_DATA + 0x16C + 0x64) as *mut f32) + life_value,
@@ -145,14 +148,16 @@ pub(crate) fn give_hp(life_value: f32) {
         ); // Max life
         let char_data_ptr: usize =
             read_data_from_address(*DMC3_ADDRESS + ACTIVE_CHAR_DATA);
-        write_unaligned(
-            (char_data_ptr + 0x411C) as *mut f32,
-            read_unaligned((char_data_ptr + 0x411C) as *mut f32) + life_value,
-        ); // Life char
-        write_unaligned(
-            (char_data_ptr + 0x40EC) as *mut f32,
-            read_unaligned((char_data_ptr + 0x40EC) as *mut f32) + life_value,
-        ); // Max Life char
+        if char_data_ptr != 0 {
+            write_unaligned(
+                (char_data_ptr + 0x411C) as *mut f32,
+                read_unaligned((char_data_ptr + 0x411C) as *mut f32) + life_value,
+            ); // Life char
+            write_unaligned(
+                (char_data_ptr + 0x40EC) as *mut f32,
+                read_unaligned((char_data_ptr + 0x40EC) as *mut f32) + life_value,
+            ); // Max Life char
+        }
     }
 }
 

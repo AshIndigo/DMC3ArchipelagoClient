@@ -140,10 +140,11 @@ pub fn item_non_event(item_struct: usize) {
 
 fn is_valid_id(item_id: u32) -> bool {
     // Various orbs that I don't care about
-    const INVALID_IDS: [u32; 11] = [0x00, 0x01, 0x02, 0x03, 0x04, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F];
+    const INVALID_IDS: [u32; 11] = [
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+    ];
     !INVALID_IDS.contains(&item_id)
 }
-
 
 /// Hook into item picked up method (1aa6e0). Handles item pick up locations
 pub fn item_event(loc_chk_flg: usize, item_id: i16, unknown: i32) {
@@ -173,22 +174,17 @@ pub fn item_event(loc_chk_flg: usize, item_id: i16, unknown: i32) {
                     Ok(location_name) => {
                         send_off_location_coords(
                             loc,
-                            location_handler::get_mapped_item_id(
-                               location_name,
-                            )
-                                .unwrap(),
+                            location_handler::get_mapped_item_id(location_name).unwrap(),
                         );
-                    },
+                    }
                     Err(err) => {
                         log::error!("Couldn't find location (Event): {}", err);
                         with_session_read(|s| {
                             log::debug!("Session Info: Mission: {} - Room: {}", s.mission, s.room);
-                        }).unwrap();
-
+                        })
+                        .unwrap();
                     }
                 }
-
-
             }
         }
         const EXTRA_EXTRA_OUTPUT: bool = false;
@@ -209,12 +205,6 @@ pub fn item_event(loc_chk_flg: usize, item_id: i16, unknown: i32) {
 
 /// To check off a mission as being completed
 pub fn mission_complete_check(cuid_result: usize, ranking: i32) -> i32 {
-    const M20: Location = Location {
-        item_id: u32::MAX,
-        room: -1,
-        _mission: 20,
-        coordinates: EMPTY_COORDINATES,
-    };
     with_session_read(|s| {
         log::info!(
             "Mission {} Finished on Difficulty {} Rank {} ({})",
@@ -224,7 +214,7 @@ pub fn mission_complete_check(cuid_result: usize, ranking: i32) -> i32 {
             ranking
         );
         if s.mission == 20 {
-          send_off_location_coords(M20, u32::MAX);
+            send_off_location_coords(M20, u32::MAX);
         }
     })
     .expect("Session Data was not available?");
@@ -245,12 +235,27 @@ pub(crate) struct Location {
     pub coordinates: Coordinates,
 }
 
+pub const M20: Location = Location {
+    item_id: u32::MAX,
+    room: -1,
+    _mission: 20,
+    coordinates: EMPTY_COORDINATES,
+};
+
 impl Display for Location {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Ok(
             write!(f, "Room ID: {:#} Item ID: {:#x}", self.room, self.item_id)
                 .expect("Failed to print Location as String!"),
         )
+    }
+}
+
+impl PartialEq for Location {
+    fn eq(&self, other: &Self) -> bool {
+        self.coordinates == other.coordinates
+            && self.room == other.room
+            && self.item_id == other.item_id
     }
 }
 

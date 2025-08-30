@@ -206,7 +206,7 @@ pub unsafe fn archipelago_window(mut instance: MutexGuard<LoginData>) {
                     text_handler::display_text(
                         &"Test Message\x00\x2E".to_string(),
                         Duration::from_secs(5),
-                        200,
+                        100,
                         -100,
                     );
                 });

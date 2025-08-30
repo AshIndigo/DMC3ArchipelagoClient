@@ -126,16 +126,16 @@ pub(crate) async fn handle_received_items_packet(
             }
         }
     }
-    log::debug!("Read the bank values");
     if received_items_packet.index > CURRENT_INDEX.load(Ordering::SeqCst) {
         for item in &received_items_packet.items {
             text_handler::display_text(
                 &format!("Received {}!", constants::get_item_name(item.item as u32)),
                 Duration::from_secs(1),
                 // Roughly up and to the left
-                200,
+                100,
                 -100,
             );
+            log::debug!("display text");
             if item.item < 0x14 {
                 if let Some(tx) = bank::TX_BANK_ADD.get() {
                     tx.send(NetworkItem {
@@ -147,6 +147,7 @@ pub(crate) async fn handle_received_items_packet(
                         .await?;
                 }
             }
+            log::debug!("Supplying added HP/Magic if needed");
             if item.item == 0x07 { // Blue orb
                 BLUE_ORBS_OBTAINED.fetch_add(1, Ordering::SeqCst);
                 game_manager::give_hp(constants::ONE_ORB);
@@ -161,6 +162,7 @@ pub(crate) async fn handle_received_items_packet(
             }
             // For key items
             if item.item >= 0x24 && item.item <= 0x39 {
+                log::debug!("Setting newly acquired key items");
                 //if let Some(_current_inv) = get_inv_address() {
                     match MISSION_ITEM_MAP.get(&(get_mission())) {
                         None => {} // No items for the mission

@@ -1,3 +1,4 @@
+use std::cmp::PartialEq;
 use crate::bank::{get_bank, get_bank_key};
 use crate::cache::read_cache;
 use crate::check_handler::Location;
@@ -5,13 +6,10 @@ use crate::constants::{ItemCategory, Status, GAME_NAME};
 use crate::data::generated_locations;
 use crate::ui::ui;
 use crate::ui::ui::CONNECTION_STATUS;
-use crate::{bank, cache, constants, game_manager, hook, item_sync, location_handler, mapping, save_handler, text_handler};
+use crate::{bank, cache, check_handler, constants, game_manager, hook, item_sync, location_handler, mapping, save_handler, text_handler};
 use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
-use archipelago_rs::protocol::{
-    Bounced, Connected, DataPackageObject, JSONColor, JSONMessagePart, NetworkItem, PrintJSON,
-    Retrieved, ServerMessage,
-};
+use archipelago_rs::protocol::{Bounced, ClientMessage, ClientStatus, Connected, DataPackageObject, JSONColor, JSONMessagePart, NetworkItem, PrintJSON, Retrieved, ServerMessage, StatusUpdate};
 use once_cell::sync::Lazy;
 use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
@@ -439,6 +437,12 @@ async fn handle_item_receive(
     let Some(mapping_data) = mapping_data.as_ref() else {
         return Err(Box::from(anyhow!("No mapping data")));
     };
+    if received_item == check_handler::M20 {
+        client.send(ClientMessage::StatusUpdate(StatusUpdate {
+            status: ClientStatus::ClientGoal,
+        })).await?;
+        return Ok(())
+    }
     if let Some(data_guard) = get_data_package() {
         if let Some(data) = data_guard.as_ref() {
             let location_key = location_handler::get_location_name_by_data(&received_item)?;
