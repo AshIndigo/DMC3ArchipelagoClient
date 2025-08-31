@@ -33,8 +33,8 @@ jobs:
         echo "CARGO_VERSION=$version" >> $env:GITHUB_ENV
     - name: Package files
       run: |
-        copy /b target\release\dinput8.dll dinput8.dll 
-        copy /a src\data\steam_appid.txt steam_appid.txt
+        Copy-Item -Path target/release/dinput8.dll -Destination dinput8.dll 
+        Copy-Item -Path src/data/steam_appid.txt -Destination steam_appid.txt
     
     - name: Upload a Build Artifact
       uses: actions/upload-artifact@v4.6.2
