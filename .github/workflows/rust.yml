@@ -16,5 +16,22 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - name: Cache
+      uses: actions/cache@v4
+      with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Build
-      run: cargo build --verbose --release
+      run: cargo build --release
+    - name: Upload a Build Artifact
+      uses: actions/upload-artifact@v4.6.2
+      with:
+        name: "DMC3 Archipelago"
+        path: |
+          target/release/dinput8.dll
+          src/data/steam_appid.txt
+
+
