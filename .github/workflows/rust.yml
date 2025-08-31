@@ -1,4 +1,4 @@
-name: Rust
+name: Build
 
 on:
   push:
@@ -43,5 +43,23 @@ jobs:
         path: |
             dinput8.dll
             steam_appid.txt
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
 
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: "DMC3-Archipelago-${{ env.CARGO_VERSION }}"
+          path: ./
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "DMC3-Archipelago-${{ env.CARGO_VERSION }}.zip"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
