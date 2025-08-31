@@ -7,9 +7,8 @@ use anyhow::{anyhow, Error};
 use archipelago_rs::protocol::ClientStatus;
 use log::LevelFilter;
 use log4rs::append::console::ConsoleAppender;
-use log4rs::append::rolling_file::policy::compound::roll::fixed_window::{
-    FixedWindowRoller,
-};
+use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller;
+use log4rs::append::rolling_file::policy::compound::trigger::onstartup::OnStartUpTrigger;
 use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
 use log4rs::append::rolling_file::RollingFileAppender;
 use log4rs::config::{Appender, Logger, Root};
@@ -21,7 +20,6 @@ use std::ffi::c_void;
 use std::sync::atomic::Ordering;
 use std::sync::RwLock;
 use std::{ptr, thread};
-use log4rs::append::rolling_file::policy::compound::trigger::onstartup::OnStartUpTrigger;
 use ui::ui::CONNECTION_STATUS;
 use winapi::shared::guiddef::REFIID;
 use winapi::shared::minwindef::{DWORD, LPVOID};
@@ -176,7 +174,11 @@ fn setup_logger() {
             "logs/dmc3_rando_latest.log",
             Box::new(CompoundPolicy::new(
                 Box::new(OnStartUpTrigger::new(10)), // 0x35c Rough guess based on the usual log output I spill out
-                Box::new(FixedWindowRoller::builder().build("logs/dmc3_rando_{}.log", 3).unwrap()),
+                Box::new(
+                    FixedWindowRoller::builder()
+                        .build("logs/dmc3_rando_{}.log", 3)
+                        .unwrap(),
+                ),
             )),
         )
         .unwrap();
@@ -184,7 +186,6 @@ fn setup_logger() {
     let config = Config::builder()
         .appender(Appender::builder().build("stdout", Box::new(stdout)))
         .appender(Appender::builder().build("log_file", Box::new(log_file)))
-
         .logger(Logger::builder().build("tracing::span", LevelFilter::Warn))
         .logger(Logger::builder().build("winit::window", LevelFilter::Warn))
         .logger(Logger::builder().build("eframe::native::run", LevelFilter::Warn))
