@@ -1,5 +1,4 @@
 use crate::constants::ItemCategory;
-use crate::experiments::event_table_handler;
 use crate::item_sync::{BLUE_ORBS_OBTAINED, PURPLE_ORBS_OBTAINED};
 use crate::ui::imgui_bindings::*;
 use crate::ui::ui;
@@ -17,9 +16,11 @@ use std::time::Duration;
 
 static SETUP: AtomicBool = AtomicBool::new(false);
 
-const MAIN_FUNC_ADDR: usize = 0x0cb3c0; //0xC65E0; // 0xC17B0 (For 2022 ddmk)
-const TIMESTEP_FUNC_ADDR: usize = 0x01de20; //0x1DE20; // 0x1DC50 (For 2022 ddmk)
-const DDMK_UI_ENABLED: usize = 0x13374a; //0x12c73a;
+pub const USE_2022_DDMK: bool = true;
+
+const MAIN_FUNC_ADDR: usize = if USE_2022_DDMK { 0xC17B0 } else { 0xcb3c0 }; //0xC65E0; // 0xC17B0 (For 2022 ddmk)
+const TIMESTEP_FUNC_ADDR: usize = if USE_2022_DDMK { 0x1DC50 } else { 0x01de20 }; //0x1DE20; // 0x1DC50 (For 2022 ddmk)
+const DDMK_UI_ENABLED: usize = if USE_2022_DDMK { 0x1258da } else { 0x13374a }; //0x12c73a; (Probably old indigo ver.)
 
 unsafe extern "C" fn hooked_timestep() {
     unsafe {
@@ -51,8 +52,7 @@ unsafe extern "C" fn hooked_render() {
                     on_screen_hud();
                 }
 
-                if !read_data_from_address::<bool>(DDMK_UI_ENABLED + *MARY_ADDRESS)
-                {
+                if !read_data_from_address::<bool>(DDMK_UI_ENABLED + *MARY_ADDRESS) {
                     return;
                 }
                 archipelago_window(instance); // For the archipelago window
@@ -170,14 +170,10 @@ pub unsafe fn archipelago_window(mut instance: MutexGuard<LoginData>) {
         input_rs("URL\0", &mut instance.archipelago_url, false); // TODO: Slight issue where some letters arent being cleared properly?
         input_rs("Username\0", &mut instance.username, false);
         input_rs("Password\0", &mut instance.password, true);
-        if get_imgui_button()(
+         if get_imgui_button()(
             "Connect\0".as_ptr() as *const c_char,
             &ImVec2 { x: 0.0, y: 0.0 },
         ) {
-            // log::debug!(
-            //     "Given URL: {}\0",
-            //     &mut instance.deref_mut().archipelago_url.trim().to_string()
-            // );
             ui::connect_button_pressed(
                 instance.archipelago_url.clone().trim().to_string(),
                 instance.username.clone().trim().to_string(),
@@ -196,7 +192,7 @@ pub unsafe fn archipelago_window(mut instance: MutexGuard<LoginData>) {
                 "Display Message\0".as_ptr() as *const c_char,
                 &ImVec2 { x: 0.0, y: 0.0 },
             ) {
-                thread::spawn(move || event_table_handler::call_event());
+                // thread::spawn(move || event_table_handler::call_event());
             }
             if get_imgui_button()(
                 "Display Message New\0".as_ptr() as *const c_char,
@@ -266,11 +262,8 @@ fn init_render_func() {
     ORIG_RENDER_FUNC.get_or_init(|| {
         Some(unsafe {
             std::mem::transmute::<_, BasicNothingFunc>(
-                MinHook::create_hook(
-                    (*MARY_ADDRESS + MAIN_FUNC_ADDR) as _,
-                    hooked_render as _,
-                )
-                .expect("Failed to create hook"),
+                MinHook::create_hook((*MARY_ADDRESS + MAIN_FUNC_ADDR) as _, hooked_render as _)
+                    .expect("Failed to create hook"),
             )
         })
     });

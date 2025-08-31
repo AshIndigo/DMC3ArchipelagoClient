@@ -42,7 +42,7 @@ mod cache;
 mod check_handler;
 mod constants;
 mod data;
-mod experiments;
+//mod experiments;
 mod game_manager;
 mod hook;
 mod item_sync;
