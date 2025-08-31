@@ -33,14 +33,15 @@ jobs:
         echo "CARGO_VERSION=$version" >> $env:GITHUB_ENV
     - name: Package files
       run: |
-        $zipName = "DMC3-Archipelago-v${{ env.CARGO_VERSION }}.zip"
-        Compress-Archive -Path target/release/dinput8.dll, src/data/steam_appid.txt -DestinationPath $zipName
-        echo "ZIP_NAME=$zipName" >> $env:GITHUB_ENV
+        copy /b target\release\dinput8.dll dinput8.dll 
+        copy /a src\data\steam_appid.txt steam_appid.txt
     
     - name: Upload a Build Artifact
       uses: actions/upload-artifact@v4.6.2
       with:
         name: "DMC3-Archipelago-${{ env.CARGO_VERSION }}"
-        path: ${{ env.ZIP_NAME }}
+        path: |
+            dinput8.dll
+            steam_appid.txt
 
 
