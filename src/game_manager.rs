@@ -56,8 +56,7 @@ pub enum SessionError {
     NotUsable, // If a save slot has not been loaded for whatever reason
 }
 
-static SESSION_PTR: LazyLock<usize> =
-    LazyLock::new(|| *DMC3_ADDRESS + GAME_SESSION_DATA);
+static SESSION_PTR: LazyLock<usize> = LazyLock::new(|| *DMC3_ADDRESS + GAME_SESSION_DATA);
 
 pub fn with_session_read<F, R>(f: F) -> Result<R, SessionError>
 where
@@ -119,8 +118,7 @@ pub(crate) fn give_magic(magic_val: f32) {
             (base + CHARACTER_DATA + 0x16C + 0x70) as *mut f32,
             read_unaligned((base + CHARACTER_DATA + 0x16C + 0x70) as *mut f32) + magic_val,
         ); // Max magic
-        let char_data_ptr: usize =
-            read_data_from_address(*DMC3_ADDRESS + ACTIVE_CHAR_DATA);
+        let char_data_ptr: usize = read_data_from_address(*DMC3_ADDRESS + ACTIVE_CHAR_DATA);
         if char_data_ptr != 0 {
             write_unaligned(
                 (char_data_ptr + 0x3EB8) as *mut f32,
@@ -146,8 +144,7 @@ pub(crate) fn give_hp(life_value: f32) {
             (base + CHARACTER_DATA + 0x16C + 0x68) as *mut f32,
             read_unaligned((base + CHARACTER_DATA + 0x16C + 0x68) as *mut f32) + life_value,
         ); // Max life
-        let char_data_ptr: usize =
-            read_data_from_address(*DMC3_ADDRESS + ACTIVE_CHAR_DATA);
+        let char_data_ptr: usize = read_data_from_address(*DMC3_ADDRESS + ACTIVE_CHAR_DATA);
         if char_data_ptr != 0 {
             write_unaligned(
                 (char_data_ptr + 0x411C) as *mut f32,
@@ -238,8 +235,7 @@ pub fn set_max_hp_and_magic() {
 }
 
 pub(crate) fn kill_dante() {
-    let char_data_ptr: usize =
-        read_data_from_address(*DMC3_ADDRESS + ACTIVE_CHAR_DATA);
+    let char_data_ptr: usize = read_data_from_address(*DMC3_ADDRESS + ACTIVE_CHAR_DATA);
     unsafe {
         write_unaligned((char_data_ptr + 0x411C) as *mut f32, 0.0);
     }

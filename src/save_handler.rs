@@ -1,7 +1,7 @@
+use crate::constants::get_weapon_id;
 use crate::mapping::MAPPING;
 use crate::ui::ui;
 use crate::utilities::DMC3_ADDRESS;
-use crate::constants;
 use crate::{create_hook, utilities};
 use minhook::MinHook;
 use minhook::MH_STATUS;
@@ -64,8 +64,7 @@ pub(crate) fn create_special_save() -> Result<(), Box<dyn std::error::Error>> {
     }
     let save_bytes = set_starting_weapons(save_bytes)?;
     unsafe {
-        ORIGINAL_WRITE_CRC
-            .get_or_init(|| std::mem::transmute(*DMC3_ADDRESS + ORIGINAL_CRC_ADDR))(
+        ORIGINAL_WRITE_CRC.get_or_init(|| std::mem::transmute(*DMC3_ADDRESS + ORIGINAL_CRC_ADDR))(
             save_bytes.as_ptr().addr() + 0x3B8,
             0x708,
         );
@@ -87,19 +86,12 @@ fn set_starting_weapons(
     let mut gun = 5;
 
     if !&mappings.start_melee.as_str().eq("Rebellion") {
-        melee = constants::ITEM_ID_MAP
-            .get(&mappings.start_melee.as_str())
-            .unwrap()
-            - 0x16;
+        melee = get_weapon_id(&mappings.start_melee.as_str());
     }
     if !&mappings.start_gun.as_str().eq("Ebony & Ivory") {
-        gun = constants::ITEM_ID_MAP
-            .get(&mappings.start_gun.as_str())
-            .unwrap()
-            - 0x1C
-            + 0x05;
+        gun = get_weapon_id(&mappings.start_gun.as_str())
     }
-    log::debug!("Gun ID: {} - Melee ID: {}", gun, melee);
+    log::debug!("Gun ID: {:#X} - Melee ID: {:#X}", gun, melee);
     save_bytes[0x414] = melee as u8;
     save_bytes[0x416] = gun as u8;
     Ok(save_bytes)
