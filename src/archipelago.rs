@@ -388,10 +388,12 @@ async fn handle_bounced(
     _client: &mut ArchipelagoClient,
 ) -> Result<(), Box<dyn Error>> {
     const DEATH_LINK: &str = "Deathlink";
-    if bounced.tags.contains(&DEATH_LINK.to_string()) {
-        log::debug!("Deathlink detected");
-        log::info!("{}", bounced.data.get("cause").unwrap().as_str().unwrap());
-        game_manager::kill_dante();
+    if bounced.tags.is_some() {
+        if bounced.tags.unwrap().contains(&DEATH_LINK.to_string()) {
+            log::debug!("Deathlink detected");
+            log::info!("{}", bounced.data.get("cause").unwrap().as_str().unwrap());
+            game_manager::kill_dante();
+        }
     }
     Ok(())
 }
