@@ -235,7 +235,7 @@ pub(crate) fn rewrite_mode_table() {
 }
 
 /// Modify adjudicator weapon and rank info
-fn modify_adjudicator(param_1: usize, param_2: usize, param_3: usize, adjudicator_data: usize) {
+fn modify_adjudicator(param_1: usize, param_2: usize, param_3: usize, adjudicator_data: usize) -> usize {
     const LOG_ADJU_DATA: bool = true;
     const RANKING_OFFSET: usize = 0x04;
     const WEAPON_OFFSET: usize = 0x06;
@@ -298,10 +298,12 @@ fn modify_adjudicator(param_1: usize, param_2: usize, param_3: usize, adjudicato
                     read_data_from_address::<u8>(adjudicator_data + WEAPON_OFFSET)
                 );
             }
-            if let Some(original) = ORIGINAL_ADJUDICATOR_DATA.get() {
-                unsafe { original(param_1, param_2, param_3, adjudicator_data) }
-            }
         }
+    }
+    if let Some(original) = ORIGINAL_ADJUDICATOR_DATA.get() {
+        unsafe { original(param_1, param_2, param_3, adjudicator_data) }
+    } else {
+        panic!("Could not find original adjudicator method")
     }
 }
 

@@ -26,7 +26,7 @@ pub static ORIGINAL_DAMAGE_CALC: OnceLock<
 
 pub const ADJUDICATOR_DATA_ADDR: usize = 0x24f970;
 pub static ORIGINAL_ADJUDICATOR_DATA: OnceLock<
-    unsafe extern "C" fn(param_1: usize, param_2: usize, param_3: usize, param_4: usize),
+    unsafe extern "C" fn(param_1: usize, param_2: usize, param_3: usize, param_4: usize) -> usize,
 > = OnceLock::new();
 pub const ONE_ORB: f32 = 1000.0; // One Blue/Purple orb is worth 1000 "points"
 pub const BASE_HP: f32 = 6.0 * ONE_ORB;
