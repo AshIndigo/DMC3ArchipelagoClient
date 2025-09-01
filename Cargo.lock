@@ -231,7 +231,7 @@ checksum = "69f7f8c3906b62b754cd5326047894316021dcfe5a194c8ea52bdd94934a3457"
 [[package]]
 name = "archipelago_rs"
 version = "0.1.0"
-source = "git+https://github.com/AshIndigo/archipelago_rs.git#af8339ced3e11c01b9ffc17e975474c8363610c0"
+source = "git+https://github.com/AshIndigo/archipelago_rs.git#86467bdea1f72e0c231cc6441c0cd10604fd9518"
 dependencies = [
  "futures-util",
  "log",
