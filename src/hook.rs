@@ -7,10 +7,7 @@ use crate::location_handler::in_key_item_room;
 use crate::mapping::{Mapping, MAPPING};
 use crate::ui::ui::{CHECKLIST, CONNECTION_STATUS};
 use crate::utilities::{read_data_from_address, replace_single_byte, DMC3_ADDRESS};
-use crate::{
-    check_handler, create_hook, game_manager, save_handler, text_handler,
-    utilities,
-};
+use crate::{check_handler, create_hook, game_manager, save_handler, text_handler, utilities};
 use archipelago_rs::client::ArchipelagoClient;
 use archipelago_rs::protocol::{Bounce, ClientMessage};
 use log::error;
@@ -252,7 +249,14 @@ fn modify_adjudicator(param_1: usize, param_2: usize, param_3: usize, adjudicato
                     Rank::from_repr(
                         read_data_from_address::<u8>(adjudicator_data + RANKING_OFFSET) as usize
                             - 1
-                    ).expect(format!("Unable to get rank from adjudicator: {}", read_data_from_address::<u8>(adjudicator_data + RANKING_OFFSET)).as_str())
+                    )
+                    .expect(
+                        format!(
+                            "Unable to get rank from adjudicator: {}",
+                            read_data_from_address::<u8>(adjudicator_data + RANKING_OFFSET)
+                        )
+                        .as_str()
+                    )
                 );
                 log::debug!(
                     "Melee: {}",
@@ -268,18 +272,10 @@ fn modify_adjudicator(param_1: usize, param_2: usize, param_3: usize, adjudicato
                                 adjudicator_data + RANKING_OFFSET,
                                 data.ranking + 1,
                             );
-                            if get_mission() != 14 {
-                                replace_single_byte(
-                                    adjudicator_data + WEAPON_OFFSET,
-                                    get_weapon_id(&*data.weapon),
-                                );
-                            } else {
-                                log::debug!("Mission 14 adjudicator moment");
-                                replace_single_byte(
-                                    adjudicator_data + WEAPON_OFFSET,
-                                    get_weapon_id(&*mappings.start_melee),
-                                );
-                            }
+                            replace_single_byte(
+                                adjudicator_data + WEAPON_OFFSET,
+                                get_weapon_id(&*data.weapon),
+                            );
                         }
                         None => {}
                     },
@@ -369,8 +365,6 @@ fn item_spawns_hook(unknown: usize) {
         }
     }
 }
-
-
 
 fn monitor_hp(damage_calc: usize, param_1: usize, param_2: usize, param_3: usize) {
     unsafe { ORIGINAL_DAMAGE_CALC.get().unwrap()(damage_calc, param_1, param_2, param_3) }
@@ -592,7 +586,6 @@ fn set_relevant_key_items() {
         }
     })
     .unwrap();
-
 }
 
 /// Disable hooks, used for disconnecting
