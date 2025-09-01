@@ -391,7 +391,9 @@ async fn handle_bounced(
     if bounced.tags.is_some() {
         if bounced.tags.unwrap().contains(&DEATH_LINK.to_string()) {
             log::debug!("Deathlink detected");
-            log::info!("{}", bounced.data.get("cause").unwrap().as_str().unwrap());
+            if bounced.data.is_some() {
+                log::info!("{}", bounced.data.unwrap().get("cause").unwrap().as_str().unwrap());
+            }
             game_manager::kill_dante();
         }
     }
