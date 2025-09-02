@@ -50,12 +50,12 @@ pub fn is_ddmk_loaded() -> bool {
 }
 
 /// Checks to see if Crimson is loaded
-pub fn _is_crimson_loaded() -> bool {
+pub fn is_crimson_loaded() -> bool {
     is_library_loaded("Crimson.dll")
 }
 
 pub fn _is_addon_mod_loaded() -> bool {
-    is_ddmk_loaded() || _is_crimson_loaded()
+    is_ddmk_loaded() || is_crimson_loaded()
 }
 
 pub fn is_library_loaded(name: &str) -> bool {

@@ -199,10 +199,12 @@ pub fn edit_event_drop(param_1: usize, param_2: i32, param_3: usize) {
                         }
                     }
                 }
-                if let Some(original) = ORIGINAL_EDIT_EVENT.get() {
-                    original(param_1, param_2, param_3);
-                }
             }
+        }
+    }
+    unsafe {
+        if let Some(original) = ORIGINAL_EDIT_EVENT.get() {
+            original(param_1, param_2, param_3);
         }
     }
 }

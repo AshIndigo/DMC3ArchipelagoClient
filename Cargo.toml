@@ -37,10 +37,10 @@ owo-colors = "4.2.2"
 #strum = "0.27"
 strum_macros = "0.27"
 log4rs = "1.4.0-rc2"
+xxhash-rust = { version = "0.8.15", features = ["const_xxh3"] }
 
 
 # Experimental
 egui-directx11 = "0.10.0"
 egui_overlay = { git = "https://github.com/loud2pro/egui_overlay" }
 function_name = "0.3.0"
-

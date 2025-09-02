@@ -52,8 +52,8 @@ pub(crate) async fn connect_button_pressed(url: String, name: String, password: 
                 name,
                 password,
             })
-                .await
-                .expect("Failed to send data");
+            .await
+            .expect("Failed to send data");
         }
     }
 }
@@ -107,7 +107,7 @@ pub fn load_login_data() -> Result<(), Box<dyn std::error::Error>> {
             Err(err) => Err(err.into()),
         }
     } else {
-        Err("Failed to find login data".into())
+        Err("Failed to find login data file.\n\
+        If this is a fresh install this is to be expected, the file will be created upon connection to a room.".into())
     }
 }
-

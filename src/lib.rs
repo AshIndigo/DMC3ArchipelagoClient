@@ -3,7 +3,8 @@ use crate::bank::{setup_bank_add_channel, setup_bank_to_inv_channel};
 use crate::constants::Status;
 use crate::hook::CLIENT;
 use crate::ui::ui::CHECKLIST;
-use anyhow::{anyhow, Error};
+use crate::utilities::{is_crimson_loaded, is_ddmk_loaded};
+use anyhow::anyhow;
 use archipelago_rs::protocol::ClientStatus;
 use log::LevelFilter;
 use log4rs::append::console::ConsoleAppender;
@@ -17,9 +18,10 @@ use log4rs::Config;
 use std::collections::HashMap;
 use std::env::current_exe;
 use std::ffi::c_void;
+use std::io::ErrorKind;
 use std::sync::atomic::Ordering;
 use std::sync::RwLock;
-use std::{ptr, thread};
+use std::{fs, ptr, thread};
 use ui::ui::CONNECTION_STATUS;
 use winapi::shared::guiddef::REFIID;
 use winapi::shared::minwindef::{DWORD, LPVOID};
@@ -33,6 +35,7 @@ use windows::Win32::System::Console::{
     ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_OUTPUT_HANDLE,
 };
 use windows::Win32::System::Diagnostics::Debug::EXCEPTION_CONTINUE_SEARCH;
+use xxhash_rust::const_xxh3::xxh3_64;
 
 mod archipelago;
 mod bank;
@@ -110,8 +113,37 @@ pub extern "system" fn DllMain(
         DLL_PROCESS_ATTACH => {
             thread::spawn(|| {
                 load_real_dinput8();
+                create_console();
+                setup_logger();
                 if current_exe().unwrap().ends_with("dmc3.exe") {
-                    load_other_dlls();
+                    match load_other_dlls() {
+                        Ok(_) => {
+                            log::debug!("Successfully loaded extra mods!");
+                        }
+                        Err(err) => {
+                            log::error!("Failed to load extra mods: {}", err);
+                        }
+                    }
+                    match is_file_valid("dmc3.exe", 9031715114876197692) {
+                        Ok(_) => {
+                            log::info!("Valid install of DMC3 detected!");
+                        }
+                        Err(err) => match err.kind() {
+                            ErrorKind::InvalidData => {
+                                log::error!(
+                                    "DMC3 does not match the expected hash, bad things may occur! Please downgrade/repatch your game."
+                                )
+                            }
+                            ErrorKind::NotFound => {
+                                log::error!(
+                                    "DMC3 does not exist! How in the world did you manage this"
+                                );
+                            }
+                            _ => {
+                                log::error!("Unexpected error: {}", err);
+                            }
+                        },
+                    }
                     main_setup();
                 }
             });
@@ -150,10 +182,45 @@ fn install_exception_handler() {
     }
 }
 
-fn load_other_dlls() {
+fn load_other_dlls() -> Result<(), std::io::Error> {
     // The game will immolate if both of these try to load
-    let _ = unsafe { LoadLibraryA(b"Mary.dll\0".as_ptr() as _) };
-    let _ = unsafe { LoadLibraryA(b"Crimson.dll\0".as_ptr() as _) };
+
+    match is_file_valid("Mary.dll", 7087074874482460961) {
+        Ok(_) => {
+            let _ = unsafe { LoadLibraryA(b"Mary.dll\0".as_ptr() as _) };
+        }
+        Err(err) => match err.kind() {
+            ErrorKind::InvalidData => {
+                log::error!("Mary/DDMK Hash does not match version 2.7.3, please update DDMK")
+            }
+            ErrorKind::NotFound => {}
+            _ => {
+                log::error!("Unexpected error: {}", err);
+            }
+        },
+    }
+    if !is_ddmk_loaded() {
+        let _ = unsafe { LoadLibraryA(b"Crimson.dll\0".as_ptr() as _) };
+    }
+    if is_crimson_loaded() {
+        log::info!("Crimson has been loaded!");
+        log::warn!(
+            "Crimson has not been extensively tested with the randomizer, crashes or other issues may occur."
+        )
+    }
+    Ok(())
+}
+
+fn is_file_valid(file_path: &str, expected_hash: u64) -> Result<(), std::io::Error> {
+    let data = fs::read(file_path)?;
+    if xxh3_64(&data) == expected_hash {
+        Ok(())
+    } else {
+        Err(std::io::Error::new(
+            ErrorKind::InvalidData,
+            "File has invalid hash",
+        ))
+    }
 }
 
 fn setup_logger() {
@@ -221,13 +288,11 @@ fn setup_logger() {
 }
 
 fn main_setup() {
-    create_console();
-    setup_logger();
     install_exception_handler();
     CHECKLIST
         .set(RwLock::new(HashMap::new()))
         .expect("Unable to create the Checklist HashMap");
-    if utilities::is_ddmk_loaded() {
+    if is_ddmk_loaded() {
         log::info!("DDMK is loaded!");
         ui::ddmk_hook::setup_ddmk_hook();
     } else {
@@ -262,7 +327,7 @@ pub extern "system" fn DirectInput8Create(
 pub fn create_console() {
     unsafe {
         if AllocConsole().is_ok() {
-            pub fn enable_ansi_support() -> Result<(), Error> {
+            pub fn enable_ansi_support() -> Result<(), anyhow::Error> {
                 // So we can have sweet sweet color
                 unsafe {
                     let handle = GetStdHandle(STD_OUTPUT_HANDLE)?;
