@@ -73,10 +73,12 @@ pub fn edit_end_event(location_key: &str) {
                         if event.event_type == EventCode::END {
                             unsafe {
                                 log::debug!("Replaced END event at {:#X} with red orb", event.offset);
-                                utilities::replace_single_byte(
-                                    constants::EVENT_TABLE_ADDR + event.offset,
-                                    0x00, // (TODO) NOTE: This will fail if something like DDMK's arcade mode is used, due to the player having no officially picked up red orbs. But this shouldn't occur in normal gameplay.
-                                );
+                                if let Some(event_table_addr) = utilities::get_event_address() {
+                                    utilities::replace_single_byte(
+                                        event_table_addr + event.offset,
+                                        0x00, // (TODO) NOTE: This will fail if something like DDMK's arcade mode is used, due to the player having no officially picked up red orbs. But this shouldn't occur in normal gameplay.
+                                    );
+                                }
                             }
                         }
                     }

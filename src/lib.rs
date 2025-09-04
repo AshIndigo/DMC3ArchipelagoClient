@@ -25,16 +25,14 @@ use std::{fs, ptr, thread};
 use ui::ui::CONNECTION_STATUS;
 use winapi::shared::guiddef::REFIID;
 use winapi::shared::minwindef::{DWORD, LPVOID};
-use winapi::um::errhandlingapi::AddVectoredExceptionHandler;
 use winapi::um::libloaderapi::{GetModuleHandleW, LoadLibraryA};
-use winapi::um::winnt::{EXCEPTION_POINTERS, HRESULT};
+use winapi::um::winnt::{HRESULT};
 use windows::core::BOOL;
 use windows::Win32::Foundation::*;
 use windows::Win32::System::Console::{
     AllocConsole, FreeConsole, GetConsoleMode, GetStdHandle, SetConsoleMode,
     ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_OUTPUT_HANDLE,
 };
-use windows::Win32::System::Diagnostics::Debug::EXCEPTION_CONTINUE_SEARCH;
 use xxhash_rust::const_xxh3::xxh3_64;
 
 mod archipelago;
@@ -53,6 +51,7 @@ mod save_handler;
 mod text_handler;
 mod ui;
 mod utilities;
+mod exception_handler;
 
 #[macro_export]
 /// Does not enable the hook, that needs to be done separately
@@ -158,28 +157,6 @@ pub extern "system" fn DllMain(
     }
 
     BOOL(1)
-}
-
-extern "system" fn exception_handler(exception_info: *mut EXCEPTION_POINTERS) -> i32 {
-    unsafe {
-        let record = &*(*exception_info).ExceptionRecord;
-        let code = record.ExceptionCode;
-
-        if code == EXCEPTION_ACCESS_VIOLATION.0 as u32
-            || code == EXCEPTION_ILLEGAL_INSTRUCTION.0 as u32
-            || code == EXCEPTION_INT_DIVIDE_BY_ZERO.0 as u32
-        {
-            log::error!("Caught exception: {:X}", code);
-            log::error!("Address: {:?}", (*exception_info).ContextRecord);
-        }
-    }
-    EXCEPTION_CONTINUE_SEARCH
-}
-
-fn install_exception_handler() {
-    unsafe {
-        AddVectoredExceptionHandler(1, Some(exception_handler));
-    }
 }
 
 fn load_other_dlls() -> Result<(), std::io::Error> {
@@ -288,7 +265,7 @@ fn setup_logger() {
 }
 
 fn main_setup() {
-    install_exception_handler();
+    exception_handler::install_exception_handler();
     CHECKLIST
         .set(RwLock::new(HashMap::new()))
         .expect("Unable to create the Checklist HashMap");

@@ -1,7 +1,6 @@
 use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::sync::{LazyLock, OnceLock};
-
 // DMC3 Offsets+Functions - Offsets are from 2022 DDMK's version
 
 pub const ITEM_SPAWNS_ADDR: usize = 0x1b4440; // 0x1b4480
@@ -12,8 +11,7 @@ pub const EDIT_EVENT_HOOK_ADDR: usize = 0x1a9bc0;
 pub static ORIGINAL_EDIT_EVENT: OnceLock<
     unsafe extern "C" fn(param_1: usize, param_2: i32, param_3: usize),
 > = OnceLock::new();
-pub const ITEM_MODE_TABLE: usize = 0x1B4534;
-pub const EVENT_TABLE_ADDR: usize = 0x01A42680; // TODO is this gonna be ok?
+pub const ITEM_MODE_TABLE: usize = 0x1B4534; // This is actually a constant, we like this one
 
 pub const EQUIPMENT_SCREEN_ADDR: usize = 0x28CBD0;
 pub static ORIGINAL_EQUIPMENT_SCREEN: OnceLock<unsafe extern "C" fn(cuid_weapon: usize) -> i32> =

@@ -155,29 +155,30 @@ pub fn edit_event_drop(param_1: usize, param_2: i32, param_3: usize) {
                 // For each table
                 for event_table in mission_event_tables {
                     for event in &event_table.events {
-                        if checked_locations.contains(&event_table.location) {
-                            log::debug!("Event loc checked: {}", &event_table.location);
-                            match event.event_type {
-                                // If the location has already been checked use DUMMY_ID as a dummy item.
-                                EventCode::GIVE => replace_single_byte(
-                                    EVENT_TABLE_ADDR + event.offset,
-                                    *DUMMY_ID as u8,
-                                ),
-                                EventCode::CHECK => replace_single_byte(
-                                    EVENT_TABLE_ADDR + event.offset,
-                                    *DUMMY_ID as u8,
-                                ),
-                                EventCode::END => replace_single_byte(
-                                    EVENT_TABLE_ADDR + event.offset,
-                                    *DUMMY_ID as u8,
-                                ),
-                            }
-                        } else {
-                            log::debug!("Event loc not checked: {}", &event_table.location);
-                            match event.event_type {
-                                // Location has not been checked off!
-                                EventCode::GIVE => log::debug!("Give event")/*replace_single_byte(
-                                    EVENT_TABLE_ADDR + event.offset,
+                        if let Some(event_table_addr) = utilities::get_event_address() {
+                            if checked_locations.contains(&event_table.location) {
+                                log::debug!("Event loc checked: {}", &event_table.location);
+                                match event.event_type {
+                                    // If the location has already been checked use DUMMY_ID as a dummy item.
+                                    EventCode::GIVE => replace_single_byte(
+                                        event_table_addr + event.offset,
+                                        *DUMMY_ID as u8,
+                                    ),
+                                    EventCode::CHECK => replace_single_byte(
+                                        event_table_addr + event.offset,
+                                        *DUMMY_ID as u8,
+                                    ),
+                                    EventCode::END => replace_single_byte(
+                                        event_table_addr + event.offset,
+                                        *DUMMY_ID as u8,
+                                    ),
+                                }
+                            } else {
+                                log::debug!("Event loc not checked: {}", &event_table.location);
+                                match event.event_type {
+                                    // Location has not been checked off!
+                                    EventCode::GIVE => log::debug!("Give event")/*replace_single_byte(
+                                    event_table_addr + event.offset,
                                     get_item_id(
                                         &*mapping
                                             .items
@@ -187,13 +188,14 @@ pub fn edit_event_drop(param_1: usize, param_2: i32, param_3: usize) {
                                     )
                                     .unwrap(),
                                 )*/,
-                                EventCode::CHECK => {
-                                    log::debug!("Replaced check at {:#X}", &event.offset);
-                                    replace_single_byte(EVENT_TABLE_ADDR + event.offset, *DUMMY_ID as u8)
-                                }
-                                EventCode::END => {
-                                    log::debug!("Replaced end at {:#X}", &event.offset);
-                                    replace_single_byte(EVENT_TABLE_ADDR + event.offset, *DUMMY_ID as u8)
+                                    EventCode::CHECK => {
+                                        log::debug!("Replaced check at {:#X}", &event.offset);
+                                        replace_single_byte(event_table_addr + event.offset, *DUMMY_ID as u8)
+                                    }
+                                    EventCode::END => {
+                                        log::debug!("Replaced end at {:#X}", &event.offset);
+                                        replace_single_byte(event_table_addr + event.offset, *DUMMY_ID as u8)
+                                    }
                                 }
                             }
                         }
@@ -237,7 +239,12 @@ pub(crate) fn rewrite_mode_table() {
 }
 
 /// Modify adjudicator weapon and rank info
-fn modify_adjudicator(param_1: usize, param_2: usize, param_3: usize, adjudicator_data: usize) -> usize {
+fn modify_adjudicator(
+    param_1: usize,
+    param_2: usize,
+    param_3: usize,
+    adjudicator_data: usize,
+) -> usize {
     const LOG_ADJU_DATA: bool = true;
     const RANKING_OFFSET: usize = 0x04;
     const WEAPON_OFFSET: usize = 0x06;

@@ -18,6 +18,17 @@ pub fn get_inv_address() -> Option<usize> {
     if val == 0 { None } else { Some(val) }
 }
 
+pub fn get_event_address() -> Option<usize> { // Remember kids, assuming makes an ass out of u and ming
+    const EVENT_PTR: usize = 0xC9DDB8;
+    let event_table_addr: usize = read_data_from_address::<usize>(*DMC3_ADDRESS + EVENT_PTR);
+
+    if unsafe { slice::from_raw_parts(event_table_addr as *const u8, 3) } != b"EVT" {
+        log::error!("Pointer was not pointing to event table");
+        return None;
+    }
+    Some(event_table_addr)
+}
+
 pub static MARY_ADDRESS: LazyLock<usize> =
     LazyLock::new(|| get_base_address("Mary.dll"));
 
