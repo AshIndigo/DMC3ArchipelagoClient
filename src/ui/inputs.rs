@@ -1,5 +1,5 @@
 use crate::ui::imgui_bindings::{ImGuiTextInput, INPUT_ADDR};
-use crate::utilities::MARY_ADDRESS;
+use crate::ui::ddmk_hook::MARY_ADDRESS;
 use imgui::{sys, HistoryDirection, InputTextCallback, InputTextFlags};
 use std::ops::Range;
 use std::os::raw::{c_char, c_int, c_void};

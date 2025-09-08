@@ -1,16 +1,15 @@
-
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::slice;
-use std::sync::{LazyLock};
-use winapi::shared::minwindef::HINSTANCE;
+use std::sync::LazyLock;
+use winapi::shared::minwindef::{FALSE, HINSTANCE};
+use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::libloaderapi::GetModuleHandleW;
 use winapi::um::memoryapi::VirtualProtect;
 use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
 
 /// The base address for DMC3
-pub static DMC3_ADDRESS: LazyLock<usize> =
-    LazyLock::new(|| get_base_address("dmc3.exe"));
+pub static DMC3_ADDRESS: LazyLock<usize> = LazyLock::new(|| get_base_address("dmc3.exe"));
 
 pub fn get_inv_address() -> Option<usize> {
     const INVENTORY_PTR: usize = 0xC90E28 + 0x8;
@@ -18,7 +17,8 @@ pub fn get_inv_address() -> Option<usize> {
     if val == 0 { None } else { Some(val) }
 }
 
-pub fn get_event_address() -> Option<usize> { // Remember kids, assuming makes an ass out of u and ming
+pub fn get_event_address() -> Option<usize> {
+    // Remember kids, assuming makes an ass out of u and ming
     const EVENT_PTR: usize = 0xC9DDB8;
     let event_table_addr: usize = read_data_from_address::<usize>(*DMC3_ADDRESS + EVENT_PTR);
 
@@ -29,9 +29,6 @@ pub fn get_event_address() -> Option<usize> { // Remember kids, assuming makes a
     Some(event_table_addr)
 }
 
-pub static MARY_ADDRESS: LazyLock<usize> =
-    LazyLock::new(|| get_base_address("Mary.dll"));
-
 pub(crate) fn read_data_from_address<T>(address: usize) -> T
 where
     T: Copy,
@@ -40,7 +37,7 @@ where
 }
 
 /// Generic method to get the base address for the specified module, returns 0 if it doesn't exist
-fn get_base_address(module_name: &str) -> usize {
+pub(crate) fn get_base_address(module_name: &str) -> usize {
     let wide_name: Vec<u16> = OsStr::new(&module_name)
         .encode_wide()
         .chain(std::iter::once(0))
@@ -91,14 +88,19 @@ pub unsafe fn replace_single_byte(offset: usize, new_value: u8) {
     unsafe {
         let length = 1;
         let mut old_protect = 0;
-        VirtualProtect(
+        if VirtualProtect(
             offset as *mut _,
             length,
             PAGE_EXECUTE_READWRITE,
             &mut old_protect,
-        );
+        ) == FALSE
+        {
+            log::error!("Failed to use VirtualProtect (1): {}", GetLastError());
+        }
         slice::from_raw_parts_mut(offset as *mut u8, length)[0] = new_value;
-        VirtualProtect(offset as *mut _, length, old_protect, &mut old_protect);
+        if VirtualProtect(offset as *mut _, length, old_protect, &mut old_protect) == FALSE {
+            log::error!("Failed to use VirtualProtect (2): {}", GetLastError());
+        }
         if LOG_BYTE_REPLACEMENTS {
             log::debug!(
                 "Modified byte at: Offset: {:X}, byte: {:X}",

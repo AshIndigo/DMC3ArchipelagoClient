@@ -926,7 +926,8 @@ pub(crate) enum Rank {
     A = 3,
     S = 4,
     SS = 5,
-    SSS = 6
+    SSS = 6,
+    ShouldNotBeHere = 7 // DO NOT WANT TO BE HERE
 }
 
 pub static GUN_NAMES: LazyLock<Vec<&'static str>> = LazyLock::new(|| {

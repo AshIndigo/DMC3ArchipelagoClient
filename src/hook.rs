@@ -277,10 +277,7 @@ fn modify_adjudicator(
                     Ok(mapping_opt) => match &**mapping_opt {
                         Some(mappings) => {
                             let data = mappings.adjudicators.get(*location_name).unwrap();
-                            replace_single_byte(
-                                adjudicator_data + RANKING_OFFSET,
-                                data.ranking + 1,
-                            );
+                            replace_single_byte(adjudicator_data + RANKING_OFFSET, data.ranking);
                             replace_single_byte(
                                 adjudicator_data + WEAPON_OFFSET,
                                 get_weapon_id(&*data.weapon),
@@ -309,8 +306,13 @@ fn modify_adjudicator(
             }
         }
     }
+    log::debug!("Calling original adjudicator method");
     if let Some(original) = ORIGINAL_ADJUDICATOR_DATA.get() {
-        unsafe { original(param_1, param_2, param_3, adjudicator_data) }
+        unsafe {
+            let res = original(param_1, param_2, param_3, adjudicator_data);
+            log::debug!("Finished adjudicator hook");
+            res
+        }
     } else {
         panic!("Could not find original adjudicator method")
     }

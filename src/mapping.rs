@@ -6,7 +6,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{from_value, Value};
 use std::collections::HashMap;
 
-use function_name::named;
 use std::sync::{LazyLock, RwLock};
 
 pub static MAPPING: LazyLock<RwLock<Option<Mapping>>> = LazyLock::new(|| RwLock::new(None));
@@ -124,12 +123,11 @@ pub struct LocationData {
     pub description: String,
 }
 
-#[named]
 pub fn use_mappings() -> Result<(), Box<dyn std::error::Error>> {
     let guard = MAPPING.read()?; // Annoying
     let mapping = guard
         .as_ref()
-        .ok_or(format!("No mapping found in {}", function_name!()))?;
+        .ok_or("No mappings found, cannot use")?;
     // Run through each mapping entry
     for (location_name, location_data) in mapping.items.iter() {
         // Acquire the default location data for a specific location

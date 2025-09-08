@@ -3,17 +3,19 @@ use crate::item_sync::{BLUE_ORBS_OBTAINED, PURPLE_ORBS_OBTAINED};
 use crate::ui::imgui_bindings::*;
 use crate::ui::ui;
 use crate::ui::ui::{get_status_text, LoginData, CHECKLIST};
-use crate::utilities::{read_data_from_address, MARY_ADDRESS};
-use crate::{bank, check_handler, constants, game_manager, text_handler};
+use crate::utilities::read_data_from_address;
+use crate::{bank, check_handler, config, constants, game_manager, text_handler, utilities};
 use imgui_sys::{ImGuiCond, ImGuiCond_Always, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
 use minhook::MinHook;
 use std::ffi::c_int;
 use std::os::raw::c_char;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{MutexGuard, OnceLock};
+use std::sync::{LazyLock, MutexGuard, OnceLock};
 use std::thread;
 use std::time::Duration;
 
+pub static MARY_ADDRESS: LazyLock<usize> =
+    LazyLock::new(|| utilities::get_base_address("Mary.dll"));
 static SETUP: AtomicBool = AtomicBool::new(false);
 
 pub const USE_2022_DDMK: bool = true;
@@ -170,7 +172,7 @@ pub unsafe fn archipelago_window(mut instance: MutexGuard<LoginData>) {
         input_rs("URL\0", &mut instance.archipelago_url, false); // TODO: Slight issue where some letters arent being cleared properly?
         input_rs("Username\0", &mut instance.username, false);
         input_rs("Password\0", &mut instance.password, true);
-         if get_imgui_button()(
+        if get_imgui_button()(
             "Connect\0".as_ptr() as *const c_char,
             &ImVec2 { x: 0.0, y: 0.0 },
         ) {
@@ -245,15 +247,19 @@ pub unsafe fn archipelago_window(mut instance: MutexGuard<LoginData>) {
 }
 
 pub fn setup_ddmk_hook() {
-    log::info!("Starting up DDMK hook");
-    log::info!("Mary base ADDR: {:X}", *MARY_ADDRESS);
-    init_render_func();
-    init_timestep_func();
-    unsafe {
-        MinHook::enable_hook((*MARY_ADDRESS + TIMESTEP_FUNC_ADDR) as _)
-            .expect("Failed to enable timestep hook");
+    if !(*config::CONFIG).mods.disable_ddmk_hooks {
+        log::info!("Starting up DDMK hook");
+        log::info!("Mary base ADDR: {:X}", *MARY_ADDRESS);
+        init_render_func();
+        init_timestep_func();
+        unsafe {
+            MinHook::enable_hook((*MARY_ADDRESS + TIMESTEP_FUNC_ADDR) as _)
+                .expect("Failed to enable timestep hook");
+        }
+        log::info!("DDMK hook initialized");
+    } else {
+        log::info!("DDMK is detected but hooks will not be enabled")
     }
-    log::info!("DDMK hook initialized");
 }
 
 static ORIG_RENDER_FUNC: OnceLock<Option<BasicNothingFunc>> = OnceLock::new();

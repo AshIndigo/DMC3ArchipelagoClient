@@ -60,16 +60,35 @@ unsafe extern "system" fn exception_handler(info: *mut EXCEPTION_POINTERS) -> i3
     }
 
     unsafe {
-        let record = (*info).ExceptionRecord;
-        if record.is_null() {
-            return 0;
-        }
+        let record = &*(*info).ExceptionRecord;
 
-        let code = (*record).ExceptionCode;
-        let address = (*record).ExceptionAddress as usize;
+        let code = record.ExceptionCode;
+        let address = record.ExceptionAddress as usize;
         if code < 0x80000000 {
             // Don't care
             return 0;
+        }
+
+        if code == 0xE06D7363 { // TODO, this is jank af
+            log::error!("C++ Exception detected at {:?}", record.ExceptionAddress);
+
+            // ExceptionInformation[0] is a magic number for C++ EH
+            let magic = record.ExceptionInformation[0];
+            let frame = record.ExceptionInformation[1] as *const ();
+            let desc = record.ExceptionInformation[2] as *const ();
+
+            log::debug!("Magic: {:#X}", magic);
+            log::debug!("Frame: {:p}", frame);
+            log::debug!("Desc: {:p}", desc);
+
+            if !desc.is_null() {
+                let type_name_ptr = *(desc as *const *const i8);
+                if !type_name_ptr.is_null() {
+                    if let Ok(cstr) = std::ffi::CStr::from_ptr(type_name_ptr).to_str() {
+                        log::error!("C++ exception type: {}", cstr);
+                    }
+                }
+            }
         }
 
         // Get the module+offset

@@ -1,5 +1,5 @@
 use crate::ui::ddmk_hook::USE_2022_DDMK;
-use crate::utilities::MARY_ADDRESS;
+use crate::ui::ddmk_hook::MARY_ADDRESS;
 use imgui_sys::{
     cty, ImGuiCond, ImGuiInputTextCallback, ImGuiInputTextFlags, ImGuiWindowFlags, ImVec2,
 };

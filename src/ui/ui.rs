@@ -1,6 +1,6 @@
 use crate::archipelago::ArchipelagoConnection;
 use crate::constants::Status;
-use crate::{archipelago, bank};
+use crate::{archipelago, bank, config};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::io::BufReader;
@@ -42,7 +42,7 @@ pub fn set_checklist_item(item: &str, value: bool) {
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
-pub(crate) async fn connect_button_pressed(url: String, name: String, password: String) {
+pub async fn connect_button_pressed(url: String, name: String, password: String) {
     log::debug!("Connecting to Archipelago");
     match archipelago::TX_ARCH.get() {
         None => log::error!("Connect TX doesn't exist"),
@@ -109,5 +109,25 @@ pub fn load_login_data() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         Err("Failed to find login data file.\n\
         If this is a fresh install this is to be expected, the file will be created upon connection to a room.".into())
+    }
+}
+
+pub(crate) fn auto_connect() {
+    loop {
+        if CONNECTION_STATUS.load(Ordering::SeqCst) != 1 {
+            log::debug!("Attempting to connect to local client");
+            connect_button_pressed(
+                format!(
+                    "{}:{}",
+                    (*config::CONFIG).connections.address,
+                    (*config::CONFIG).connections.port
+                ),
+                "".parse().unwrap(),
+                "".parse().unwrap(),
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_secs(
+            (*config::CONFIG).connections.reconnect_interval_seconds as u64,
+        ));
     }
 }

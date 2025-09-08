@@ -26,7 +26,7 @@ use ui::ui::CONNECTION_STATUS;
 use winapi::shared::guiddef::REFIID;
 use winapi::shared::minwindef::{DWORD, LPVOID};
 use winapi::um::libloaderapi::{GetModuleHandleW, LoadLibraryA};
-use winapi::um::winnt::{HRESULT};
+use winapi::um::winnt::HRESULT;
 use windows::core::BOOL;
 use windows::Win32::Foundation::*;
 use windows::Win32::System::Console::{
@@ -42,6 +42,8 @@ mod check_handler;
 mod constants;
 mod data;
 //mod experiments;
+mod config;
+mod exception_handler;
 mod game_manager;
 mod hook;
 mod item_sync;
@@ -51,7 +53,6 @@ mod save_handler;
 mod text_handler;
 mod ui;
 mod utilities;
-mod exception_handler;
 
 #[macro_export]
 /// Does not enable the hook, that needs to be done separately
@@ -112,9 +113,10 @@ pub extern "system" fn DllMain(
         DLL_PROCESS_ATTACH => {
             thread::spawn(|| {
                 load_real_dinput8();
-                create_console();
-                setup_logger();
                 if current_exe().unwrap().ends_with("dmc3.exe") {
+                    create_console();
+                    setup_logger();
+                    log::debug!("Config: {:#?}", *config::CONFIG);
                     match load_other_dlls() {
                         Ok(_) => {
                             log::debug!("Successfully loaded extra mods!");
@@ -162,21 +164,23 @@ pub extern "system" fn DllMain(
 fn load_other_dlls() -> Result<(), std::io::Error> {
     // The game will immolate if both of these try to load
 
-    match is_file_valid("Mary.dll", 7087074874482460961) {
-        Ok(_) => {
-            let _ = unsafe { LoadLibraryA(b"Mary.dll\0".as_ptr() as _) };
+    if !(*config::CONFIG).mods.disable_ddmk {
+        match is_file_valid("Mary.dll", 7087074874482460961) {
+            Ok(_) => {
+                let _ = unsafe { LoadLibraryA(b"Mary.dll\0".as_ptr() as _) };
+            }
+            Err(err) => match err.kind() {
+                ErrorKind::InvalidData => {
+                    log::error!("Mary/DDMK Hash does not match version 2.7.3, please update DDMK")
+                }
+                ErrorKind::NotFound => {}
+                _ => {
+                    log::error!("Unexpected error: {}", err);
+                }
+            },
         }
-        Err(err) => match err.kind() {
-            ErrorKind::InvalidData => {
-                log::error!("Mary/DDMK Hash does not match version 2.7.3, please update DDMK")
-            }
-            ErrorKind::NotFound => {}
-            _ => {
-                log::error!("Unexpected error: {}", err);
-            }
-        },
     }
-    if !is_ddmk_loaded() {
+    if !(*config::CONFIG).mods.disable_crimson && !is_ddmk_loaded() {
         let _ = unsafe { LoadLibraryA(b"Crimson.dll\0".as_ptr() as _) };
     }
     if is_crimson_loaded() {
@@ -204,12 +208,6 @@ fn setup_logger() {
     let stdout = ConsoleAppender::builder()
         .encoder(Box::new(PatternEncoder::new("{d} {h({l})} {t} - {m}{n}")))
         .build();
-
-    // let log_file = FileAppender::builder()
-    //     .encoder(Box::new(PatternEncoder::new("{d} {l} {t} - {m}{n}")))
-    //     .append(false)
-    //     .build("log/dmc3a.log")
-    //     .unwrap();
 
     let log_file = RollingFileAppender::builder()
         .encoder(Box::new(PatternEncoder::new("{d} {l} {t} - {m}{n}")))
@@ -243,25 +241,6 @@ fn setup_logger() {
         .unwrap();
 
     let _handle = log4rs::init_config(config).unwrap();
-    // use handle to change logger configuration at runtime
-    /*    let simple_logger = Box::new(
-        SimpleLogger::new()
-            .with_module_level("tokio", LevelFilter::Warn)
-            .with_module_level("tungstenite::protocol", LevelFilter::Warn)
-            .with_module_level("hudhook::hooks::dx11", LevelFilter::Warn)
-            .with_module_level("tracing::span", LevelFilter::Warn)
-            .with_module_level("winit::window", LevelFilter::Warn)
-            .with_module_level("eframe::native::run", LevelFilter::Warn)
-            .with_module_level("eframe::native::glow_integration", LevelFilter::Warn)
-            .with_threads(true),
-    );
-    let mut loggers: Vec<Box<dyn Log>> = vec![simple_logger];
-    if !utilities::is_ddmk_loaded() {
-        loggers.push(Box::new(
-            egui_logger::builder().max_level(LevelFilter::Info).build(),
-        )); // EGui will melt if this is anything higher
-    }
-    multi_log::MultiLogger::init(loggers, log::Level::Debug).unwrap();*/
 }
 
 fn main_setup() {
@@ -274,7 +253,9 @@ fn main_setup() {
         ui::ddmk_hook::setup_ddmk_hook();
     } else {
         log::info!("DDMK is not loaded!");
-        thread::spawn(move || ui::egui_ui::start_egui());
+        if (*config::CONFIG).force_enable_egui {
+            thread::spawn(move || ui::egui_ui::start_egui());
+        }
     }
     log::info!("DMC3 Base Address is: {:X}", *utilities::DMC3_ADDRESS);
     thread::Builder::new()
@@ -309,7 +290,7 @@ pub fn create_console() {
                 unsafe {
                     let handle = GetStdHandle(STD_OUTPUT_HANDLE)?;
                     if handle == HANDLE::default() {
-                        return Err(anyhow!(windows::core::Error::from_win32()));
+                        return Err(anyhow!(windows::core::Error::from(GetLastError())));
                     }
 
                     let mut mode = std::mem::zeroed();
@@ -354,6 +335,12 @@ pub(crate) async fn spawn_arch_thread() {
     match ui::ui::load_login_data() {
         Ok(_) => {}
         Err(err) => log::error!("Unable to read login data: {}", err),
+    }
+    if !(*config::CONFIG).connections.offline {
+        thread::spawn(|| {
+            log::debug!("Starting auto connector");
+            ui::ui::auto_connect();
+        });
     }
     loop {
         // Wait for a connection request
