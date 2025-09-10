@@ -34,6 +34,9 @@ pub static ORIGINAL_SKILL_SHOP: OnceLock<unsafe extern "C" fn(custom_skill: usiz
 
 pub const GUN_SHOP_ADDR: usize = 0x283d60;
 pub static ORIGINAL_GUN_SHOP: OnceLock<unsafe extern "C" fn(custom_gun: usize)> = OnceLock::new();
+
+pub const ADD_SHOTGUN_OR_CERBERUS_ADDR: usize = 0x1fcfa0;
+pub static ORIGINAL_ADD_SHOTGUN_OR_CERBERUS: OnceLock<unsafe extern "C" fn(custom_gun: usize, id: u8) -> bool> = OnceLock::new();
 pub const ONE_ORB: f32 = 1000.0; // One Blue/Purple orb is worth 1000 "points"
 pub const BASE_HP: f32 = 6.0 * ONE_ORB;
 pub const MAX_HP: f32 = 20000.0;

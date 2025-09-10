@@ -22,6 +22,7 @@ use std::{ptr, slice, thread};
 use tokio::sync::Mutex;
 use winapi::um::memoryapi::VirtualProtect;
 use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
+use crate::text_handler::LAST_OBTAINED_ID;
 
 pub(crate) const DUMMY_ID: LazyLock<u32> = LazyLock::new(|| *ITEM_ID_MAP.get("Dummy").unwrap()); //0x20;
 pub(crate) const REMOTE_ID: LazyLock<u32> = LazyLock::new(|| *ITEM_ID_MAP.get("Remote").unwrap()); //0x26;
@@ -102,6 +103,12 @@ unsafe fn create_hooks() -> Result<(), MH_STATUS> {
             ORIGINAL_GUN_SHOP,
             "Deny purchasing gun upgrades"
         );
+        create_hook!(
+            ADD_SHOTGUN_OR_CERBERUS_ADDR,
+            deny_cerberus_or_shotgun,
+            ORIGINAL_ADD_SHOTGUN_OR_CERBERUS,
+            "Don't add the Shotgun/Cerberus to second slot"
+        );
         text_handler::setup_text_hooks()?;
         save_handler::setup_save_hooks()?;
     }
@@ -124,6 +131,7 @@ fn enable_hooks() {
         ADJUDICATOR_DATA_ADDR,
         SKILL_SHOP_ADDR,
         GUN_SHOP_ADDR,
+        ADD_SHOTGUN_OR_CERBERUS_ADDR,
         // Save handler
         save_handler::LOAD_GAME_ADDR,
         save_handler::SAVE_GAME_ADDR,
@@ -629,6 +637,7 @@ pub fn disable_hooks() -> Result<(), MH_STATUS> {
         MinHook::disable_hook((base_address + ADJUDICATOR_DATA_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + SKILL_SHOP_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + GUN_SHOP_ADDR) as *mut _)?;
+        MinHook::disable_hook((base_address + ADD_SHOTGUN_OR_CERBERUS_ADDR) as *mut _)?;
         text_handler::disable_text_hooks(base_address)?;
         check_handler::disable_check_hooks(base_address)?;
     }
@@ -650,6 +659,7 @@ pub fn load_new_room(param_1: usize) -> bool {
     set_relevant_key_items();
     set_weapons_in_inv();
     check_handler::clear_high_roller();
+    LAST_OBTAINED_ID.store(0, Ordering::SeqCst); // Should stop random item jumpscares
     //location_handler::room_transition();
     res
 }
@@ -787,4 +797,9 @@ pub fn deny_gun_upgrade(custom_gun: usize) {
             orig(custom_gun);
         }
     }
+}
+
+// Disabling vanilla behavior of inserting the shotgun/cerberus into the second weapon slot
+pub fn deny_cerberus_or_shotgun(_param_1: usize, _id: u8) -> bool {
+    false
 }

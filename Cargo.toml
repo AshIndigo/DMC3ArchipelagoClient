@@ -36,7 +36,7 @@ winit = { version = "0.30.12" }
 owo-colors = "4.2.2"
 #strum = "0.27"
 strum_macros = "0.27"
-log4rs = "1.4.0-rc2"
+log4rs = "1.4.0"
 xxhash-rust = { version = "0.8.15", features = ["const_xxh3"] }
 figment = { version = "0.10.19", features = ["toml"] }
 toml = "0.9.5"

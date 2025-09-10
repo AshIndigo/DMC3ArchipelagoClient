@@ -9,6 +9,7 @@ use std::sync::atomic::Ordering::SeqCst;
 use std::sync::OnceLock;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
+use crate::data::generated_locations;
 
 pub const ITEM_HANDLE_PICKUP_ADDR: usize = 0x1b45a0;
 pub static ORIGINAL_HANDLE_PICKUP: OnceLock<unsafe extern "C" fn(item_struct: usize)> =
@@ -151,7 +152,7 @@ pub fn item_event(loc_chk_flg: usize, item_id: i16, unknown: i32) {
     unsafe {
         if is_valid_id(item_id as u32) {
             if unknown == -1 {
-                let loc = Location {
+                let mut loc = Location {
                     item_id: item_id as u32,
                     room: game_manager::get_room(),
                     mission: get_mission(),
@@ -172,6 +173,7 @@ pub fn item_event(loc_chk_flg: usize, item_id: i16, unknown: i32) {
                 let location_name = location_handler::get_location_name_by_data(&loc);
                 match location_name {
                     Ok(location_name) => {
+                        loc.item_id = generated_locations::ITEM_MISSION_MAP.get(location_name).unwrap().item_id;
                         send_off_location_coords(
                             loc,
                             location_handler::get_mapped_item_id(location_name).unwrap(),
@@ -214,12 +216,15 @@ pub fn mission_complete_check(cuid_result: usize, ranking: i32) -> i32 {
             ranking
         );
         //if s.mission == 20 {
-            send_off_location_coords( Location {
+        send_off_location_coords(
+            Location {
                 item_id: u32::MAX,
                 room: -1,
                 mission: s.mission,
                 coordinates: EMPTY_COORDINATES,
-            }, u32::MAX);
+            },
+            u32::MAX,
+        );
         //}
     })
     .expect("Session Data was not available?");
@@ -284,17 +289,18 @@ async fn send_off_location_coords(loc: Location, to_display: u32) {
         if to_display != u32::MAX {
             clear_high_roller();
             text_handler::LAST_OBTAINED_ID.store(to_display as u8, SeqCst);
-            take_away_received_item(loc.item_id);
+            //take_away_received_item(loc.item_id);
         }
     }
 }
 
-fn take_away_received_item(id: u32) {
+pub(crate) fn take_away_received_item(id: u32) {
+    // This didn't take away cerberus for some reason
     if let Some(current_inv_addr) = get_inv_address() {
         let offset = *constants::ITEM_OFFSET_MAP
             .get(constants::ID_ITEM_MAP.get(&id).unwrap())
             .unwrap_or_else(|| panic!("Item offset not found: {}", id));
-        log::debug!("Offset: {}", offset); // Using remote rather than actual id
+        log::debug!("Stripping ID: {:#X} - Offset: {:#X}", id, offset);
         unsafe {
             utilities::replace_single_byte(
                 current_inv_addr + offset as usize,

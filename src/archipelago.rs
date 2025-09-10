@@ -456,6 +456,9 @@ async fn handle_item_receive(
         return Ok(())
     }
         if let Some(data_package) = DATA_PACKAGE.read().unwrap().as_ref() {
+            if received_item.item_id <= 0x39 {
+                crate::check_handler::take_away_received_item(received_item.item_id);
+            }
             let location_key = location_handler::get_location_name_by_data(&received_item)?;
             let location_data = mapping_data.items.get(location_key).unwrap();
             // Then see if the item picked up matches the specified in the map
