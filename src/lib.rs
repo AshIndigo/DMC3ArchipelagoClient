@@ -336,7 +336,7 @@ pub(crate) async fn spawn_arch_thread() {
         Ok(_) => {}
         Err(err) => log::error!("Unable to read login data: {}", err),
     }
-    if !(*config::CONFIG).connections.offline {
+    if !(*config::CONFIG).connections.disable_auto_connect {
         thread::spawn(|| {
             log::debug!("Starting auto connector");
             ui::ui::auto_connect();

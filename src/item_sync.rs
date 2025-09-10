@@ -1,5 +1,6 @@
 use crate::cache::read_cache;
 use crate::constants::{GAME_NAME, MISSION_ITEM_MAP};
+use crate::game_manager::get_mission;
 use crate::hook::CLIENT;
 use crate::ui::ui;
 use crate::ui::ui::CHECKLIST;
@@ -14,9 +15,9 @@ use std::fs::File;
 use std::io::{BufReader, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock, RwLock};
 use std::time::Duration;
-use crate::game_manager::get_mission;
+use crate::mapping::MAPPING;
 
 const SYNC_FILE: &str = "archipelago.json";
 pub(crate) static SYNC_DATA: OnceLock<Mutex<SyncData>> = OnceLock::new();
@@ -70,6 +71,8 @@ pub(crate) fn read_save_data() -> Result<SyncData, Box<dyn Error>> {
 pub static BLUE_ORBS_OBTAINED: AtomicI32 = AtomicI32::new(0);
 pub static PURPLE_ORBS_OBTAINED: AtomicI32 = AtomicI32::new(0);
 
+pub static ACQUIRED_SKILLS: RwLock<Vec<String>> = RwLock::new(Vec::new());
+
 pub(crate) async fn handle_received_items_packet(
     received_items_packet: ReceivedItems,
     client: &mut ArchipelagoClient,
@@ -107,22 +110,58 @@ pub(crate) async fn handle_received_items_packet(
     // TODO This isn't completely accurate.
     if received_items_packet.index == 0 {
         // If 0 abandon previous inv.
-        //bank::reset_bank(client).await?;
         bank::read_values(client).await?;
         // Clear bank - ?
-        // Reset weapons - Need to do this on room transition
         // Checklist should be fine
         BLUE_ORBS_OBTAINED.store(0, Ordering::SeqCst);
         PURPLE_ORBS_OBTAINED.store(0, Ordering::SeqCst);
+        game_manager::reset_expertise();
+        game_manager::GUN_LEVELS
+            .iter()
+            .for_each(|lvl| lvl.store(0, Ordering::SeqCst));
         for item in &received_items_packet.items {
-            if item.item == 0x07 { // Blue orb
-                BLUE_ORBS_OBTAINED.fetch_add(1, Ordering::SeqCst);
+            match item.item {
+                0x07 => {
+                    BLUE_ORBS_OBTAINED.fetch_add(1, Ordering::SeqCst);
+                }
+                0x08 => {
+                    PURPLE_ORBS_OBTAINED.fetch_add(1, Ordering::SeqCst);
+                }
+                0x19 => {
+                    // Awakened Rebellion
+                    PURPLE_ORBS_OBTAINED.fetch_add(3, Ordering::SeqCst);
+                }
+                0x53 => {
+                    // Ebony & Ivory
+                    game_manager::GUN_LEVELS[0].fetch_add(1, Ordering::SeqCst);
+                }
+                0x54 => {
+                    // Shotgun
+                    game_manager::GUN_LEVELS[1].fetch_add(1, Ordering::SeqCst);
+                }
+                0x55 => {
+                    // Artemis
+                    game_manager::GUN_LEVELS[2].fetch_add(1, Ordering::SeqCst);
+                }
+                0x56 => {
+                    // Spiral
+                    game_manager::GUN_LEVELS[3].fetch_add(1, Ordering::SeqCst);
+                }
+                0x57 => {
+                    // Kalina Ann
+                    game_manager::GUN_LEVELS[4].fetch_add(1, Ordering::SeqCst);
+                }
+                _ => {}
             }
-            if item.item == 0x08 { // Purple
-                PURPLE_ORBS_OBTAINED.fetch_add(1, Ordering::SeqCst);
-            }
-            if item.item == 0x19 { // Awakened Rebellion
-                PURPLE_ORBS_OBTAINED.fetch_add(3, Ordering::SeqCst);
+            if item.item < 0x53 && item.item > 0x39 {
+                match ACQUIRED_SKILLS.write() {
+                    Ok(mut skill_list) => {
+                        skill_list.push(id_to_name.get(&item.item).unwrap().clone());
+                    }
+                    Err(err) => {
+                        log::error!("Unable to write to internal acquired skills list: {:?}", err);
+                    }
+                }
             }
         }
     }
@@ -144,42 +183,65 @@ pub(crate) async fn handle_received_items_packet(
                         player: item.player,
                         flags: item.flags,
                     })
-                        .await?;
+                    .await?;
                 }
             }
             log::debug!("Supplying added HP/Magic if needed");
-            if item.item == 0x07 { // Blue orb
-                BLUE_ORBS_OBTAINED.fetch_add(1, Ordering::SeqCst);
-                game_manager::give_hp(constants::ONE_ORB);
-            }
-            if item.item == 0x08 {
-                PURPLE_ORBS_OBTAINED.fetch_add(1, Ordering::SeqCst);
-                game_manager::give_magic(constants::ONE_ORB);
-            }
-            if item.item == 0x19 {
-                PURPLE_ORBS_OBTAINED.fetch_add(3, Ordering::SeqCst);
-                game_manager::give_magic(constants::ONE_ORB * 3.0);
+            match item.item {
+                0x07 => {
+                    BLUE_ORBS_OBTAINED.fetch_add(1, Ordering::SeqCst);
+                    game_manager::give_hp(constants::ONE_ORB);
+                }
+                0x08 => {
+                    PURPLE_ORBS_OBTAINED.fetch_add(1, Ordering::SeqCst);
+                    game_manager::give_magic(constants::ONE_ORB);
+                }
+                0x19 => {
+                    // Awakened Rebellion
+                    PURPLE_ORBS_OBTAINED.fetch_add(3, Ordering::SeqCst);
+                    game_manager::give_magic(constants::ONE_ORB * 3.0);
+                }
+                0x53 => {
+                    // Ebony & Ivory
+                    game_manager::GUN_LEVELS[0].fetch_add(1, Ordering::SeqCst);
+                }
+                0x54 => {
+                    // Shotgun
+                    game_manager::GUN_LEVELS[1].fetch_add(1, Ordering::SeqCst);
+                }
+                0x55 => {
+                    // Artemis
+                    game_manager::GUN_LEVELS[2].fetch_add(1, Ordering::SeqCst);
+                }
+                0x56 => {
+                    // Spiral
+                    game_manager::GUN_LEVELS[3].fetch_add(1, Ordering::SeqCst);
+                }
+                0x57 => {
+                    // Kalina Ann
+                    game_manager::GUN_LEVELS[4].fetch_add(1, Ordering::SeqCst);
+                }
+                _ => {}
             }
             // For key items
             if item.item >= 0x24 && item.item <= 0x39 {
                 log::debug!("Setting newly acquired key items");
-                //if let Some(_current_inv) = get_inv_address() {
-                    match MISSION_ITEM_MAP.get(&(get_mission())) {
-                        None => {} // No items for the mission
-                        Some(item_list) => {
-                            let item_name = constants::get_item_name(item.item as u32);
-                            if item_list.contains(&item_name) {
-                                game_manager::set_item(item_name, true, true);
-                                // unsafe {
-                                //     replace_single_byte(
-                                //         current_inv + ITEM_OFFSET_MAP.get(item_name).unwrap().clone() as usize,
-                                //         0x01u8,
-                                //     )
-                                // };
-                            }
+                match MISSION_ITEM_MAP.get(&(get_mission())) {
+                    None => {} // No items for the mission
+                    Some(item_list) => {
+                        let item_name = constants::get_item_name(item.item as u32);
+                        if item_list.contains(&item_name) {
+                            game_manager::set_item(item_name, true, true);
                         }
                     }
-                //}
+                }
+            }
+            if item.item < 0x53 && item.item > 0x39 {
+                if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
+                    if mapping.randomize_skills {
+                        game_manager::give_skill(id_to_name.get(&item.item).unwrap());
+                    }
+                }
             }
         }
         CURRENT_INDEX.store(received_items_packet.index, Ordering::SeqCst);

@@ -1,3 +1,4 @@
+use crate::archipelago::DATA_PACKAGE;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::sync::{LazyLock, OnceLock};
@@ -26,6 +27,13 @@ pub const ADJUDICATOR_DATA_ADDR: usize = 0x24f970;
 pub static ORIGINAL_ADJUDICATOR_DATA: OnceLock<
     unsafe extern "C" fn(param_1: usize, param_2: usize, param_3: usize, param_4: usize) -> usize,
 > = OnceLock::new();
+
+pub const SKILL_SHOP_ADDR: usize = 0x288280;
+pub static ORIGINAL_SKILL_SHOP: OnceLock<unsafe extern "C" fn(custom_skill: usize)> =
+    OnceLock::new();
+
+pub const GUN_SHOP_ADDR: usize = 0x283d60;
+pub static ORIGINAL_GUN_SHOP: OnceLock<unsafe extern "C" fn(custom_gun: usize)> = OnceLock::new();
 pub const ONE_ORB: f32 = 1000.0; // One Blue/Purple orb is worth 1000 "points"
 pub const BASE_HP: f32 = 6.0 * ONE_ORB;
 pub const MAX_HP: f32 = 20000.0;
@@ -609,15 +617,68 @@ pub static ID_ITEM_MAP: LazyLock<HashMap<u32, &'static str>> =
 pub static ITEM_MAP: LazyLock<HashMap<u32, &'static Item>> =
     LazyLock::new(|| ALL_ITEMS.iter().map(|item| (item.id, item)).collect());
 
+pub static ID_SKILL_MAP: LazyLock<HashMap<u32, &'static str>> = LazyLock::new(|| {
+    HashMap::from([
+        (0x40, "Rebellion (Normal) - Stinger Level 1"),
+        (0x41, "Rebellion (Normal) - Stinger Level 2"),
+        (0x42, "Rebellion (Normal) - Drive"),
+        (0x43, "Rebellion (Normal) - Air Hike"),
+        (0x44, "Cerberus - Revolver Level 2"),
+        (0x45, "Cerberus - Windmill"),
+        (0x46, "Agni and Rudra - Jet Stream Level 2"),
+        (0x47, "Agni and Rudra - Jet Stream Level 3"),
+        (0x48, "Agni and Rudra - Whirlwind"),
+        (0x49, "Agni and Rudra - Air Hike"),
+        (0x4A, "Nevan - Reverb Shock"),
+        (0x4B, "Nevan - Reverb Shock Level 2"),
+        (0x4C, "Nevan - Bat Rift Level 2"),
+        (0x4D, "Nevan - Air Raid"),
+        (0x4E, "Nevan - Volume Up"),
+        (0x4F, "Beowulf - Straight Level 2"),
+        (0x50, "Beowulf - Beast Uppercut"),
+        (0x51, "Beowulf - Rising Dragon"),
+        (0x52, "Beowulf - Air Hike"),
+        (0x53, "Ebony & Ivory Progressive Upgrade"),
+        (0x54, "Shotgun Progressive Upgrade"),
+        (0x55, "Artemis Progressive Upgrade"),
+        (0x56, "Spiral Progressive Upgrade"),
+        (0x57, "Kalina Ann Progressive Upgrade"),
+    ])
+});
+
 pub fn get_item_name(item_id: u32) -> &'static str {
-    ID_ITEM_MAP.get(&item_id).copied().unwrap_or_else(|| {
-        log::error!("No item found with id {}", item_id);
-        "Unknown"
-    })
+    if item_id <= 0x39 {
+        ID_ITEM_MAP.get(&item_id).copied().unwrap_or_else(|| {
+            log::error!("No item found with id {}", item_id);
+            "Unknown"
+        })
+    } else {
+        ID_SKILL_MAP.get(&item_id).copied().unwrap_or_else(|| {
+            log::error!("Skill with id of {} was not found", item_id);
+            "Unknown"
+        })
+    }
 }
 
 pub fn get_item_id(name: &str) -> Option<u32> {
-    ITEM_ID_MAP.get(name).copied()
+    match ITEM_ID_MAP.get(name).copied() {
+        None => match DATA_PACKAGE.read().unwrap().as_ref() {
+            None => None,
+            Some(data_package) => {
+                match data_package
+                    .games
+                    .get(GAME_NAME)?
+                    .item_name_to_id
+                    .get(name)
+                    .copied()
+                {
+                    None => None,
+                    Some(id) => Some(id as u32),
+                }
+            }
+        },
+        Some(id) => Some(id),
+    }
 }
 pub fn get_items_by_category(category: ItemCategory) -> Vec<&'static str> {
     ALL_ITEMS
@@ -927,7 +988,7 @@ pub(crate) enum Rank {
     S = 4,
     SS = 5,
     SSS = 6,
-    ShouldNotBeHere = 7 // DO NOT WANT TO BE HERE
+    ShouldNotBeHere = 7, // DO NOT WANT TO BE HERE
 }
 
 pub static GUN_NAMES: LazyLock<Vec<&'static str>> = LazyLock::new(|| {

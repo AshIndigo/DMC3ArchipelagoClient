@@ -70,7 +70,7 @@ where
     }
 }
 
-fn parse_death_link<'de, D>(deserializer: D) -> Result<bool, D::Error>
+fn parse_boolean_option<'de, D>(deserializer: D) -> Result<bool, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -80,7 +80,7 @@ where
             0 => Ok(false),
             1 => Ok(true),
             _ => Err(serde::de::Error::custom(format!(
-                "Invalid Death link option: {}",
+                "Invalid Boolean option: {}",
                 n
             ))),
         },
@@ -106,8 +106,10 @@ pub struct Mapping {
     #[serde(default = "default_melee")]
     #[serde(deserialize_with = "parse_melee_number")]
     pub start_melee: String,
-    #[serde(deserialize_with = "parse_death_link")]
+    #[serde(deserialize_with = "parse_boolean_option")]
     pub death_link: bool,
+    #[serde(deserialize_with = "parse_boolean_option")]
+    pub randomize_skills: bool
 }
 
 #[derive(Deserialize, Serialize, Debug)]

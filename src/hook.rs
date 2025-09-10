@@ -1,4 +1,4 @@
-use crate::archipelago::get_checked_locations;
+use crate::archipelago::{get_checked_locations};
 use crate::constants::ItemEntry;
 use crate::constants::*;
 use crate::data::generated_locations;
@@ -36,7 +36,7 @@ pub(crate) fn install_initial_functions() {
                     HOOKS_CREATED.store(true, Ordering::SeqCst);
                 }
                 Err(err) => {
-                    log::error!("Failed to create hook: {:?}", err);
+                    log::error!("Failed to create hooks: {:?}", err);
                 }
             }
         }
@@ -90,6 +90,18 @@ unsafe fn create_hooks() -> Result<(), MH_STATUS> {
             ORIGINAL_ADJUDICATOR_DATA,
             "Modify Adjudicator Data"
         );
+        create_hook!(
+            SKILL_SHOP_ADDR,
+            deny_skill_purchasing,
+            ORIGINAL_SKILL_SHOP,
+            "Deny purchases of skills"
+        );
+        create_hook!(
+            GUN_SHOP_ADDR,
+            deny_gun_upgrade,
+            ORIGINAL_GUN_SHOP,
+            "Deny purchasing gun upgrades"
+        );
         text_handler::setup_text_hooks()?;
         save_handler::setup_save_hooks()?;
     }
@@ -110,6 +122,8 @@ fn enable_hooks() {
         SETUP_PLAYER_DATA_ADDR,
         DAMAGE_CALC_ADDR,
         ADJUDICATOR_DATA_ADDR,
+        SKILL_SHOP_ADDR,
+        GUN_SHOP_ADDR,
         // Save handler
         save_handler::LOAD_GAME_ADDR,
         save_handler::SAVE_GAME_ADDR,
@@ -613,6 +627,8 @@ pub fn disable_hooks() -> Result<(), MH_STATUS> {
         MinHook::disable_hook((base_address + EQUIPMENT_SCREEN_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + DAMAGE_CALC_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + ADJUDICATOR_DATA_ADDR) as *mut _)?;
+        MinHook::disable_hook((base_address + SKILL_SHOP_ADDR) as *mut _)?;
+        MinHook::disable_hook((base_address + GUN_SHOP_ADDR) as *mut _)?;
         text_handler::disable_text_hooks(base_address)?;
         check_handler::disable_check_hooks(base_address)?;
     }
@@ -647,6 +663,12 @@ pub fn set_player_data(param_1: usize) -> bool {
     let mut res = false;
     game_manager::set_session_weapons();
     game_manager::set_max_hp_and_magic();
+    if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
+        if mapping.randomize_skills {
+            game_manager::set_gun_levels();
+            game_manager::set_skills();
+        }
+    }
 
     unsafe {
         if let Some(original) = ORIGINAL_SETUP_PLAYER_DATA.get() {
@@ -737,5 +759,32 @@ pub(crate) fn restore_mode_table() {
             old_protect,
             &mut old_protect,
         );
+    }
+}
+
+// TODO I would like to make this show a custom message denied message, but for now, just do nothing
+pub fn deny_skill_purchasing(custom_skill: usize) {
+    if read_data_from_address::<u8>(custom_skill + 0x08) == 0x05 {
+        unsafe {
+            replace_single_byte(custom_skill + 0x08, 0x01)
+        }
+    }
+    if let Some(orig) = ORIGINAL_SKILL_SHOP.get() {
+        unsafe {
+            orig(custom_skill);
+        }
+    }
+}
+
+pub fn deny_gun_upgrade(custom_gun: usize) {
+    if read_data_from_address::<u8>(custom_gun + 0x08) == 0x03 {
+        unsafe {
+            replace_single_byte(custom_gun + 0x08, 0x01)
+        }
+    }
+    if let Some(orig) = ORIGINAL_GUN_SHOP.get() {
+        unsafe {
+            orig(custom_gun);
+        }
     }
 }

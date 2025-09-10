@@ -160,7 +160,9 @@ pub fn replace_unused_with_text(message: String) {
         let message = message.replace("\n", "<BR>");
         let msg = format!("<PS 85 305><SZ 24><IT 0>{}<NE>\x00", message);
         let bytes = msg.as_bytes();
-        ptr::copy_nonoverlapping(bytes.as_ptr(), message_begin as *mut u8, bytes.len());
+        if message_begin != 0 {
+            ptr::copy_nonoverlapping(bytes.as_ptr(), message_begin as *mut u8, bytes.len());
+        }
     }
 }
 

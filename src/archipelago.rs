@@ -6,11 +6,10 @@ use crate::constants::{ItemCategory, Status, GAME_NAME};
 use crate::data::generated_locations;
 use crate::ui::ui;
 use crate::ui::ui::CONNECTION_STATUS;
-use crate::{bank, cache, check_handler, constants, game_manager, hook, item_sync, location_handler, mapping, save_handler, text_handler};
+use crate::{bank, cache, constants, game_manager, hook, item_sync, location_handler, mapping, save_handler, text_handler};
 use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
 use archipelago_rs::protocol::{Bounced, ClientMessage, ClientStatus, Connected, DataPackageObject, JSONColor, JSONMessagePart, NetworkItem, PrintJSON, Retrieved, ServerMessage, StatusUpdate};
-use once_cell::sync::Lazy;
 use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -19,11 +18,11 @@ use std::fmt::{Display, Formatter};
 use std::fs::{remove_file, File};
 use std::io::Write;
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::{Mutex, OnceLock, RwLock, RwLockReadGuard};
+use std::sync::{LazyLock, Mutex, OnceLock, RwLock};
 use tokio::sync;
 use tokio::sync::mpsc::Receiver;
 
-static DATA_PACKAGE: Lazy<RwLock<Option<DataPackageObject>>> = Lazy::new(|| RwLock::new(None));
+pub(crate) static DATA_PACKAGE: LazyLock<RwLock<Option<DataPackageObject>>> = LazyLock::new(|| RwLock::new(None));
 
 pub static CHECKED_LOCATIONS: OnceLock<RwLock<Vec<&'static str>>> = OnceLock::new();
 pub static CONNECTED: OnceLock<Mutex<Connected>> = OnceLock::new();
@@ -420,14 +419,23 @@ pub fn set_data_package(value: DataPackageObject) {
     *lock = Some(value);
 }
 
-pub fn get_data_package() -> Option<RwLockReadGuard<'static, Option<DataPackageObject>>> {
-    let guard = DATA_PACKAGE.read().unwrap();
-    if guard.is_some() {
-        Some(guard) // caller will need to deref and unwrap
-    } else {
-        None
-    }
-}
+// pub fn get_data_package() -> Option<RwLockReadGuard<'static, Option<DataPackageObject>>> {
+//     let guard = DATA_PACKAGE.read().unwrap();
+//     if guard.is_some() {
+//         Some(guard) // caller will need to deref and unwrap
+//     } else {
+//         None
+//     }
+// }
+
+// pub fn get_data_package() -> Option<DataPackageObject> {
+//     match DATA_PACKAGE.read().unwrap().as_ref() {
+//         None => None,
+//         Some(dp) => {
+//             Some(*dp)
+//         }
+//     }
+// }
 
 async fn handle_item_receive(
     client: &mut ArchipelagoClient,
@@ -441,18 +449,17 @@ async fn handle_item_receive(
     let Some(mapping_data) = mapping_data.as_ref() else {
         return Err(Box::from(anyhow!("No mapping data")));
     };
-    if received_item == check_handler::M20 {
+    if received_item.mission == 20 {
         client.send(ClientMessage::StatusUpdate(StatusUpdate {
             status: ClientStatus::ClientGoal,
         })).await?;
         return Ok(())
     }
-    if let Some(data_guard) = get_data_package() {
-        if let Some(data) = data_guard.as_ref() {
+        if let Some(data_package) = DATA_PACKAGE.read().unwrap().as_ref() {
             let location_key = location_handler::get_location_name_by_data(&received_item)?;
             let location_data = mapping_data.items.get(location_key).unwrap();
             // Then see if the item picked up matches the specified in the map
-            match data
+            match data_package
                 .games
                 .get(GAME_NAME)
                 .unwrap()
@@ -468,15 +475,14 @@ async fn handle_item_receive(
                         log::error!("Failed to check location: {}", arch_err);
                         item_sync::add_offline_check(loc_id.clone(), client).await?;
                     }
-                    if constants::get_item_id(&*location_data.item_name).unwrap() > 0x14 {
-
-
-                    // if constants::get_items_by_category(ItemCategory::Key)
-                    //     .contains(&&*location_data.item_name)
-                    // {
-                        ui::set_checklist_item(&*location_data.item_name, true);
-                        log::debug!("Item checked off: {}", location_data.item_name);
-                    //}
+                    match constants::get_item_id(&*location_data.item_name) {
+                        None => {}
+                        Some(id) => {
+                            if id > 0x14 {
+                                ui::set_checklist_item(&*location_data.item_name, true);
+                                log::debug!("Item checked off: {}", location_data.item_name);
+                            }
+                        }
                     }
                     log::info!(
                         "Location check successful: {} ({}), Item: {}",
@@ -488,7 +494,7 @@ async fn handle_item_receive(
                 None => Err(anyhow::anyhow!("Location not found: {}", location_key))?,
             }
         }
-    }
+
     Ok(())
 }
 

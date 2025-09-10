@@ -1,14 +1,12 @@
 use crate::archipelago::get_checked_locations;
 use crate::check_handler::Location;
-use crate::constants::{
-    EventCode, ItemCategory, EVENT_TABLES,
-};
+use crate::constants::{EventCode, ItemCategory, EVENT_TABLES, ITEM_ID_MAP};
 use crate::data::generated_locations;
-use crate::game_manager::{get_mission};
+use crate::game_manager::get_mission;
+use crate::hook::{DUMMY_ID, REMOTE_ID};
 use crate::{constants, game_manager, mapping, utilities};
 use anyhow::anyhow;
 use std::error::Error;
-use crate::hook::{DUMMY_ID, REMOTE_ID};
 
 /// If we are in a room with a key item+appropriate mission, return Ok(location_key)
 pub fn in_key_item_room() -> Result<&'static str, Box<dyn Error>> {
@@ -28,6 +26,12 @@ pub fn in_key_item_room() -> Result<&'static str, Box<dyn Error>> {
 }
 
 pub fn get_location_name_by_data(location_data: &Location) -> Result<&'static str, Box<dyn Error>> {
+    if location_data.room == -1 {
+        let mission_loc: Vec<_> = generated_locations::ITEM_MISSION_MAP.iter().filter(|(key, _item_entry)| {
+            *(*key) == format!("Mission #{} Complete", location_data.mission).as_str()
+        }).collect();
+        return Ok(mission_loc[0].0)
+    }
     let filtered_locs =
         generated_locations::ITEM_MISSION_MAP
             .iter()
@@ -52,7 +56,7 @@ pub fn get_mapped_item_id(location_name: &str) -> Result<u32, Box<dyn Error>> {
     let Some(mapping_data) = mapping_data.as_ref() else {
         return Err(Box::from("No mapping data"));
     };
-    Ok(constants::get_item_id(
+    let id = constants::get_item_id(
         &mapping_data
             .items
             .get(location_name)
@@ -60,7 +64,25 @@ pub fn get_mapped_item_id(location_name: &str) -> Result<u32, Box<dyn Error>> {
             .item_name
             .as_str(),
     )
-    .unwrap())
+    .unwrap();
+    // To set the displayed graphic to the corresponding weapon
+    if id > 0x39 {
+        return Ok(match id {
+            (0x40..0x44) => *ITEM_ID_MAP.get("Rebellion (Normal)").unwrap(),
+            0x44 => *ITEM_ID_MAP.get("Cerberus").unwrap(),
+            0x45 => *ITEM_ID_MAP.get("Cerberus").unwrap(),
+            (0x46..0x4A) => *ITEM_ID_MAP.get("Agni and Rudra").unwrap(),
+            (0x4A..0x4F) => *ITEM_ID_MAP.get("Nevan").unwrap(),
+            (0x4F..0x53) => *ITEM_ID_MAP.get("Beowulf").unwrap(),
+            0x53 => *ITEM_ID_MAP.get("Ebony & Ivory").unwrap(),
+            0x54 => *ITEM_ID_MAP.get("Shotgun").unwrap(),
+            0x55 => *ITEM_ID_MAP.get("Artemis").unwrap(),
+            0x56 => *ITEM_ID_MAP.get("Spiral").unwrap(),
+            0x57 => *ITEM_ID_MAP.get("Kalina Ann").unwrap(),
+            _ => {log::debug!("Unrecognized id {}", id); id},
+        });
+    }
+    Ok(id)
 }
 
 pub fn edit_end_event(location_key: &str) {
@@ -72,7 +94,10 @@ pub fn edit_end_event(location_key: &str) {
                     for event in event_table.events.iter() {
                         if event.event_type == EventCode::END {
                             unsafe {
-                                log::debug!("Replaced END event at {:#X} with red orb", event.offset);
+                                log::debug!(
+                                    "Replaced END event at {:#X} with red orb",
+                                    event.offset
+                                );
                                 if let Some(event_table_addr) = utilities::get_event_address() {
                                     utilities::replace_single_byte(
                                         event_table_addr + event.offset,
@@ -117,15 +142,3 @@ pub(crate) fn location_is_checked_and_end(location_key: &str) -> bool {
         }
     }
 }
-
-/*pub fn room_transition() {
-    log::debug!("Room transition");
-    // To set the end event to a dummy item until the location is checked off
-    with_session_read(|s| {
-        if let Some(event_tables) = EVENT_TABLES.get(&s.mission) {
-            for event_table in event_tables {
-
-            }
-        }
-    }).unwrap();
-}*/

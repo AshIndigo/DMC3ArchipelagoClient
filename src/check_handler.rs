@@ -77,7 +77,7 @@ pub fn item_non_event(item_struct: usize) {
                 let loc = Location {
                     item_id: item_id as u32,
                     room: game_manager::get_room(),
-                    _mission: get_mission(),
+                    mission: get_mission(),
                     coordinates: Coordinates {
                         x: x_coord_val,
                         y: y_coord_val,
@@ -154,7 +154,7 @@ pub fn item_event(loc_chk_flg: usize, item_id: i16, unknown: i32) {
                 let loc = Location {
                     item_id: item_id as u32,
                     room: game_manager::get_room(),
-                    _mission: get_mission(),
+                    mission: get_mission(),
                     coordinates: EMPTY_COORDINATES,
                 };
                 const EXTRA_OUTPUT: bool = true;
@@ -213,9 +213,14 @@ pub fn mission_complete_check(cuid_result: usize, ranking: i32) -> i32 {
             Rank::from_repr(ranking as usize).unwrap(), // If rank is 5 then SSS
             ranking
         );
-        if s.mission == 20 {
-            send_off_location_coords(M20, u32::MAX);
-        }
+        //if s.mission == 20 {
+            send_off_location_coords( Location {
+                item_id: u32::MAX,
+                room: -1,
+                mission: s.mission,
+                coordinates: EMPTY_COORDINATES,
+            }, u32::MAX);
+        //}
     })
     .expect("Session Data was not available?");
     if let Some(original) = ORIGINAL_RESULT_CALC.get() {
@@ -231,16 +236,16 @@ pub(crate) static LOCATION_CHECK_TX: OnceCell<Sender<Location>> = OnceCell::new(
 pub(crate) struct Location {
     pub(crate) item_id: u32,
     pub(crate) room: i32,
-    pub(crate) _mission: u32,
+    pub(crate) mission: u32,
     pub coordinates: Coordinates,
 }
 
-pub const M20: Location = Location {
-    item_id: u32::MAX,
-    room: -1,
-    _mission: 20,
-    coordinates: EMPTY_COORDINATES,
-};
+// pub const M20: Location = Location {
+//     item_id: u32::MAX,
+//     room: -1,
+//     _mission: 20,
+//     coordinates: EMPTY_COORDINATES,
+// };
 
 impl Display for Location {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

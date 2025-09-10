@@ -18,7 +18,7 @@ pub static CONFIG: LazyLock<Config> = LazyLock::new(|| {
 pub struct Connection {
     pub port: i32,                       // The port the local client is running on
     pub address: String, // The address the local client is on, should always be localhost
-    pub offline: bool,   // Do not attempt to connect to local client
+    pub disable_auto_connect: bool,   // Do not attempt to connect to local client
     pub reconnect_interval_seconds: i32, // How many seconds between each reconnection attempt to the local client
 }
 
@@ -43,7 +43,7 @@ impl Default for Config {
             connections: Connection {
                 port: 21705,
                 address: "localhost".to_string(),
-                offline: false,
+                disable_auto_connect: false,
                 reconnect_interval_seconds: 10,
             },
             mods: Mods {
@@ -68,12 +68,23 @@ fn load_config() -> Result<Config, Box<dyn std::error::Error>> {
             toml::to_string(&Config::default()).expect("Could not serialize default config");
         fs::write(config_path, toml_string).expect("Could not write default config to file");
     }
-    // TODO If the config is missing a key (i.e I updated it, I probably should go ahead and rename the old one and regenerate a new one)
     match Figment::new()
         .merge(Toml::file(config_path))
         .extract::<Config>()
     {
         Ok(config) => Ok(config),
-        Err(err) => Err(Box::new(err)),
+        Err(err) => {
+            log::warn!("Failed to parse config: {err}. Backing up and regenerating.");
+
+            let backup_path = "archipelago/randomizer.old.toml";
+            fs::rename(config_path, backup_path)?;
+            log::info!("Old config backed up to {:?}", backup_path);
+               
+            let toml_string =
+                toml::to_string(&Config::default()).expect("Could not serialize default config");
+            fs::write(config_path, &toml_string)?;
+
+            Ok(Config::default())
+        }
     }
 }
