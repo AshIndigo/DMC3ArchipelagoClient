@@ -6,7 +6,7 @@ use crate::ui::ui::CHECKLIST;
 use crate::utilities::{is_crimson_loaded, is_ddmk_loaded};
 use anyhow::anyhow;
 use archipelago_rs::protocol::ClientStatus;
-use log::LevelFilter;
+use log::{Level, LevelFilter};
 use log4rs::append::console::ConsoleAppender;
 use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller;
 use log4rs::append::rolling_file::policy::compound::trigger::onstartup::OnStartUpTrigger;
@@ -18,7 +18,7 @@ use log4rs::Config;
 use std::collections::HashMap;
 use std::env::current_exe;
 use std::ffi::c_void;
-use std::io::{ErrorKind};
+use std::io::ErrorKind;
 use std::sync::atomic::Ordering;
 use std::sync::RwLock;
 use std::{fs, ptr, thread};
@@ -34,7 +34,6 @@ use windows::Win32::System::Console::{
     ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_OUTPUT_HANDLE,
 };
 use xxhash_rust::const_xxh3::xxh3_64;
-use crate::ui::crimson_hook;
 
 mod archipelago;
 mod bank;
@@ -115,16 +114,31 @@ pub extern "system" fn DllMain(
             thread::spawn(|| {
                 load_real_dinput8();
                 if current_exe().unwrap().ends_with("dmc3.exe") {
-                    create_console();
-                    setup_logger();
-                    log::debug!("Config: {:#?}", *config::CONFIG);
-                    match load_other_dlls() {
+                    let mut pre_logs: Vec<PreLog> = vec![];
+                    pre_logs.push(PreLog::new(
+                        Level::Debug,
+                        format!("Config: {:#?}", *config::CONFIG),
+                    ));
+                    match load_other_dlls(&mut pre_logs) {
                         Ok(_) => {
-                            log::debug!("Successfully loaded extra mods!");
+                            pre_logs.push(PreLog::new(
+                                Level::Debug,
+                                "Successfully loaded extra mods!".to_string(),
+                            ));
                         }
                         Err(err) => {
-                            log::error!("Failed to load extra mods: {}", err);
+                            pre_logs.push(PreLog::new(
+                                Level::Error,
+                                format!("Failed to load extra mods: {}", err),
+                            ));
                         }
+                    }
+                    // Crimson will melt if the console window exists first afaik
+                    create_console();
+                    // I'll lose color if I do this first then console
+                    setup_logger();
+                    for log in pre_logs {
+                        log::log!(log.level, "{}", log.message);
                     }
                     match is_file_valid("dmc3.exe", 9031715114876197692) {
                         Ok(_) => {
@@ -162,7 +176,18 @@ pub extern "system" fn DllMain(
     BOOL(1)
 }
 
-fn load_other_dlls() -> Result<(), std::io::Error> {
+struct PreLog {
+    level: Level,
+    message: String,
+}
+
+impl PreLog {
+    pub fn new(level: Level, message: String) -> PreLog {
+        PreLog { level, message }
+    }
+}
+
+fn load_other_dlls(pre_logs: &mut Vec<PreLog>) -> Result<(), std::io::Error> {
     // The game will immolate if both of these try to load
 
     if !(*config::CONFIG).mods.disable_ddmk {
@@ -172,11 +197,18 @@ fn load_other_dlls() -> Result<(), std::io::Error> {
             }
             Err(err) => match err.kind() {
                 ErrorKind::InvalidData => {
-                    log::error!("Mary/DDMK Hash does not match version 2.7.3, please update DDMK")
+                    pre_logs.push(PreLog::new(
+                        Level::Error,
+                        "Mary/DDMK Hash does not match version 2.7.3, please update DDMK"
+                            .to_string(),
+                    ));
                 }
                 ErrorKind::NotFound => {}
                 _ => {
-                    log::error!("Unexpected error: {}", err);
+                    pre_logs.push(PreLog::new(
+                        Level::Error,
+                        format!("Unexpected error: {}", err),
+                    ));
                 }
             },
         }
@@ -186,23 +218,32 @@ fn load_other_dlls() -> Result<(), std::io::Error> {
             Ok(_) => {}
             Err(err) => match err.kind() {
                 ErrorKind::InvalidData => {
-                    log::error!("Crimson Hash does not match version 0.4");
-                    crimson_hook::CRIMSON_HASH_ISSUE.store(true, Ordering::SeqCst);
+                    pre_logs.push(PreLog::new(
+                        Level::Error,
+                        "Crimson Hash does not match version 0.4".to_string(),
+                    ));
+                    ui::crimson_hook::CRIMSON_HASH_ISSUE.store(true, Ordering::SeqCst);
                 }
                 ErrorKind::NotFound => {}
                 _ => {
-                    log::error!("Unexpected error: {}", err);
+                    pre_logs.push(PreLog::new(
+                        Level::Error,
+                        format!("Unexpected error: {}", err),
+                    ));
                 }
             },
         }
         let _ = unsafe { LoadLibraryA(b"Crimson.dll\0".as_ptr() as _) };
-    }
-
-    if is_crimson_loaded() {
-        log::info!("Crimson has been loaded!");
-        log::warn!(
-            "Crimson has not been extensively tested with the randomizer, crashes or other issues may occur."
-        )
+        if is_crimson_loaded() {
+            pre_logs.push(PreLog::new(
+                Level::Info,
+                "Crimson has been loaded!".to_string(),
+            ));
+            pre_logs.push(PreLog::new(
+                Level::Warn,
+                "Crimson has not been extensively tested with the randomizer, crashes or other issues may occur.".to_string()
+            ));
+        }
     }
     Ok(())
 }
