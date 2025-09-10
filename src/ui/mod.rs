@@ -3,4 +3,4 @@ mod imgui_bindings;
 mod inputs;
 pub(crate) mod ui;
 pub(crate) mod egui_ui;
-mod crimson_hook;
+pub(crate) mod crimson_hook;

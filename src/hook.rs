@@ -679,7 +679,7 @@ pub fn set_player_data(param_1: usize) -> bool {
             game_manager::set_skills();
         }
     }
-
+    LAST_OBTAINED_ID.store(0, Ordering::SeqCst); // Should stop random item jumpscares
     unsafe {
         if let Some(original) = ORIGINAL_SETUP_PLAYER_DATA.get() {
             res = original(param_1)

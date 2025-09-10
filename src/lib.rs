@@ -18,7 +18,7 @@ use log4rs::Config;
 use std::collections::HashMap;
 use std::env::current_exe;
 use std::ffi::c_void;
-use std::io::ErrorKind;
+use std::io::{ErrorKind};
 use std::sync::atomic::Ordering;
 use std::sync::RwLock;
 use std::{fs, ptr, thread};
@@ -34,6 +34,7 @@ use windows::Win32::System::Console::{
     ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_OUTPUT_HANDLE,
 };
 use xxhash_rust::const_xxh3::xxh3_64;
+use crate::ui::crimson_hook;
 
 mod archipelago;
 mod bank;
@@ -181,8 +182,22 @@ fn load_other_dlls() -> Result<(), std::io::Error> {
         }
     }
     if !(*config::CONFIG).mods.disable_crimson && !is_ddmk_loaded() {
+        match is_file_valid("Crimson.dll", 6027093939875741571) {
+            Ok(_) => {}
+            Err(err) => match err.kind() {
+                ErrorKind::InvalidData => {
+                    log::error!("Crimson Hash does not match version 0.4");
+                    crimson_hook::CRIMSON_HASH_ISSUE.store(true, Ordering::SeqCst);
+                }
+                ErrorKind::NotFound => {}
+                _ => {
+                    log::error!("Unexpected error: {}", err);
+                }
+            },
+        }
         let _ = unsafe { LoadLibraryA(b"Crimson.dll\0".as_ptr() as _) };
     }
+
     if is_crimson_loaded() {
         log::info!("Crimson has been loaded!");
         log::warn!(
@@ -251,8 +266,11 @@ fn main_setup() {
     if is_ddmk_loaded() {
         log::info!("DDMK is loaded!");
         ui::ddmk_hook::setup_ddmk_hook();
+    } else if is_crimson_loaded() {
+        log::info!("Crimson is loaded!");
+        ui::crimson_hook::setup_crimson_hook();
     } else {
-        log::info!("DDMK is not loaded!");
+        log::info!("DDMK or Crimson are not loaded!");
         if (*config::CONFIG).force_enable_egui {
             thread::spawn(move || ui::egui_ui::start_egui());
         }
