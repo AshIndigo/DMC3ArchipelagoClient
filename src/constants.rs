@@ -973,12 +973,16 @@ pub struct ItemEntry {
 #[derive(Copy, Clone, strum_macros::Display, strum_macros::FromRepr)]
 #[allow(dead_code)]
 pub(crate) enum Difficulty {
-    // TODO Missing HoH
+    // TODO Missing HoH for Mission Rank printout
     Easy = 0,
     Normal = 1,
     Hard = 2,
+    #[strum(to_string = "Very Hard")]
     VeryHard = 3,
+    #[strum(to_string = "Dante Must Die")]
     DanteMustDie = 4,
+    #[strum(to_string = "Heaven or Hell")]
+    HeavenOrHell = 5,
 }
 
 #[derive(Copy, Clone, strum_macros::Display, strum_macros::FromRepr)]

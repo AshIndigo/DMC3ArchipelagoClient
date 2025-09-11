@@ -1,4 +1,3 @@
-use std::cmp::PartialEq;
 use crate::bank::{get_bank, get_bank_key};
 use crate::cache::read_cache;
 use crate::check_handler::Location;
@@ -6,12 +5,20 @@ use crate::constants::{ItemCategory, Status, GAME_NAME};
 use crate::data::generated_locations;
 use crate::ui::ui;
 use crate::ui::ui::CONNECTION_STATUS;
-use crate::{bank, cache, constants, game_manager, hook, item_sync, location_handler, mapping, save_handler, text_handler};
+use crate::{
+    bank, cache, constants, game_manager, hook, item_sync, location_handler, mapping, save_handler,
+    text_handler,
+};
 use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
-use archipelago_rs::protocol::{Bounced, ClientMessage, ClientStatus, Connected, DataPackageObject, JSONColor, JSONMessagePart, NetworkItem, PrintJSON, Retrieved, ServerMessage, StatusUpdate};
+use archipelago_rs::protocol::{
+    Bounce, Bounced, ClientMessage, ClientStatus, Connected, DataPackageObject, JSONColor,
+    JSONMessagePart, NetworkItem, PrintJSON, Retrieved, ServerMessage, StatusUpdate,
+};
 use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -19,15 +26,17 @@ use std::fs::{remove_file, File};
 use std::io::Write;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{LazyLock, Mutex, OnceLock, RwLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync;
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::{Receiver, Sender};
 
-pub(crate) static DATA_PACKAGE: LazyLock<RwLock<Option<DataPackageObject>>> = LazyLock::new(|| RwLock::new(None));
+pub(crate) static DATA_PACKAGE: LazyLock<RwLock<Option<DataPackageObject>>> =
+    LazyLock::new(|| RwLock::new(None));
 
 pub static CHECKED_LOCATIONS: OnceLock<RwLock<Vec<&'static str>>> = OnceLock::new();
 pub static CONNECTED: OnceLock<Mutex<Connected>> = OnceLock::new();
-pub static TX_ARCH: OnceLock<sync::mpsc::Sender<ArchipelagoConnection>> = OnceLock::new();
-pub static TX_DISCONNECT: OnceLock<sync::mpsc::Sender<bool>> = OnceLock::new();
+pub static TX_ARCH: OnceLock<Sender<ArchipelagoConnection>> = OnceLock::new();
+pub static TX_DISCONNECT: OnceLock<Sender<bool>> = OnceLock::new();
 
 pub static SLOT_NUMBER: AtomicI32 = AtomicI32::new(-1);
 pub static TEAM_NUMBER: AtomicI32 = AtomicI32::new(-1);
@@ -70,7 +79,7 @@ pub struct ArchipelagoConnection {
 
 impl Display for ArchipelagoConnection {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        Ok(write!(f, "URL: {:#} Name: {:#}", self.url, self.name, )
+        Ok(write!(f, "URL: {:#} Name: {:#}", self.url, self.name,)
             .expect("Failed to print connection data"))
     }
 }
@@ -96,7 +105,7 @@ pub async fn get_archipelago_client(
             &login_data.url,
             None, //Some(vec![GAME_NAME.parse().expect("Failed to parse string")]),
         )
-            .await?;
+        .await?;
         match &cl.data_package() {
             // Write the data package to a local cache file
             None => {
@@ -142,7 +151,7 @@ pub async fn connect_archipelago(
             &login_data.name,
             Some(&login_data.password),
             Option::from(0b111),
-            vec!["AP".to_string()],
+            vec!["AP".to_string(), "DeathLink".to_string()],
         )
         .await?;
     *get_connected().lock().expect("Failed to get connected") = connected;
@@ -221,7 +230,9 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) -> Result<(), Box<dyn Error>>
             log::debug!("Mapping data: {:#?}", mapping::MAPPING.read().unwrap());
         }
         Err(err) => {
-            return Err(format!("Failed to load mappings from slot data, aborting: {}", err).into());
+            return Err(
+                format!("Failed to load mappings from slot data, aborting: {}", err).into(),
+            );
         }
     }
     mapping::use_mappings()?;
@@ -229,12 +240,19 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) -> Result<(), Box<dyn Error>>
     Ok(())
 }
 
+pub struct DeathLinkData {
+    pub cause: String,
+}
+
+pub static TX_DEATHLINK: OnceLock<Sender<DeathLinkData>> = OnceLock::new();
+
 pub async fn handle_things(
     client: &mut ArchipelagoClient,
     loc_rx: &mut Receiver<Location>,
     bank_rx: &mut Receiver<String>,
     connect_rx: &mut Receiver<ArchipelagoConnection>,
     add_bank_rx: &mut Receiver<NetworkItem>,
+    deathlink_rx: &mut Receiver<DeathLinkData>,
     disconnect_request: &mut Receiver<bool>,
 ) {
     loop {
@@ -254,6 +272,11 @@ pub async fn handle_things(
                     log::error!("Failed to add item to bank: {}", err);
                 }
             }
+            Some(message) = deathlink_rx.recv() => {
+                if let Err(err) = send_deathlink_message(client, message).await {
+                    log::error!("Failed to send deathlink: {}", err);
+                }
+            }
             Some(reconnect_request) = connect_rx.recv() => {
                 log::warn!("Reconnect requested while connected: {}", reconnect_request);
                 break; // Exit to trigger reconnect in spawn_arch_thread
@@ -270,6 +293,28 @@ pub async fn handle_things(
             }
         }
     }
+}
+
+async fn send_deathlink_message(
+    client: &mut ArchipelagoClient,
+    data: DeathLinkData,
+) -> Result<(), ArchipelagoError> {
+    log::debug!("Sending out deathlink bounce");
+    let name = mapping::get_slot_name().unwrap().unwrap();
+    client
+        .send(ClientMessage::Bounce(Bounce {
+            games: Some(vec![]),
+            slots: Some(vec![]),
+            tags: Some(vec!["DeathLink".to_string()]),
+            data: json!({
+                "time": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs_f32(),
+                "source": name,
+                "cause": data.cause
+            }),
+        }))
+        .await?;
+    log::debug!("sent bounce");
+    Ok(())
 }
 
 async fn disconnect(client: &mut ArchipelagoClient) {
@@ -355,7 +400,7 @@ async fn handle_client_messages(
                 name: data.username.clone(),
                 password: data.username.clone(),
             })
-                .await?;
+            .await?;
             Ok(())
         }
         Err(ArchipelagoError::IllegalResponse { received, expected }) => {
@@ -391,7 +436,16 @@ async fn handle_bounced(
         if bounced.tags.unwrap().contains(&DEATH_LINK.to_string()) {
             log::debug!("Deathlink detected");
             if bounced.data.is_some() {
-                log::info!("{}", bounced.data.unwrap().get("cause").unwrap().as_str().unwrap());
+                log::info!(
+                    "{}",
+                    bounced
+                        .data
+                        .unwrap()
+                        .get("cause")
+                        .unwrap()
+                        .as_str()
+                        .unwrap()
+                );
             }
             game_manager::kill_dante();
         }
@@ -450,53 +504,55 @@ async fn handle_item_receive(
         return Err(Box::from(anyhow!("No mapping data")));
     };
     if received_item.mission == 20 {
-        client.send(ClientMessage::StatusUpdate(StatusUpdate {
-            status: ClientStatus::ClientGoal,
-        })).await?;
-        return Ok(())
+        client
+            .send(ClientMessage::StatusUpdate(StatusUpdate {
+                status: ClientStatus::ClientGoal,
+            }))
+            .await?;
+        return Ok(());
     }
-        if let Some(data_package) = DATA_PACKAGE.read().unwrap().as_ref() {
-            if received_item.item_id <= 0x39 {
-                crate::check_handler::take_away_received_item(received_item.item_id);
-            }
-            let location_key = location_handler::get_location_name_by_data(&received_item)?;
-            let location_data = mapping_data.items.get(location_key).unwrap();
-            // Then see if the item picked up matches the specified in the map
-            match data_package
-                .games
-                .get(GAME_NAME)
-                .unwrap()
-                .location_name_to_id
-                .get(location_key)
-            {
-                Some(loc_id) => {
-                    location_handler::edit_end_event(&location_key); // Needed so a mission will end properly after picking up its trigger.
-                    let desc = location_data.description.clone();
-                    text_handler::replace_unused_with_text(desc);
-                    text_handler::CANCEL_TEXT.store(true, Ordering::SeqCst);
-                    if let Err(arch_err) = client.location_checks(vec![loc_id.clone()]).await {
-                        log::error!("Failed to check location: {}", arch_err);
-                        item_sync::add_offline_check(loc_id.clone(), client).await?;
-                    }
-                    match constants::get_item_id(&*location_data.item_name) {
-                        None => {}
-                        Some(id) => {
-                            if id > 0x14 {
-                                ui::set_checklist_item(&*location_data.item_name, true);
-                                log::debug!("Item checked off: {}", location_data.item_name);
-                            }
+    if let Some(data_package) = DATA_PACKAGE.read().unwrap().as_ref() {
+        if received_item.item_id <= 0x39 {
+            crate::check_handler::take_away_received_item(received_item.item_id);
+        }
+        let location_key = location_handler::get_location_name_by_data(&received_item)?;
+        let location_data = mapping_data.items.get(location_key).unwrap();
+        // Then see if the item picked up matches the specified in the map
+        match data_package
+            .games
+            .get(GAME_NAME)
+            .unwrap()
+            .location_name_to_id
+            .get(location_key)
+        {
+            Some(loc_id) => {
+                location_handler::edit_end_event(&location_key); // Needed so a mission will end properly after picking up its trigger.
+                let desc = location_data.description.clone();
+                text_handler::replace_unused_with_text(desc);
+                text_handler::CANCEL_TEXT.store(true, Ordering::SeqCst);
+                if let Err(arch_err) = client.location_checks(vec![loc_id.clone()]).await {
+                    log::error!("Failed to check location: {}", arch_err);
+                    item_sync::add_offline_check(loc_id.clone(), client).await?;
+                }
+                match constants::get_item_id(&*location_data.item_name) {
+                    None => {}
+                    Some(id) => {
+                        if id > 0x14 {
+                            ui::set_checklist_item(&*location_data.item_name, true);
+                            log::debug!("Item checked off: {}", location_data.item_name);
                         }
                     }
-                    log::info!(
-                        "Location check successful: {} ({}), Item: {}",
-                        location_key,
-                        loc_id,
-                        location_data.item_name
-                    );
                 }
-                None => Err(anyhow::anyhow!("Location not found: {}", location_key))?,
+                log::info!(
+                    "Location check successful: {} ({}), Item: {}",
+                    location_key,
+                    loc_id,
+                    location_data.item_name
+                );
             }
+            None => Err(anyhow::anyhow!("Location not found: {}", location_key))?,
         }
+    }
 
     Ok(())
 }

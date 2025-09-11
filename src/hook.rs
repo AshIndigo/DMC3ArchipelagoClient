@@ -1,28 +1,30 @@
-use crate::archipelago::{get_checked_locations};
+use crate::archipelago::{
+    get_checked_locations, DeathLinkData, TX_DEATHLINK,
+};
 use crate::constants::ItemEntry;
 use crate::constants::*;
 use crate::data::generated_locations;
-use crate::game_manager::{get_mission, get_room, set_item, set_loc_chk_flg, set_weapons_in_inv};
+use crate::game_manager::{
+    get_difficulty, get_mission, get_room, set_item, set_loc_chk_flg, set_weapons_in_inv,
+};
 use crate::location_handler::in_key_item_room;
 use crate::mapping::{Mapping, MAPPING};
+use crate::text_handler::LAST_OBTAINED_ID;
 use crate::ui::ui::{CHECKLIST, CONNECTION_STATUS};
 use crate::utilities::{read_data_from_address, replace_single_byte, DMC3_ADDRESS};
-use crate::{check_handler, create_hook, game_manager, save_handler, text_handler, utilities};
+use crate::{check_handler, create_hook, game_manager, mapping, save_handler, text_handler, utilities};
 use archipelago_rs::client::ArchipelagoClient;
-use archipelago_rs::protocol::{Bounce, ClientMessage};
 use log::error;
 use minhook::{MinHook, MH_STATUS};
-use serde_json::json;
 use std::arch::asm;
 use std::collections::HashMap;
 use std::ptr::read_unaligned;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, OnceLock, RwLockReadGuard};
-use std::{ptr, slice, thread};
+use std::{ptr, slice};
 use tokio::sync::Mutex;
 use winapi::um::memoryapi::VirtualProtect;
 use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
-use crate::text_handler::LAST_OBTAINED_ID;
 
 pub(crate) const DUMMY_ID: LazyLock<u32> = LazyLock::new(|| *ITEM_ID_MAP.get("Dummy").unwrap()); //0x20;
 pub(crate) const REMOTE_ID: LazyLock<u32> = LazyLock::new(|| *ITEM_ID_MAP.get("Remote").unwrap()); //0x26;
@@ -407,37 +409,40 @@ fn monitor_hp(damage_calc: usize, param_1: usize, param_2: usize, param_3: usize
         read_data_from_address(*DMC3_ADDRESS + game_manager::ACTIVE_CHAR_DATA);
     unsafe {
         let hp = read_unaligned((char_data_ptr + 0x411C) as *mut f32);
-        if hp == 0.0 {
+        if hp <= 0.0 {
             log::debug!("Dante died!");
-            match MAPPING.read() {
-                Ok(mapping) => match mapping.as_ref() {
-                    None => {}
-                    Some(mapping) => {
-                        if mapping.death_link {
-                            thread::spawn(async move || {
-                                if let Some(ref mut client) = CLIENT.lock().await.as_mut() {
-                                    client
-                                        .send(ClientMessage::Bounce(Bounce {
-                                            games: None,
-                                            slots: None,
-                                            tags: Some(vec!["DeathLink".to_string()]),
-                                            data: json!({ // TODO Filling in data here
-                                                "time": "0.0",
-                                                "source": "Ash",
-                                                "cause": "skill issue"
-                                            }),
-                                        }))
-                                        .await
-                                        .expect("Failed to send DeathLink message");
-                                }
-                            });
-                        }
-                    }
-                },
-                Err(err) => {
-                    error!("Failed to get mapping lock: {}", err);
+            send_deathlink();
+        }
+    }
+}
+
+#[tokio::main(flavor = "multi_thread", worker_threads = 1)]
+async fn send_deathlink() {
+    log::debug!("Sending deathlink");
+    match MAPPING.read() {
+        Ok(mapping) => {
+            if let Some(mapping) = mapping.as_ref() {
+                if mapping.death_link {
+                    log::debug!("about to send to dl channel");
+                    TX_DEATHLINK
+                        .get()
+                        .unwrap()
+                        .send(DeathLinkData {
+                            cause: format!(
+                                "{} died in Mission #{} on {}", // TODO Maybe an "against {}" at some point?
+                                mapping::get_slot_name().unwrap().unwrap(),
+                                get_mission(),
+                                get_difficulty()
+                            ),
+                        })
+                        .await
+                        .unwrap();
+                    log::debug!("Sent deathlink message to channel");
                 }
             }
+        }
+        Err(err) => {
+            error!("Failed to get mapping lock: {}", err);
         }
     }
 }
@@ -775,9 +780,7 @@ pub(crate) fn restore_mode_table() {
 // TODO I would like to make this show a custom message denied message, but for now, just do nothing
 pub fn deny_skill_purchasing(custom_skill: usize) {
     if read_data_from_address::<u8>(custom_skill + 0x08) == 0x05 {
-        unsafe {
-            replace_single_byte(custom_skill + 0x08, 0x01)
-        }
+        unsafe { replace_single_byte(custom_skill + 0x08, 0x01) }
     }
     if let Some(orig) = ORIGINAL_SKILL_SHOP.get() {
         unsafe {
@@ -788,9 +791,7 @@ pub fn deny_skill_purchasing(custom_skill: usize) {
 
 pub fn deny_gun_upgrade(custom_gun: usize) {
     if read_data_from_address::<u8>(custom_gun + 0x08) == 0x03 {
-        unsafe {
-            replace_single_byte(custom_gun + 0x08, 0x01)
-        }
+        unsafe { replace_single_byte(custom_gun + 0x08, 0x01) }
     }
     if let Some(orig) = ORIGINAL_GUN_SHOP.get() {
         unsafe {

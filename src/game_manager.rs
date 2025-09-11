@@ -1,7 +1,4 @@
-use crate::constants::{
-    get_items_by_category, get_weapon_id, ItemCategory, BASE_HP, GUN_NAMES, ITEM_ID_MAP, ITEM_OFFSET_MAP, MAX_HP,
-    MAX_MAGIC, MELEE_NAMES, ONE_ORB,
-};
+use crate::constants::{get_items_by_category, get_weapon_id, Difficulty, ItemCategory, BASE_HP, GUN_NAMES, ITEM_ID_MAP, ITEM_OFFSET_MAP, MAX_HP, MAX_MAGIC, MELEE_NAMES, ONE_ORB};
 use crate::item_sync;
 use crate::ui::ui::CHECKLIST;
 use crate::utilities::{
@@ -106,6 +103,17 @@ pub fn get_mission() -> u32 {
 /// Get current room
 pub fn get_room() -> i32 {
     with_session_read(|s| s.room).unwrap()
+}
+
+/// Get current difficulty
+pub fn get_difficulty() -> Difficulty {
+    Difficulty::from_repr(with_session_read(|s| { 
+        if s.hoh {
+            return 5
+        } else {
+            s.difficulty
+        }
+    }).unwrap() as usize).unwrap()
 }
 
 const CHARACTER_DATA: usize = 0xC90E30;

@@ -1,4 +1,4 @@
-use crate::archipelago::{connect_archipelago, SLOT_NUMBER, TEAM_NUMBER};
+use crate::archipelago::{connect_archipelago, DeathLinkData, SLOT_NUMBER, TEAM_NUMBER, TX_DEATHLINK};
 use crate::bank::{setup_bank_add_channel, setup_bank_to_inv_channel};
 use crate::constants::Status;
 use crate::hook::CLIENT;
@@ -22,6 +22,8 @@ use std::io::ErrorKind;
 use std::sync::atomic::Ordering;
 use std::sync::RwLock;
 use std::{fs, ptr, thread};
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::Receiver;
 use ui::ui::CONNECTION_STATUS;
 use winapi::shared::guiddef::REFIID;
 use winapi::shared::minwindef::{DWORD, LPVOID};
@@ -382,6 +384,13 @@ pub unsafe extern "system" fn free_self() -> bool {
     }
 }
 
+pub fn setup_deathlink_channel() -> Receiver<DeathLinkData> {
+    let (tx, rx) = mpsc::channel(64);
+    TX_DEATHLINK.set(tx).expect("TX already initialized");
+    rx
+}
+
+
 #[tokio::main]
 pub(crate) async fn spawn_arch_thread() {
     log::info!("Archipelago Thread started");
@@ -391,6 +400,7 @@ pub(crate) async fn spawn_arch_thread() {
     let mut rx_disconnect = archipelago::setup_disconnect_channel();
     let mut rx_bank_to_inv = setup_bank_to_inv_channel();
     let mut rx_bank_add = setup_bank_add_channel();
+    let mut rx_deathlink = setup_deathlink_channel();
     match ui::ui::load_login_data() {
         Ok(_) => {}
         Err(err) => log::error!("Unable to read login data: {}", err),
@@ -446,6 +456,7 @@ pub(crate) async fn spawn_arch_thread() {
                 &mut rx_bank_to_inv,
                 &mut rx_connect,
                 &mut rx_bank_add,
+                &mut rx_deathlink,
                 &mut rx_disconnect,
             )
             .await;

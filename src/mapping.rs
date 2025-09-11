@@ -109,7 +109,7 @@ pub struct Mapping {
     #[serde(deserialize_with = "parse_boolean_option")]
     pub death_link: bool,
     #[serde(deserialize_with = "parse_boolean_option")]
-    pub randomize_skills: bool
+    pub randomize_skills: bool,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -127,9 +127,7 @@ pub struct LocationData {
 
 pub fn use_mappings() -> Result<(), Box<dyn std::error::Error>> {
     let guard = MAPPING.read()?; // Annoying
-    let mapping = guard
-        .as_ref()
-        .ok_or("No mappings found, cannot use")?;
+    let mapping = guard.as_ref().ok_or("No mappings found, cannot use")?;
     // Run through each mapping entry
     for (location_name, location_data) in mapping.items.iter() {
         // Acquire the default location data for a specific location
@@ -163,4 +161,11 @@ pub(crate) fn parse_slot_data() -> Result<(), Box<dyn std::error::Error>> {
     let mappings: Mapping = from_value(connected.slot_data.clone())?;
     MAPPING.write()?.replace(mappings);
     Ok(())
+}
+
+pub fn get_slot_name() -> Result<Option<String>, Box<dyn std::error::Error>> {
+    if let Some(mapping) = MAPPING.read()?.as_ref() {
+        return Ok(Some(mapping.slot.clone()));
+    }
+    Ok(None)
 }
