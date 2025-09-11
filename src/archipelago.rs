@@ -151,7 +151,7 @@ pub async fn connect_archipelago(
             &login_data.name,
             Some(&login_data.password),
             Option::from(0b111),
-            vec!["AP".to_string(), "DeathLink".to_string()],
+            vec!["AP".to_string(), DEATH_LINK.to_string()],
         )
         .await?;
     *get_connected().lock().expect("Failed to get connected") = connected;
@@ -305,7 +305,7 @@ async fn send_deathlink_message(
         .send(ClientMessage::Bounce(Bounce {
             games: Some(vec![]),
             slots: Some(vec![]),
-            tags: Some(vec!["DeathLink".to_string()]),
+            tags: Some(vec![DEATH_LINK.to_string()]),
             data: json!({
                 "time": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs_f32(),
                 "source": name,
@@ -356,7 +356,7 @@ async fn handle_client_messages(
             }
             Some(ServerMessage::RoomInfo(_)) => Ok(()),
             Some(ServerMessage::ConnectionRefused(err)) => {
-                // TODO Update UI status to mark as refused+reason
+                // TODO Update UI status to mark as refused+reason, matters less now that the mod auto connects to a commonclient
                 CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::Relaxed);
                 log::error!("Connection refused: {:?}", err.errors);
                 Ok(())
@@ -426,15 +426,16 @@ async fn handle_client_messages(
         }
     }
 }
+const DEATH_LINK: &str = "DeathLink";
 
 async fn handle_bounced(
     bounced: Bounced,
     _client: &mut ArchipelagoClient,
 ) -> Result<(), Box<dyn Error>> {
-    const DEATH_LINK: &str = "Deathlink";
+
     if bounced.tags.is_some() {
         if bounced.tags.unwrap().contains(&DEATH_LINK.to_string()) {
-            log::debug!("Deathlink detected");
+            log::debug!("DeathLink detected");
             if bounced.data.is_some() {
                 log::info!(
                     "{}",
