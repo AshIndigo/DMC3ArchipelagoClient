@@ -1,4 +1,5 @@
 use crate::constants::{Coordinates, Difficulty, Rank, EMPTY_COORDINATES};
+use crate::data::generated_locations;
 use crate::game_manager::{get_mission, set_item, with_session_read};
 use crate::utilities::{get_inv_address, DMC3_ADDRESS};
 use crate::{constants, create_hook, game_manager, location_handler, text_handler, utilities};
@@ -9,7 +10,6 @@ use std::sync::atomic::Ordering::SeqCst;
 use std::sync::OnceLock;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
-use crate::data::generated_locations;
 
 pub const ITEM_HANDLE_PICKUP_ADDR: usize = 0x1b45a0;
 pub static ORIGINAL_HANDLE_PICKUP: OnceLock<unsafe extern "C" fn(item_struct: usize)> =
@@ -173,7 +173,10 @@ pub fn item_event(loc_chk_flg: usize, item_id: i16, unknown: i32) {
                 let location_name = location_handler::get_location_name_by_data(&loc);
                 match location_name {
                     Ok(location_name) => {
-                        loc.item_id = generated_locations::ITEM_MISSION_MAP.get(location_name).unwrap().item_id;
+                        loc.item_id = generated_locations::ITEM_MISSION_MAP
+                            .get(location_name)
+                            .unwrap()
+                            .item_id;
                         send_off_location_coords(
                             loc,
                             location_handler::get_mapped_item_id(location_name).unwrap(),
@@ -211,11 +214,14 @@ pub fn mission_complete_check(cuid_result: usize, ranking: i32) -> i32 {
         log::info!(
             "Mission {} Finished on Difficulty {} Rank {} ({})",
             s.mission,
-            Difficulty::from_repr(s.difficulty as usize).unwrap(),
+            if s.hoh {
+                Difficulty::HeavenOrHell
+            } else {
+                Difficulty::from_repr(s.difficulty as usize).unwrap()
+            },
             Rank::from_repr(ranking as usize).unwrap(), // If rank is 5 then SSS
             ranking
         );
-        //if s.mission == 20 {
         send_off_location_coords(
             Location {
                 item_id: u32::MAX,
@@ -225,7 +231,6 @@ pub fn mission_complete_check(cuid_result: usize, ranking: i32) -> i32 {
             },
             u32::MAX,
         );
-        //}
     })
     .expect("Session Data was not available?");
     if let Some(original) = ORIGINAL_RESULT_CALC.get() {

@@ -92,8 +92,8 @@ fn set_starting_weapons(
         gun = get_weapon_id(&mappings.start_gun.as_str())
     }
     log::debug!("Gun ID: {:#X} - Melee ID: {:#X}", gun, melee);
-    save_bytes[0x414] = melee as u8;
-    save_bytes[0x416] = gun as u8;
+    save_bytes[0x414] = melee;
+    save_bytes[0x416] = gun;
     Ok(save_bytes)
 }
 

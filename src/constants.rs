@@ -1,4 +1,4 @@
-use crate::archipelago::DATA_PACKAGE;
+use crate::cache::DATA_PACKAGE;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::sync::{LazyLock, OnceLock};
@@ -290,8 +290,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
         Item {
             id: 0x19,
             name: "Rebellion (Awakened)",
-            offset: Some(0x55), // TODO Setting it as 0x55 instead of 0x52 for now
-            // TODO, using the same offset as rebellion even if not correct. Need to determine what awakens Rebellion
+            offset: Some(0x55), // Offset is most likely wrong, but since we use this to give 3 runes, rather than an actual weapon, it should be fine
             category: ItemCategory::Weapon,
             mission: None,
             max_amount: None,
@@ -903,7 +902,7 @@ pub enum EventCode {
     GIVE,
     /// Check to see if the player has the specified item in inventory (14 01)
     CHECK,
-    /// End mission if player has item in inventory - TODO Check again - (15 01)
+    /// End mission if player has item in inventory - (15 01) - Might be wrong/not fully accurate
     END,
 }
 
@@ -973,7 +972,6 @@ pub struct ItemEntry {
 #[derive(Copy, Clone, strum_macros::Display, strum_macros::FromRepr)]
 #[allow(dead_code)]
 pub(crate) enum Difficulty {
-    // TODO Missing HoH for Mission Rank printout
     Easy = 0,
     Normal = 1,
     Hard = 2,

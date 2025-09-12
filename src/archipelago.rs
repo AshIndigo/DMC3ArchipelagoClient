@@ -1,5 +1,5 @@
 use crate::bank::{get_bank, get_bank_key};
-use crate::cache::read_cache;
+use crate::cache::{read_cache, DATA_PACKAGE};
 use crate::check_handler::Location;
 use crate::constants::{ItemCategory, Status, GAME_NAME};
 use crate::data::generated_locations;
@@ -25,13 +25,10 @@ use std::fmt::{Display, Formatter};
 use std::fs::{remove_file, File};
 use std::io::Write;
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::{LazyLock, Mutex, OnceLock, RwLock};
+use std::sync::{Mutex, OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync;
 use tokio::sync::mpsc::{Receiver, Sender};
-
-pub(crate) static DATA_PACKAGE: LazyLock<RwLock<Option<DataPackageObject>>> =
-    LazyLock::new(|| RwLock::new(None));
 
 pub static CHECKED_LOCATIONS: OnceLock<RwLock<Vec<&'static str>>> = OnceLock::new();
 pub static CONNECTED: OnceLock<Mutex<Connected>> = OnceLock::new();
@@ -160,27 +157,19 @@ pub async fn connect_archipelago(
         return Err(ArchipelagoError::ConnectionClosed);
     };
     checked_locations.clear(); // TODO Something weird happened here when reconnecting
-    let reversed_loc_id: HashMap<i64, String> = HashMap::from_iter(
-        read_cache()
-            .unwrap()
-            .games
-            .get(GAME_NAME)
-            .unwrap()
-            .location_name_to_id
-            .iter()
-            .map(|(k, v)| (*v, k.clone())),
-    );
     log::debug!("Attempting to send offline checks");
     item_sync::send_offline_checks(&mut cl).await.unwrap();
     let mut connected = get_connected().lock().unwrap();
-    connected.checked_locations.iter_mut().for_each(|val| {
-        checked_locations.push(
-            generated_locations::ITEM_MISSION_MAP
-                .get_key_value(reversed_loc_id.get(val).unwrap().as_str())
-                .unwrap()
-                .0,
-        );
-    });
+    if let Some(location_id_to_name) = cache::LOCATION_ID_TO_NAME.read().unwrap().as_ref() {
+        connected.checked_locations.iter_mut().for_each(|val| {
+            checked_locations.push(
+                generated_locations::ITEM_MISSION_MAP
+                    .get_key_value(location_id_to_name.get(val).unwrap().as_str())
+                    .unwrap()
+                    .0,
+            );
+        });
+    }
     log::info!("Connected info: {:?}", connected);
     SLOT_NUMBER.store(connected.slot, Ordering::SeqCst);
     TEAM_NUMBER.store(connected.team, Ordering::SeqCst);
@@ -197,11 +186,11 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) -> Result<(), Box<dyn Error>>
         // Set the data package global based on received or cached values
         Some(data_package) => {
             log::info!("Using received data package");
-            set_data_package(data_package.clone());
+            cache::set_data_package(data_package.clone());
         }
         None => {
             log::info!("No data package data received, using cached data");
-            set_data_package(read_cache().expect("Expected cache file"));
+            cache::set_data_package(read_cache().expect("Expected cache file"));
         }
     }
 
@@ -299,7 +288,6 @@ async fn send_deathlink_message(
     client: &mut ArchipelagoClient,
     data: DeathLinkData,
 ) -> Result<(), ArchipelagoError> {
-    log::debug!("Sending out deathlink bounce");
     let name = mapping::get_slot_name().unwrap().unwrap();
     client
         .send(ClientMessage::Bounce(Bounce {
@@ -313,7 +301,6 @@ async fn send_deathlink_message(
             }),
         }))
         .await?;
-    log::debug!("sent bounce");
     Ok(())
 }
 
@@ -413,7 +400,7 @@ async fn handle_client_messages(
         }
         Err(ArchipelagoError::ConnectionClosed) => {
             CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::Relaxed);
-            log::info!("Connection closed"); // TODO Update status?
+            log::info!("Connection closed");
             Err(ArchipelagoError::ConnectionClosed.into())
         }
         Err(ArchipelagoError::FailedSerialize(err)) => {
@@ -432,7 +419,6 @@ async fn handle_bounced(
     bounced: Bounced,
     _client: &mut ArchipelagoClient,
 ) -> Result<(), Box<dyn Error>> {
-
     if bounced.tags.is_some() {
         if bounced.tags.unwrap().contains(&DEATH_LINK.to_string()) {
             log::debug!("DeathLink detected");
@@ -468,29 +454,6 @@ fn handle_retrieved(retrieved: Retrieved) -> Result<(), Box<dyn Error>> {
     });
     Ok(())
 }
-
-pub fn set_data_package(value: DataPackageObject) {
-    let mut lock = DATA_PACKAGE.write().unwrap();
-    *lock = Some(value);
-}
-
-// pub fn get_data_package() -> Option<RwLockReadGuard<'static, Option<DataPackageObject>>> {
-//     let guard = DATA_PACKAGE.read().unwrap();
-//     if guard.is_some() {
-//         Some(guard) // caller will need to deref and unwrap
-//     } else {
-//         None
-//     }
-// }
-
-// pub fn get_data_package() -> Option<DataPackageObject> {
-//     match DATA_PACKAGE.read().unwrap().as_ref() {
-//         None => None,
-//         Some(dp) => {
-//             Some(*dp)
-//         }
-//     }
-// }
 
 async fn handle_item_receive(
     client: &mut ArchipelagoClient,
@@ -560,7 +523,6 @@ async fn handle_item_receive(
 
 fn handle_print_json(print_json: PrintJSON) -> String {
     // TODO Can I consolidate this down?
-    //log::debug!("Printing json: {:?}", print_json);
     let mut final_message: String = "".to_string();
     match print_json {
         PrintJSON::ItemSend {
@@ -709,9 +671,10 @@ fn handle_message_part(message: JSONMessagePart) -> String {
             text,
             flags: _flags,
             player,
-        } => match read_cache() {
-            Ok(cache) => {
-                let id_to_name: HashMap<i64, String> = cache
+        } => {
+            if let Some(data_package) = DATA_PACKAGE.read().unwrap().as_ref() {
+                // TODO Maybe I can get rid of this later?
+                let id_to_name: HashMap<i64, String> = data_package
                     .games
                     .get(
                         &get_connected().lock().unwrap().slot_info[&player.to_string()]
@@ -728,9 +691,10 @@ fn handle_message_part(message: JSONMessagePart) -> String {
                     .get(&text.parse::<i64>().unwrap())
                     .unwrap()
                     .clone()
+            } else {
+                "<Data package unavailable>".parse().unwrap()
             }
-            Err(err) => format!("Unable to read cache file: {}", err),
-        },
+        }
         JSONMessagePart::ItemName {
             text,
             flags,
@@ -739,9 +703,10 @@ fn handle_message_part(message: JSONMessagePart) -> String {
             log::debug!("ItemName: {:?} Flags: {}, Player: {}", text, flags, player);
             text
         }
-        JSONMessagePart::LocationId { text, player } => match read_cache() {
-            Ok(cache) => {
-                let id_to_name: HashMap<i64, String> = cache
+        JSONMessagePart::LocationId { text, player } => {
+            if let Some(data_package) = DATA_PACKAGE.read().unwrap().as_ref() {
+                // TODO Maybe I can get rid of this later?
+                let id_to_name: HashMap<i64, String> = data_package
                     .games
                     .get(
                         &get_connected().lock().unwrap().slot_info[&player.to_string()]
@@ -758,9 +723,10 @@ fn handle_message_part(message: JSONMessagePart) -> String {
                     .get(&text.parse::<i64>().unwrap())
                     .unwrap()
                     .clone()
+            } else {
+                "<Data package unavailable>".parse().unwrap()
             }
-            Err(err) => format!("Unable to read cache file: {}", err),
-        },
+        }
         JSONMessagePart::LocationName { text, player } => {
             log::debug!("LocationName: {:?}, Player: {}", text, player);
             text

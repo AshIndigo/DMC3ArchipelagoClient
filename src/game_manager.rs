@@ -25,7 +25,7 @@ pub struct SessionData {
     other_mission: u32, // Don't know what this does, copies from mission after a second
     pub(crate) room: i32, // Should be right?
     pub(crate) difficulty: u32,
-    hoh: bool,
+    pub(crate) hoh: bool,
     _unknown2: u8,
     tutorial: bool,
     gold_orb_mode: bool,

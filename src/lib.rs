@@ -322,7 +322,7 @@ fn main_setup() {
     thread::Builder::new()
         .name("Archipelago Client".to_string())
         .spawn(move || {
-            spawn_arch_thread();
+            spawn_archipelago_thread();
         })
         .expect("Failed to spawn arch thread");
 }
@@ -392,7 +392,7 @@ pub fn setup_deathlink_channel() -> Receiver<DeathLinkData> {
 
 
 #[tokio::main]
-pub(crate) async fn spawn_arch_thread() {
+pub(crate) async fn spawn_archipelago_thread() {
     log::info!("Archipelago Thread started");
     let mut setup = false;
     let mut rx_locations = check_handler::setup_items_channel();

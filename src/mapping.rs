@@ -140,7 +140,7 @@ pub fn use_mappings() -> Result<(), Box<dyn std::error::Error>> {
                         modify_item_table(entry.offset, *hook::DUMMY_ID as u8)
                     } else {
                         // Replace the item ID with the new one
-                        // TODO Leave this alone unless needed
+                        // Leave this alone unless needed
                         //modify_item_table(entry.offset, *hook::DUMMY_ID as u8)//id as u8)
                     }
                 }

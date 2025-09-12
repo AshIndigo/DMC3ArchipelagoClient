@@ -92,6 +92,7 @@ pub fn get_status_text() -> &'static str {
     }
 }
 
+// TODO Remove this since the mod auto connects to a local client?
 pub fn load_login_data() -> Result<(), Box<dyn std::error::Error>> {
     if path::Path::new(archipelago::LOGIN_DATA_FILE).exists() {
         let login_data_file = fs::File::open(archipelago::LOGIN_DATA_FILE)?;
