@@ -2,6 +2,7 @@ use crate::cache::DATA_PACKAGE;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::sync::{LazyLock, OnceLock};
+use crate::skill_manager::ID_SKILL_MAP;
 // DMC3 Offsets+Functions - Offsets are from 2022 DDMK's version
 
 pub const ITEM_SPAWNS_ADDR: usize = 0x1b4440; // 0x1b4480
@@ -619,34 +620,6 @@ pub static ID_ITEM_MAP: LazyLock<HashMap<u32, &'static str>> =
 pub static ITEM_MAP: LazyLock<HashMap<u32, &'static Item>> =
     LazyLock::new(|| ALL_ITEMS.iter().map(|item| (item.id, item)).collect());
 
-pub static ID_SKILL_MAP: LazyLock<HashMap<u32, &'static str>> = LazyLock::new(|| {
-    HashMap::from([
-        (0x40, "Rebellion (Normal) - Stinger Level 1"),
-        (0x41, "Rebellion (Normal) - Stinger Level 2"),
-        (0x42, "Rebellion (Normal) - Drive"),
-        (0x43, "Rebellion (Normal) - Air Hike"),
-        (0x44, "Cerberus - Revolver Level 2"),
-        (0x45, "Cerberus - Windmill"),
-        (0x46, "Agni and Rudra - Jet Stream Level 2"),
-        (0x47, "Agni and Rudra - Jet Stream Level 3"),
-        (0x48, "Agni and Rudra - Whirlwind"),
-        (0x49, "Agni and Rudra - Air Hike"),
-        (0x4A, "Nevan - Reverb Shock"),
-        (0x4B, "Nevan - Reverb Shock Level 2"),
-        (0x4C, "Nevan - Bat Rift Level 2"),
-        (0x4D, "Nevan - Air Raid"),
-        (0x4E, "Nevan - Volume Up"),
-        (0x4F, "Beowulf - Straight Level 2"),
-        (0x50, "Beowulf - Beast Uppercut"),
-        (0x51, "Beowulf - Rising Dragon"),
-        (0x52, "Beowulf - Air Hike"),
-        (0x53, "Ebony & Ivory Progressive Upgrade"),
-        (0x54, "Shotgun Progressive Upgrade"),
-        (0x55, "Artemis Progressive Upgrade"),
-        (0x56, "Spiral Progressive Upgrade"),
-        (0x57, "Kalina Ann Progressive Upgrade"),
-    ])
-});
 
 pub fn get_item_name(item_id: u32) -> &'static str {
     if item_id <= 0x39 {
@@ -655,7 +628,7 @@ pub fn get_item_name(item_id: u32) -> &'static str {
             "Unknown"
         })
     } else {
-        ID_SKILL_MAP.get(&item_id).copied().unwrap_or_else(|| {
+        ID_SKILL_MAP.get(&(item_id as usize)).copied().unwrap_or_else(|| {
             log::error!("Skill with id of {} was not found", item_id);
             "Unknown"
         })

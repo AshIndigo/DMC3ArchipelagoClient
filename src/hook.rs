@@ -12,7 +12,7 @@ use crate::mapping::{Mapping, MAPPING};
 use crate::text_handler::LAST_OBTAINED_ID;
 use crate::ui::ui::{CHECKLIST, CONNECTION_STATUS};
 use crate::utilities::{read_data_from_address, replace_single_byte, DMC3_ADDRESS};
-use crate::{check_handler, create_hook, game_manager, mapping, save_handler, text_handler, utilities};
+use crate::{bank, check_handler, create_hook, game_manager, mapping, save_handler, skill_manager, text_handler, utilities};
 use archipelago_rs::client::ArchipelagoClient;
 use log::error;
 use minhook::{MinHook, MH_STATUS};
@@ -113,6 +113,7 @@ unsafe fn create_hooks() -> Result<(), MH_STATUS> {
         );
         text_handler::setup_text_hooks()?;
         save_handler::setup_save_hooks()?;
+        bank::setup_bank_hooks()?;
     }
     Ok(())
 }
@@ -134,6 +135,9 @@ fn enable_hooks() {
         SKILL_SHOP_ADDR,
         GUN_SHOP_ADDR,
         ADD_SHOTGUN_OR_CERBERUS_ADDR,
+        // Bank
+        bank::OPEN_INV_SCREEN_ADDR,
+        bank::CLOSE_INV_SCREEN_ADDR,
         // Save handler
         save_handler::LOAD_GAME_ADDR,
         save_handler::SAVE_GAME_ADDR,
@@ -274,7 +278,7 @@ fn modify_adjudicator(
     const WEAPON_OFFSET: usize = 0x06;
     for (location_name, entry) in generated_locations::ITEM_MISSION_MAP.iter() {
         // Run through all locations
-        if entry.adjudicator && entry.mission == get_mission() {
+        if entry.adjudicator && entry.room_number == get_room() { //&& entry.mission == get_mission() {
             if LOG_ADJU_DATA {
                 log::debug!("Adjudicator found at location {}", &location_name);
                 log::debug!(
@@ -645,6 +649,7 @@ pub fn disable_hooks() -> Result<(), MH_STATUS> {
         MinHook::disable_hook((base_address + ADD_SHOTGUN_OR_CERBERUS_ADDR) as *mut _)?;
         text_handler::disable_text_hooks(base_address)?;
         check_handler::disable_check_hooks(base_address)?;
+        bank::disable_bank_hooks(base_address)?;
     }
     Ok(())
 }
@@ -681,7 +686,7 @@ pub fn set_player_data(param_1: usize) -> bool {
     if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
         if mapping.randomize_skills {
             game_manager::set_gun_levels();
-            game_manager::set_skills();
+            skill_manager::set_skills();
         }
     }
     LAST_OBTAINED_ID.store(0, Ordering::SeqCst); // Should stop random item jumpscares

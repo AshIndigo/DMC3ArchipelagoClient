@@ -1,9 +1,9 @@
-use crate::constants::{MISSION_ITEM_MAP};
+use crate::constants::MISSION_ITEM_MAP;
 use crate::game_manager::get_mission;
 use crate::hook::CLIENT;
 use crate::ui::ui;
 use crate::ui::ui::CHECKLIST;
-use crate::{archipelago, bank, cache, constants, game_manager, text_handler};
+use crate::{archipelago, bank, cache, constants, game_manager, skill_manager, text_handler};
 use archipelago_rs::client::ArchipelagoClient;
 use archipelago_rs::protocol::{NetworkItem, ReceivedItems};
 use log;
@@ -14,7 +14,7 @@ use std::fs::File;
 use std::io::{BufReader, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::{Mutex, OnceLock, RwLock};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use crate::mapping::MAPPING;
 
@@ -70,8 +70,6 @@ pub(crate) fn read_save_data() -> Result<SyncData, Box<dyn Error>> {
 pub static BLUE_ORBS_OBTAINED: AtomicI32 = AtomicI32::new(0);
 pub static PURPLE_ORBS_OBTAINED: AtomicI32 = AtomicI32::new(0);
 
-pub static ACQUIRED_SKILLS: RwLock<Vec<String>> = RwLock::new(Vec::new());
-
 pub(crate) async fn handle_received_items_packet(
     received_items_packet: ReceivedItems,
     client: &mut ArchipelagoClient,
@@ -98,11 +96,10 @@ pub(crate) async fn handle_received_items_packet(
         if received_items_packet.index == 0 {
             // If 0 abandon previous inv.
             bank::read_values(client).await?;
-            // Clear bank - ?
-            // Checklist should be fine
             BLUE_ORBS_OBTAINED.store(0, Ordering::SeqCst);
             PURPLE_ORBS_OBTAINED.store(0, Ordering::SeqCst);
-            game_manager::reset_expertise();
+            skill_manager::reset_progressive_trackers();
+            skill_manager::reset_expertise();
             game_manager::GUN_LEVELS
                 .iter()
                 .for_each(|lvl| lvl.store(0, Ordering::SeqCst));
@@ -141,14 +138,7 @@ pub(crate) async fn handle_received_items_packet(
                     _ => {}
                 }
                 if item.item < 0x53 && item.item > 0x39 {
-                    match ACQUIRED_SKILLS.write() {
-                        Ok(mut skill_list) => {
-                            skill_list.push(id_to_name.get(&item.item).unwrap().clone());
-                        }
-                        Err(err) => {
-                            log::error!("Unable to write to internal acquired skills list: {:?}", err);
-                        }
-                    }
+                    skill_manager::add_skill(item.item as usize);
                 }
             }
         }
@@ -226,7 +216,8 @@ pub(crate) async fn handle_received_items_packet(
                 if item.item < 0x53 && item.item > 0x39 {
                     if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
                         if mapping.randomize_skills {
-                            game_manager::give_skill(id_to_name.get(&item.item).unwrap());
+                            skill_manager::add_skill(item.item as usize);
+                            skill_manager::set_skills(); // Hacky...
                         }
                     }
                 }

@@ -131,14 +131,14 @@ unsafe fn bank_window() {
             ));
             get_imgui_same_line()(0f32, 5f32); // TODO Figure out how to align properly
             get_imgui_push_id()(n as c_int);
-            if get_imgui_button()(
-                "Retrieve 1\0".as_ptr() as *const c_char,
-                &ImVec2 { x: 0.0, y: 0.0 },
-            ) {
-                if bank::can_add_item_to_current_inv(item) {
-                    ui::retrieve_button_pressed(item);
-                }
-            }
+            // if get_imgui_button()(
+            //     "Retrieve 1\0".as_ptr() as *const c_char,
+            //     &ImVec2 { x: 0.0, y: 0.0 },
+            // ) {
+            //     if bank::can_add_item_to_current_inv(item) {
+            //         ui::retrieve_button_pressed(item);
+            //     }
+            // }
             get_imgui_pop_id()();
         }
         get_imgui_end()();

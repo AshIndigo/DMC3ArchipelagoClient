@@ -1,4 +1,6 @@
-use crate::archipelago::{connect_archipelago, DeathLinkData, SLOT_NUMBER, TEAM_NUMBER, TX_DEATHLINK};
+use crate::archipelago::{
+    connect_archipelago, DeathLinkData, SLOT_NUMBER, TEAM_NUMBER, TX_DEATHLINK,
+};
 use crate::bank::{setup_bank_add_channel, setup_bank_to_inv_channel};
 use crate::constants::Status;
 use crate::hook::CLIENT;
@@ -55,6 +57,7 @@ mod save_handler;
 mod text_handler;
 mod ui;
 mod utilities;
+mod skill_manager;
 
 #[macro_export]
 /// Does not enable the hook, that needs to be done separately
@@ -196,6 +199,13 @@ fn load_other_dlls(pre_logs: &mut Vec<PreLog>) -> Result<(), std::io::Error> {
         match is_file_valid("Mary.dll", 7087074874482460961) {
             Ok(_) => {
                 let _ = unsafe { LoadLibraryA(b"Mary.dll\0".as_ptr() as _) };
+                if is_ddmk_loaded() {
+                    pre_logs.push(PreLog::new(
+                        Level::Warn,
+                        "DDMK's Actor system most likely does not work with the DeathLink setting in the randomizer, \
+                please turn it off if you wish to use DeathLink".to_string()
+                    ));
+                }
             }
             Err(err) => match err.kind() {
                 ErrorKind::InvalidData => {
@@ -243,7 +253,8 @@ fn load_other_dlls(pre_logs: &mut Vec<PreLog>) -> Result<(), std::io::Error> {
             ));
             pre_logs.push(PreLog::new(
                 Level::Warn,
-                "Crimson has not been extensively tested with the randomizer, crashes or other issues may occur.".to_string()
+                "Crimson's Crimson/Style switcher mode does not work with the DeathLink setting in the randomizer, \
+                please turn it off if you wish to use DeathLink".to_string()
             ));
         }
     }
@@ -389,7 +400,6 @@ pub fn setup_deathlink_channel() -> Receiver<DeathLinkData> {
     TX_DEATHLINK.set(tx).expect("TX already initialized");
     rx
 }
-
 
 #[tokio::main]
 pub(crate) async fn spawn_archipelago_thread() {

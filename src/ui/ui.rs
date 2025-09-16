@@ -1,6 +1,6 @@
 use crate::archipelago::ArchipelagoConnection;
 use crate::constants::Status;
-use crate::{archipelago, bank, config};
+use crate::{archipelago, config};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::io::BufReader;
@@ -68,17 +68,9 @@ pub(crate) async fn disconnect_button_pressed() {
     }
 }
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 2)]
-pub async fn retrieve_button_pressed(item_name: &str) {
-    match bank::TX_BANK_TO_INV.get() {
-        None => log::error!("Connect TX doesn't exist"),
-        Some(tx) => {
-            tx.send(item_name.parse().unwrap())
-                .await
-                .expect("Failed to send data");
-        }
-    }
-}
+// pub fn retrieve_button_pressed(item_name: &str) {
+//    bank::take_item_from_bank(item_name, 1);
+// }
 
 pub fn get_status_text() -> &'static str {
     match CONNECTION_STATUS.load(Ordering::Relaxed).into() {

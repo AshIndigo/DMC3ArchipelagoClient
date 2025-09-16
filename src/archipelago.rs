@@ -12,7 +12,7 @@ use crate::{
 use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
 use archipelago_rs::protocol::{
-    Bounce, Bounced, ClientMessage, ClientStatus, Connected, DataPackageObject, JSONColor,
+    Bounce, Bounced, ClientMessage, ClientStatus, Connected, JSONColor,
     JSONMessagePart, NetworkItem, PrintJSON, Retrieved, ServerMessage, StatusUpdate,
 };
 use owo_colors::OwoColorize;
@@ -186,11 +186,11 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) -> Result<(), Box<dyn Error>>
         // Set the data package global based on received or cached values
         Some(data_package) => {
             log::info!("Using received data package");
-            cache::set_data_package(data_package.clone());
+            cache::set_data_package(data_package.clone())?;
         }
         None => {
             log::info!("No data package data received, using cached data");
-            cache::set_data_package(read_cache().expect("Expected cache file"));
+            cache::set_data_package(read_cache()?)?;
         }
     }
 
@@ -238,7 +238,7 @@ pub static TX_DEATHLINK: OnceLock<Sender<DeathLinkData>> = OnceLock::new();
 pub async fn handle_things(
     client: &mut ArchipelagoClient,
     loc_rx: &mut Receiver<Location>,
-    bank_rx: &mut Receiver<String>,
+    bank_rx: &mut Receiver<(String, i32)>,
     connect_rx: &mut Receiver<ArchipelagoConnection>,
     add_bank_rx: &mut Receiver<NetworkItem>,
     deathlink_rx: &mut Receiver<DeathLinkData>,

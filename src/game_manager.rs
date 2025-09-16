@@ -1,4 +1,7 @@
-use crate::constants::{get_items_by_category, get_weapon_id, Difficulty, ItemCategory, BASE_HP, GUN_NAMES, ITEM_ID_MAP, ITEM_OFFSET_MAP, MAX_HP, MAX_MAGIC, MELEE_NAMES, ONE_ORB};
+use crate::constants::{
+    get_items_by_category, get_weapon_id, Difficulty, ItemCategory, BASE_HP, GUN_NAMES, ITEM_ID_MAP, ITEM_OFFSET_MAP,
+    MAX_HP, MAX_MAGIC, MELEE_NAMES, ONE_ORB,
+};
 use crate::item_sync;
 use crate::ui::ui::CHECKLIST;
 use crate::utilities::{
@@ -8,7 +11,6 @@ use std::collections::HashMap;
 use std::ptr::{read_unaligned, write_unaligned};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{LazyLock, RwLockReadGuard};
-use item_sync::ACQUIRED_SKILLS;
 
 pub(crate) const GAME_SESSION_DATA: usize = 0xC8F250;
 pub(crate) static GUN_LEVELS: [AtomicU32; 5] = [
@@ -52,7 +54,7 @@ pub struct SessionData {
     style: u32,
     style_levels: [u32; 6],
     style_xp: [f32; 6],
-    expertise: [u32; 8],
+    pub(crate) expertise: [u32; 8],
 }
 
 /// Error type for session access
@@ -107,13 +109,10 @@ pub fn get_room() -> i32 {
 
 /// Get current difficulty
 pub fn get_difficulty() -> Difficulty {
-    Difficulty::from_repr(with_session_read(|s| { 
-        if s.hoh {
-            return 5
-        } else {
-            s.difficulty
-        }
-    }).unwrap() as usize).unwrap()
+    Difficulty::from_repr(
+        with_session_read(|s| if s.hoh { return 5 } else { s.difficulty }).unwrap() as usize,
+    )
+    .unwrap()
 }
 
 const CHARACTER_DATA: usize = 0xC90E30;
@@ -298,12 +297,17 @@ pub(crate) fn set_weapons_in_inv() {
 }
 
 pub(crate) fn set_gun_levels() {
-    log::info!("Setting gun levels");
+    log::debug!("Setting gun levels");
     with_session(|s| {
-        log::debug!("Beginning to edit gun levels");
         for i in 0..s.ranged_weapon_levels.len() {
-            log::debug!("Setting {} from {} to {}", i, s.ranged_weapon_levels[i], GUN_LEVELS[i].load(Ordering::SeqCst));
-            s.ranged_weapon_levels[i] = GUN_LEVELS[i].load(Ordering::SeqCst);
+            let new_level = std::cmp::min(2, GUN_LEVELS[i].load(Ordering::SeqCst));
+            // log::debug!(
+            //     "Setting {} from {} to {}",
+            //     i,
+            //     s.ranged_weapon_levels[i],
+            //     new_level
+            // );
+            s.ranged_weapon_levels[i] = new_level;
         }
     })
     .expect("Unable to edit session data");
@@ -314,185 +318,13 @@ pub(crate) fn set_gun_levels() {
             let mut gun_levels =
                 read_unaligned((char_data_ptr + gun_upgrade_offset) as *mut [u32; 10]);
             for i in 0..(*GUN_NAMES).len() {
-                gun_levels[get_weapon_id(&*GUN_NAMES[i]) as usize] += GUN_LEVELS[i].load(Ordering::SeqCst);
+                gun_levels[get_weapon_id(&*GUN_NAMES[i]) as usize] +=
+                    std::cmp::min(2, GUN_LEVELS[i].load(Ordering::SeqCst));
             }
             write_unaligned(
                 (char_data_ptr + gun_upgrade_offset) as *mut [u32; 10],
                 gun_levels,
             )
         }
-    }
-}
-
-struct SkillData {
-    index: usize,
-    flag: u32,
-}
-
-static SKILLS_MAP: LazyLock<HashMap<&str, SkillData>> = LazyLock::new(|| {
-    HashMap::from([
-        (
-            "Rebellion (Normal) - Stinger Level 1",
-            SkillData {
-                index: 0,
-                flag: 0x80,
-            },
-        ),
-        (
-            "Rebellion (Normal) - Stinger Level 2",
-            SkillData {
-                index: 0,
-                flag: 0x100,
-            },
-        ),
-        (
-            "Rebellion (Normal) - Drive",
-            SkillData {
-                index: 0,
-                flag: 0x2000,
-            },
-        ),
-        (
-            "Rebellion (Normal) - Air Hike",
-            SkillData {
-                index: 6,
-                flag: 0x40000,
-            },
-        ),
-        (
-            "Cerberus - Revolver Level 2",
-            SkillData {
-                index: 1,
-                flag: 0x40,
-            },
-        ),
-        (
-            "Cerberus - Windmill",
-            SkillData {
-                index: 0,
-                flag: 0x20,
-            },
-        ),
-        (
-            "Agni and Rudra - Jet Stream Level 2",
-            SkillData {
-                index: 1,
-                flag: 0x4000000,
-            },
-        ),
-        (
-            "Agni and Rudra - Jet Stream Level 3",
-            SkillData {
-                index: 1,
-                flag: 0x8000000,
-            },
-        ),
-        (
-            "Agni and Rudra - Whirlwind",
-            SkillData {
-                index: 1,
-                flag: 0x40000000,
-            },
-        ),
-        (
-            "Agni and Rudra - Air Hike",
-            SkillData {
-                index: 6,
-                flag: 0x80000,
-            },
-        ),
-        (
-            "Nevan - Reverb Shock",
-            SkillData {
-                index: 2,
-                flag: 0x400000,
-            },
-        ),
-        (
-            "Nevan - Reverb Shock Level 2",
-            SkillData {
-                index: 2,
-                flag: 0x800000,
-            },
-        ),
-        (
-            "Nevan - Bat Rift Level 2",
-            SkillData {
-                index: 2,
-                flag: 0x200000,
-            },
-        ),
-        ("Nevan - Air Raid", SkillData { index: 3, flag: 4 }),
-        ("Nevan - Volume Up", SkillData { index: 3, flag: 2 }),
-        (
-            "Beowulf - Straight Level 2",
-            SkillData {
-                index: 3,
-                flag: 0x2000000,
-            },
-        ),
-        (
-            "Beowulf - Beast Uppercut",
-            SkillData {
-                index: 3,
-                flag: 0x200000,
-            },
-        ),
-        (
-            "Beowulf - Rising Dragon",
-            SkillData {
-                index: 3,
-                flag: 0x400000,
-            },
-        ),
-        (
-            "Beowulf - Air Hike",
-            SkillData {
-                index: 6,
-                flag: 0x100000,
-            },
-        ),
-    ])
-});
-
-static DEFAULT_SKILLS: [u32; 8] = [
-    // I should see what else this lets me control...
-    0xFFFF5E7F, 0xA7FFAF5F, 0xAF1FFFF3, 0xCB9FFFF9, 0xFBFBFFFE, 0xFFFFEFFD, 0xFFE3FEFF, 0xFFFFFFFF,
-];
-
-pub(crate) fn reset_expertise() {
-    with_session(|s| {
-        s.expertise = DEFAULT_SKILLS;
-    })
-    .expect("Unable to reset expertise");
-}
-
-pub(crate) fn give_skill(skill_name: &String) { // This works, just doesn't update the shops display nor the files.
-    log::debug!("Giving skill: {}", skill_name);
-    let data = SKILLS_MAP.get(&skill_name.as_str()).unwrap();
-    with_session(|s| {
-        s.expertise[data.index] += data.flag;
-    })
-    .expect("Unable to give skill");
-    let expertise_offset = 0x3FEC;
-    let char_data_ptr: usize = read_data_from_address(*DMC3_ADDRESS + ACTIVE_CHAR_DATA);
-    if char_data_ptr != 0 {
-        unsafe {
-            let mut active_expertise =
-                read_unaligned((char_data_ptr + expertise_offset) as *mut [u32; 8]);
-            active_expertise[data.index] += data.flag;
-            write_unaligned(
-                (char_data_ptr + expertise_offset) as *mut [u32; 8],
-                active_expertise,
-            )
-        }
-    }
-}
-
-pub(crate) fn set_skills() {
-    // I kinda don't like this tbh, but oh well, shouldn't really be an issue.
-    reset_expertise();
-    for skill in ACQUIRED_SKILLS.read().unwrap().iter() {
-        give_skill(skill);
     }
 }

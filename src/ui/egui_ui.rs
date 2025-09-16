@@ -84,11 +84,11 @@ fn setup_bank_grid(ui: &mut Ui) {
         for item in constants::get_items_by_category(ItemCategory::Consumable) {
                 ui.label(format!("{}:", item));
                 ui.label(bank.get(item).unwrap().to_string());
-                if ui.button("Retrieve 1").clicked() {
-                    if bank::can_add_item_to_current_inv(item) {
-                        ui::retrieve_button_pressed(item);
-                    }
-                };
+                // if ui.button("Retrieve 1").clicked() {
+                //     if bank::can_add_item_to_current_inv(item) {
+                //         ui::retrieve_button_pressed(item);
+                //     }
+                // };
             id += 1;
             ui.end_row();
         }
