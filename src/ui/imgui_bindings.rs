@@ -1,9 +1,8 @@
-use crate::ui::ddmk_hook::USE_2022_DDMK;
 use crate::ui::ddmk_hook::MARY_ADDRESS;
+use crate::ui::ddmk_hook::USE_2022_DDMK;
 use imgui_sys::{
     cty, ImGuiCond, ImGuiInputTextCallback, ImGuiInputTextFlags, ImGuiWindowFlags, ImVec2,
 };
-use std::ffi::{c_float, c_int};
 use std::os::raw::c_char;
 use std::sync::OnceLock;
 
@@ -19,13 +18,7 @@ pub type ImGuiTextInput = extern "C" fn(
     callback: ImGuiInputTextCallback,
     user_data: *mut cty::c_void,
 ) -> bool;
-//pub type ImGuiWindowPos = extern "C" fn(pos: &ImVec2, cond: ImGuiCond);
 pub type ImGuiNextWindowPos = extern "C" fn(pos: &ImVec2, cond: ImGuiCond, pivot: &ImVec2);
-
-pub type ImGuiSameLine = extern "C" fn(offset_from_start_x: c_float, spacing_w: c_float);
-pub type ImGuiPushID = extern "C" fn(offset_from_start_x: c_int);
-
-//pub type ImGuiCheckbox = extern "C" fn (text: *const cty::c_char, p_open: *mut bool);
 
 pub const BEGIN_FUNC_ADDR: usize = if USE_2022_DDMK { 0x1f640 } else { 0x1F8B0 }; // Good?
 pub const END_FUNC_ADDR: usize = if USE_2022_DDMK { 0x24cd0 } else { 0x257B0 }; // Good?
@@ -36,9 +29,6 @@ pub const TEXT_ADDR: usize = if USE_2022_DDMK { 0x65210 } else { 0x69db0 }; //0x
 pub const INPUT_ADDR: usize = if USE_2022_DDMK { 0x5c600 } else { 0x60ce0 }; //0x60c80;
 
 pub const NEXT_POS_FUNC_ADDR: usize = if USE_2022_DDMK { 0x351b0 } else { 0x374a0 };
-pub const SAME_LINE_ADDR: usize = if USE_2022_DDMK { 0x34150 } else { 0x36200 };
-pub const PUSH_ID_ADDR: usize = if USE_2022_DDMK { 0x31190 } else { 0x32850 };
-pub const POP_ID_ADDR: usize = if USE_2022_DDMK { 0x5db0 } else { 0x5fe0 };
 pub const NEXT_WINDOW_SIZE_ADDR: usize = if USE_2022_DDMK { 0x35240 } else { 0x37530 };
 //pub const CHECKBOX_FUNC_ADDR: usize = 0x5a7e0;
 
@@ -66,10 +56,6 @@ static IMGUI_END: OnceLock<BasicNothingFunc> = OnceLock::new();
 static IMGUI_BEGIN: OnceLock<ImGuiBegin> = OnceLock::new();
 static IMGUI_BUTTON: OnceLock<ImGuiButton> = OnceLock::new();
 static IMGUI_POS: OnceLock<ImGuiNextWindowPos> = OnceLock::new();
-static IMGUI_SAME_LINE: OnceLock<ImGuiSameLine> = OnceLock::new();
-static IMGUI_PUSH_ID: OnceLock<ImGuiPushID> = OnceLock::new();
-static IMGUI_POP_ID: OnceLock<BasicNothingFunc> = OnceLock::new();
-//static IMGUI_CHECKBOX: OnceLock<ImGuiNextWindowPos> = OnceLock::new();
 
 // Helpers to retrieve values
 pub fn get_imgui_end() -> &'static BasicNothingFunc {
@@ -101,27 +87,3 @@ pub fn get_imgui_next_size() -> &'static ImGuiNextWindowPos {
         std::mem::transmute::<_, ImGuiNextWindowPos>(*MARY_ADDRESS + NEXT_WINDOW_SIZE_ADDR)
     })
 }
-
-pub fn get_imgui_same_line() -> &'static ImGuiSameLine {
-    IMGUI_SAME_LINE.get_or_init(|| unsafe {
-        std::mem::transmute::<_, ImGuiSameLine>(*MARY_ADDRESS + SAME_LINE_ADDR)
-    })
-}
-
-pub fn get_imgui_push_id() -> &'static ImGuiPushID {
-    IMGUI_PUSH_ID.get_or_init(|| unsafe {
-        std::mem::transmute::<_, ImGuiPushID>(*MARY_ADDRESS + PUSH_ID_ADDR)
-    })
-}
-
-pub fn get_imgui_pop_id() -> &'static BasicNothingFunc {
-    IMGUI_POP_ID.get_or_init(|| unsafe {
-        std::mem::transmute::<_, BasicNothingFunc>(*MARY_ADDRESS + POP_ID_ADDR)
-    })
-}
-
-// pub fn get_imgui_checkbox() -> &'static ImGuiCheckbox {
-//     IMGUI_POS.get_or_init(|| unsafe {
-//         std::mem::transmute::<_, ImGuiCheckbox>(*MARY_ADDRESS + CHECKBOX_FUNC_ADDR)
-//     })
-// }

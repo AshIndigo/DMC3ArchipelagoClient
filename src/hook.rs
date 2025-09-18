@@ -138,6 +138,7 @@ fn enable_hooks() {
         // Bank
         bank::OPEN_INV_SCREEN_ADDR,
         bank::CLOSE_INV_SCREEN_ADDR,
+        bank::USE_ITEM_ADDR,
         // Save handler
         save_handler::LOAD_GAME_ADDR,
         save_handler::SAVE_GAME_ADDR,

@@ -68,10 +68,6 @@ pub(crate) async fn disconnect_button_pressed() {
     }
 }
 
-// pub fn retrieve_button_pressed(item_name: &str) {
-//    bank::take_item_from_bank(item_name, 1);
-// }
-
 pub fn get_status_text() -> &'static str {
     match CONNECTION_STATUS.load(Ordering::Relaxed).into() {
         Status::Connected => "Connected",

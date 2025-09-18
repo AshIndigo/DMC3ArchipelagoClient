@@ -13,7 +13,7 @@ use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
 use archipelago_rs::protocol::{
     Bounce, Bounced, ClientMessage, ClientStatus, Connected, JSONColor,
-    JSONMessagePart, NetworkItem, PrintJSON, Retrieved, ServerMessage, StatusUpdate,
+    JSONMessagePart, PrintJSON, Retrieved, ServerMessage, StatusUpdate,
 };
 use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
@@ -238,9 +238,8 @@ pub static TX_DEATHLINK: OnceLock<Sender<DeathLinkData>> = OnceLock::new();
 pub async fn handle_things(
     client: &mut ArchipelagoClient,
     loc_rx: &mut Receiver<Location>,
-    bank_rx: &mut Receiver<(String, i32)>,
+    bank_rx: &mut Receiver<(&'static str, i32)>,
     connect_rx: &mut Receiver<ArchipelagoConnection>,
-    add_bank_rx: &mut Receiver<NetworkItem>,
     deathlink_rx: &mut Receiver<DeathLinkData>,
     disconnect_request: &mut Receiver<bool>,
 ) {
@@ -252,13 +251,8 @@ pub async fn handle_things(
                 }
             }
             Some(message) = bank_rx.recv() => {
-                if let Err(err) = bank::handle_bank(client, message).await {
+                if let Err(err) = bank::modify_bank_value(client, message).await {
                     log::error!("Failed to handle bank: {}", err);
-                }
-            }
-            Some(message) = add_bank_rx.recv() => {
-                 if let Err(err) = bank::add_item_to_bank(client, &message).await {
-                    log::error!("Failed to add item to bank: {}", err);
                 }
             }
             Some(message) = deathlink_rx.recv() => {

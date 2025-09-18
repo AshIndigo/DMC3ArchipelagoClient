@@ -7,7 +7,6 @@ use crate::utilities::read_data_from_address;
 use crate::{bank, check_handler, config, constants, game_manager, text_handler, utilities};
 use imgui_sys::{ImGuiCond, ImGuiCond_Always, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
 use minhook::MinHook;
-use std::ffi::c_int;
 use std::os::raw::c_char;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, MutexGuard, OnceLock};
@@ -129,17 +128,6 @@ unsafe fn bank_window() {
                 item,
                 bank::get_bank().read().unwrap().get(item).unwrap()
             ));
-            get_imgui_same_line()(0f32, 5f32); // TODO Figure out how to align properly
-            get_imgui_push_id()(n as c_int);
-            // if get_imgui_button()(
-            //     "Retrieve 1\0".as_ptr() as *const c_char,
-            //     &ImVec2 { x: 0.0, y: 0.0 },
-            // ) {
-            //     if bank::can_add_item_to_current_inv(item) {
-            //         ui::retrieve_button_pressed(item);
-            //     }
-            // }
-            get_imgui_pop_id()();
         }
         get_imgui_end()();
     }

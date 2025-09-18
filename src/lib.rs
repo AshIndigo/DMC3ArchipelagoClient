@@ -1,7 +1,7 @@
 use crate::archipelago::{
     connect_archipelago, DeathLinkData, SLOT_NUMBER, TEAM_NUMBER, TX_DEATHLINK,
 };
-use crate::bank::{setup_bank_add_channel, setup_bank_to_inv_channel};
+use crate::bank::setup_bank_message_channel;
 use crate::constants::Status;
 use crate::hook::CLIENT;
 use crate::ui::ui::CHECKLIST;
@@ -54,10 +54,10 @@ mod item_sync;
 mod location_handler;
 mod mapping;
 mod save_handler;
+mod skill_manager;
 mod text_handler;
 mod ui;
 mod utilities;
-mod skill_manager;
 
 #[macro_export]
 /// Does not enable the hook, that needs to be done separately
@@ -408,8 +408,7 @@ pub(crate) async fn spawn_archipelago_thread() {
     let mut rx_locations = check_handler::setup_items_channel();
     let mut rx_connect = archipelago::setup_connect_channel();
     let mut rx_disconnect = archipelago::setup_disconnect_channel();
-    let mut rx_bank_to_inv = setup_bank_to_inv_channel();
-    let mut rx_bank_add = setup_bank_add_channel();
+    let mut rx_bank_to_inv = setup_bank_message_channel();
     let mut rx_deathlink = setup_deathlink_channel();
     match ui::ui::load_login_data() {
         Ok(_) => {}
@@ -465,7 +464,6 @@ pub(crate) async fn spawn_archipelago_thread() {
                 &mut rx_locations,
                 &mut rx_bank_to_inv,
                 &mut rx_connect,
-                &mut rx_bank_add,
                 &mut rx_deathlink,
                 &mut rx_disconnect,
             )

@@ -17,9 +17,6 @@ struct ArchipelagoClient;
 impl eframe::App for ArchipelagoClient {
     fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
         ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-        // egui::TopBottomPanel::bottom("log_panel").show(ctx, |ui| {
-        //     egui_logger::LoggerUi::default().enable_regex(true).show(ui);
-        // });
         egui::SidePanel::right("tracker_bank").show(ctx, |ui| {
             ui.heading("Key items");
             setup_tracker_grid(ui);
@@ -84,11 +81,6 @@ fn setup_bank_grid(ui: &mut Ui) {
         for item in constants::get_items_by_category(ItemCategory::Consumable) {
                 ui.label(format!("{}:", item));
                 ui.label(bank.get(item).unwrap().to_string());
-                // if ui.button("Retrieve 1").clicked() {
-                //     if bank::can_add_item_to_current_inv(item) {
-                //         ui::retrieve_button_pressed(item);
-                //     }
-                // };
             id += 1;
             ui.end_row();
         }

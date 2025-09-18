@@ -1,11 +1,11 @@
-use crate::constants::MISSION_ITEM_MAP;
+use crate::constants::{get_item_name, MISSION_ITEM_MAP};
 use crate::game_manager::get_mission;
 use crate::hook::CLIENT;
 use crate::ui::ui;
 use crate::ui::ui::CHECKLIST;
 use crate::{archipelago, bank, cache, constants, game_manager, skill_manager, text_handler};
 use archipelago_rs::client::ArchipelagoClient;
-use archipelago_rs::protocol::{NetworkItem, ReceivedItems};
+use archipelago_rs::protocol::{ReceivedItems};
 use log;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -151,15 +151,9 @@ pub(crate) async fn handle_received_items_packet(
                     100,
                     -100,
                 );
-                log::debug!("display text");
                 if item.item < 0x14 {
-                    if let Some(tx) = bank::TX_BANK_ADD.get() {
-                        tx.send(NetworkItem {
-                            item: item.item,
-                            location: item.location,
-                            player: item.player,
-                            flags: item.flags,
-                        })
+                    if let Some(tx) = bank::TX_BANK_MESSAGE.get() {
+                        tx.send((get_item_name(item.item as u32), 1))
                             .await?;
                     }
                 }
