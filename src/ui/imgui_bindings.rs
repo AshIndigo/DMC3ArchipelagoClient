@@ -1,7 +1,7 @@
 use crate::ui::ddmk_hook::MARY_ADDRESS;
 use crate::ui::ddmk_hook::USE_2022_DDMK;
 use imgui_sys::{
-    cty, ImGuiCond, ImGuiInputTextCallback, ImGuiInputTextFlags, ImGuiWindowFlags, ImVec2,
+    cty, ImGuiCond, ImGuiWindowFlags, ImVec2,
 };
 use std::os::raw::c_char;
 use std::sync::OnceLock;
@@ -10,14 +10,6 @@ pub type ImGuiBegin =
     extern "C" fn(name: *const cty::c_char, p_open: *mut bool, flags: ImGuiWindowFlags) -> bool;
 pub type ImGuiButton = extern "C" fn(label: *const cty::c_char, size: &ImVec2) -> bool;
 pub type ImGuiText = extern "C" fn(text: *const cty::c_char, text_end: *const cty::c_char);
-pub type ImGuiTextInput = extern "C" fn(
-    label: *const cty::c_char,
-    buf: *mut cty::c_char,
-    buf_size: usize,
-    flags: ImGuiInputTextFlags,
-    callback: ImGuiInputTextCallback,
-    user_data: *mut cty::c_void,
-) -> bool;
 pub type ImGuiNextWindowPos = extern "C" fn(pos: &ImVec2, cond: ImGuiCond, pivot: &ImVec2);
 
 pub const BEGIN_FUNC_ADDR: usize = if USE_2022_DDMK { 0x1f640 } else { 0x1F8B0 }; // Good?
@@ -26,7 +18,6 @@ pub const END_FUNC_ADDR: usize = if USE_2022_DDMK { 0x24cd0 } else { 0x257B0 }; 
 pub const BUTTON_ADDR: usize = if USE_2022_DDMK { 0x55920 } else { 0x59F80 }; //0x59f20;
 // 5cd0
 pub const TEXT_ADDR: usize = if USE_2022_DDMK { 0x65210 } else { 0x69db0 }; //0x69d50;
-pub const INPUT_ADDR: usize = if USE_2022_DDMK { 0x5c600 } else { 0x60ce0 }; //0x60c80;
 
 pub const NEXT_POS_FUNC_ADDR: usize = if USE_2022_DDMK { 0x351b0 } else { 0x374a0 };
 pub const NEXT_WINDOW_SIZE_ADDR: usize = if USE_2022_DDMK { 0x35240 } else { 0x37530 };
@@ -42,12 +33,6 @@ pub fn text<T: AsRef<str>>(text: T) {
             end as *const c_char,
         );
     }
-}
-
-pub fn input_rs<T: AsRef<str>>(label: T, buf: &mut String, password: bool) {
-    crate::ui::inputs::InputText::new(label, buf)
-        .password(password)
-        .build();
 }
 
 pub type BasicNothingFunc = unsafe extern "system" fn(); // No args no returns

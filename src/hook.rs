@@ -451,8 +451,7 @@ async fn send_deathlink() {
         }
     }
 }
-
-// TODO Consolidate this down?
+    
 /// Edits the initially selected index when viewing weapons in the status screen
 fn edit_initial_index(custom_weapon: usize) -> i32 {
     let current_inv_addr = utilities::get_inv_address();

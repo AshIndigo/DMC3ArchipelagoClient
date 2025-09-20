@@ -245,8 +245,9 @@ pub(crate) fn get_index(cl: &ArchipelagoClient) -> String {
     )
 }
 
+// TODO May remov
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
-pub(crate) async fn sync_items() {
+pub(crate) async fn _sync_items() {
     if let Some(ref mut client) = CLIENT.lock().await.as_mut() {
         log::info!("Synchronizing items");
         CHECKLIST.get().unwrap().write().unwrap().clear();
@@ -264,7 +265,7 @@ pub(crate) async fn sync_items() {
             }
         }
     }
-}
+} 
 
 /// Adds an offline location to be sent when room connection is restored
 pub(crate) async fn add_offline_check(

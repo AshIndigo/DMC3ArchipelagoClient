@@ -156,7 +156,7 @@ pub async fn connect_archipelago(
         log::error!("Failed to get checked locations");
         return Err(ArchipelagoError::ConnectionClosed);
     };
-    checked_locations.clear(); // TODO Something weird happened here when reconnecting
+    checked_locations.clear();
     log::debug!("Attempting to send offline checks");
     item_sync::send_offline_checks(&mut cl).await.unwrap();
     let mut connected = get_connected().lock().unwrap();
@@ -337,7 +337,6 @@ async fn handle_client_messages(
             }
             Some(ServerMessage::RoomInfo(_)) => Ok(()),
             Some(ServerMessage::ConnectionRefused(err)) => {
-                // TODO Update UI status to mark as refused+reason, matters less now that the mod auto connects to a commonclient
                 CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::Relaxed);
                 log::error!("Connection refused: {:?}", err.errors);
                 Ok(())
@@ -375,13 +374,7 @@ async fn handle_client_messages(
         },
         Err(ArchipelagoError::NetworkError(err)) => {
             log::info!("Failed to receive data, reconnecting: {}", err);
-            let data = ui::get_login_data().lock()?;
-            *client = connect_archipelago(ArchipelagoConnection {
-                url: data.archipelago_url.clone(),
-                name: data.username.clone(),
-                password: data.username.clone(),
-            })
-            .await?;
+            CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::Relaxed);
             Ok(())
         }
         Err(ArchipelagoError::IllegalResponse { received, expected }) => {

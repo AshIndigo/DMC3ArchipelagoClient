@@ -4,7 +4,6 @@ use crate::game_manager::{get_mission, set_item, with_session_read};
 use crate::utilities::{get_inv_address, DMC3_ADDRESS};
 use crate::{constants, create_hook, game_manager, location_handler, text_handler, utilities};
 use minhook::{MinHook, MH_STATUS};
-use once_cell::sync::OnceCell;
 use std::fmt::{Display, Formatter};
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::OnceLock;
@@ -241,7 +240,7 @@ pub fn mission_complete_check(cuid_result: usize, ranking: i32) -> i32 {
     }
 }
 
-pub(crate) static LOCATION_CHECK_TX: OnceCell<Sender<Location>> = OnceCell::new();
+pub(crate) static LOCATION_CHECK_TX: OnceLock<Sender<Location>> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Location {
@@ -301,7 +300,6 @@ async fn send_off_location_coords(loc: Location, to_display: u32) {
 }
 
 pub(crate) fn take_away_received_item(id: u32) {
-    // This didn't take away cerberus for some reason
     if let Some(current_inv_addr) = get_inv_address() {
         let offset = *constants::ITEM_OFFSET_MAP
             .get(constants::ID_ITEM_MAP.get(&id).unwrap())

@@ -410,10 +410,6 @@ pub(crate) async fn spawn_archipelago_thread() {
     let mut rx_disconnect = archipelago::setup_disconnect_channel();
     let mut rx_bank_to_inv = setup_bank_message_channel();
     let mut rx_deathlink = setup_deathlink_channel();
-    match ui::ui::load_login_data() {
-        Ok(_) => {}
-        Err(err) => log::error!("Unable to read login data: {}", err),
-    }
     if !(*config::CONFIG).connections.disable_auto_connect {
         thread::spawn(|| {
             log::debug!("Starting auto connector");
@@ -452,8 +448,6 @@ pub(crate) async fn spawn_archipelago_thread() {
                 if let Err(err) = archipelago::run_setup(client).await {
                     log::error!("{}", err);
                 }
-                //item_sync::sync_items(client).await;
-                //setup = true; // TODO Marker
             }
             if let Err(e) = client.status_update(ClientStatus::ClientReady).await {
                 log::error!("Status update failed: {}", e);

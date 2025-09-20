@@ -1,15 +1,14 @@
 use crate::constants::ItemCategory;
 use crate::item_sync::{BLUE_ORBS_OBTAINED, PURPLE_ORBS_OBTAINED};
 use crate::ui::imgui_bindings::*;
-use crate::ui::ui;
-use crate::ui::ui::{get_status_text, LoginData, CHECKLIST};
+use crate::ui::ui::{get_status_text, CHECKLIST};
 use crate::utilities::read_data_from_address;
 use crate::{bank, check_handler, config, constants, game_manager, text_handler, utilities};
 use imgui_sys::{ImGuiCond, ImGuiCond_Always, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
 use minhook::MinHook;
 use std::os::raw::c_char;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{LazyLock, MutexGuard, OnceLock};
+use std::sync::{LazyLock, OnceLock};
 use std::thread;
 use std::time::Duration;
 
@@ -46,28 +45,21 @@ unsafe extern "C" fn hooked_render() {
         if !SETUP.load(Ordering::SeqCst) {
             return;
         }
-        match ui::get_login_data().lock() {
-            Ok(instance) => {
-                if false {
-                    // TODO: Hud for pause menu and main menu
-                    on_screen_hud();
-                }
+        if false {
+            // TODO: Hud for pause menu and main menu
+            on_screen_hud();
+        }
 
-                if !read_data_from_address::<bool>(DDMK_UI_ENABLED + *MARY_ADDRESS) {
-                    return;
-                }
-                archipelago_window(instance); // For the archipelago window
-                tracking_window();
-                bank_window();
-                match get_orig_render_func() {
-                    None => {}
-                    Some(fnc) => {
-                        fnc();
-                    }
-                }
-            }
-            Err(err) => {
-                log::error!("{}", err);
+        if !read_data_from_address::<bool>(DDMK_UI_ENABLED + *MARY_ADDRESS) {
+            return;
+        }
+        archipelago_window(); // For the archipelago window
+        tracking_window();
+        bank_window();
+        match get_orig_render_func() {
+            None => {}
+            Some(fnc) => {
+                fnc();
             }
         }
     }
@@ -142,7 +134,7 @@ fn checkbox_text(item: &str) -> String {
     format!("{} [{}]", item, if state { "X" } else { " " })
 }
 
-pub unsafe fn archipelago_window(mut instance: MutexGuard<LoginData>) {
+pub unsafe fn archipelago_window() {
     unsafe {
         let flag = &mut true;
         get_imgui_next_pos()(
@@ -156,26 +148,6 @@ pub unsafe fn archipelago_window(mut instance: MutexGuard<LoginData>) {
             imgui_sys::ImGuiWindowFlags_AlwaysAutoResize as ImGuiWindowFlags,
         );
         text(format!("Status: {}\0", get_status_text()));
-        text("Connection:\0");
-        input_rs("URL\0", &mut instance.archipelago_url, false); // TODO: Slight issue where some letters arent being cleared properly?
-        input_rs("Username\0", &mut instance.username, false);
-        input_rs("Password\0", &mut instance.password, true);
-        if get_imgui_button()(
-            "Connect\0".as_ptr() as *const c_char,
-            &ImVec2 { x: 0.0, y: 0.0 },
-        ) {
-            ui::connect_button_pressed(
-                instance.archipelago_url.clone().trim().to_string(),
-                instance.username.clone().trim().to_string(),
-                instance.password.clone().trim().to_string(),
-            );
-        }
-        if get_imgui_button()(
-            "Disonnect\0".as_ptr() as *const c_char,
-            &ImVec2 { x: 0.0, y: 0.0 },
-        ) {
-            ui::disconnect_button_pressed();
-        }
         const DEBUG: bool = false;
         if DEBUG {
             if get_imgui_button()(

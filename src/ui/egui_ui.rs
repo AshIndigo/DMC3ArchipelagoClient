@@ -1,15 +1,15 @@
 // Nothing wrong with this. Runs as a separate window so would have to alt-tab if full screen. Could at least be a backup HUD if DDMK isn't available
 
 use crate::constants::{ItemCategory, Status};
+use crate::item_sync::{BLUE_ORBS_OBTAINED, PURPLE_ORBS_OBTAINED};
 use crate::ui::ui;
 use crate::ui::ui::{CHECKLIST, CONNECTION_STATUS};
-use crate::{bank, constants, item_sync};
+use crate::{bank, constants};
 use eframe::epaint::Color32;
 use eframe::{EventLoopBuilderHook, Frame};
 use egui::{Context, Theme, Ui};
 use std::sync::atomic::Ordering;
 use winit::platform::windows::EventLoopBuilderExtWindows;
-use crate::item_sync::{BLUE_ORBS_OBTAINED, PURPLE_ORBS_OBTAINED};
 
 #[derive(Default)]
 struct ArchipelagoClient;
@@ -31,45 +31,6 @@ impl eframe::App for ArchipelagoClient {
                 ui.label("Status:");
                 ui.colored_label(get_status_color(), ui::get_status_text());
             });
-            match ui::get_login_data().lock() {
-                Ok(mut instance) => {
-                    ui.horizontal(|ui| {
-                        ui.label("URL:");
-                        ui.text_edit_singleline(&mut instance.archipelago_url);
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Username:");
-                        ui.text_edit_singleline(&mut instance.username);
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Password:");
-                        ui.text_edit_singleline(&mut instance.password);
-                    });
-                    if ui.button("Connect").clicked() {
-                        log::debug!("Connecting");
-                        ui::connect_button_pressed(
-                            instance.archipelago_url.clone(),
-                            instance.username.clone(),
-                            instance.password.clone());
-                    }
-                    // if ui.button("Connect (Offline)").clicked() {
-                    //     log::debug!("Connecting offline");
-                    //     ui::connect_button_pressed(
-                    //         instance.archipelago_url.clone(),
-                    //         instance.username.clone(),
-                    //         instance.password.clone());
-                    // }
-                }
-                Err(err) => {
-                    log::error!("Unable to lock HUD Data: {}", err);
-                }
-            }
-            if ui.button("Disconnect").clicked() {
-                ui::disconnect_button_pressed();
-            }
-            if ui.button("Sync (May or may not work)").clicked() {
-                item_sync::sync_items();
-            };
         });
     }
 }
