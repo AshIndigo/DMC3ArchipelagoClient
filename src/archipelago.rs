@@ -12,9 +12,10 @@ use crate::{
 use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
 use archipelago_rs::protocol::{
-    Bounce, Bounced, ClientMessage, ClientStatus, Connected, JSONColor,
+    Bounce, Bounced, ClientMessage, ClientStatus, ConnectUpdate, Connected, JSONColor,
     JSONMessagePart, PrintJSON, Retrieved, ServerMessage, StatusUpdate,
 };
+use log::error;
 use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -22,8 +23,7 @@ use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use std::fs::{remove_file, File};
-use std::io::Write;
+use std::fs::remove_file;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Mutex, OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -55,15 +55,6 @@ pub fn get_connected() -> &'static Mutex<Connected> {
             hint_points: 0,
         })
     })
-}
-
-pub(crate) const LOGIN_DATA_FILE: &str = "login_data.json";
-
-fn save_connection_info(login_data: ArchipelagoConnection) -> Result<(), Box<dyn Error>> {
-    let res = serde_json::to_string(&login_data)?;
-    let mut file = File::create(LOGIN_DATA_FILE)?;
-    file.write_all(res.as_bytes())?;
-    Ok(())
 }
 
 #[derive(Serialize, Deserialize)]
@@ -148,7 +139,7 @@ pub async fn connect_archipelago(
             &login_data.name,
             Some(&login_data.password),
             Option::from(0b111),
-            vec!["AP".to_string(), DEATH_LINK.to_string()],
+            vec!["AP".to_string()],
         )
         .await?;
     *get_connected().lock().expect("Failed to get connected") = connected;
@@ -173,8 +164,6 @@ pub async fn connect_archipelago(
     log::info!("Connected info: {:?}", connected);
     SLOT_NUMBER.store(connected.slot, Ordering::SeqCst);
     TEAM_NUMBER.store(connected.team, Ordering::SeqCst);
-    save_connection_info(login_data)
-        .unwrap_or_else(|err| log::error!("Failed to save connection info: {}", err));
     Ok(cl)
 }
 
@@ -222,6 +211,23 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) -> Result<(), Box<dyn Error>>
             return Err(
                 format!("Failed to load mappings from slot data, aborting: {}", err).into(),
             );
+        }
+    }
+    match mapping::MAPPING.read() {
+        Ok(mapping) => {
+            if let Some(mapping) = mapping.as_ref() {
+                if mapping.death_link {
+                    cl.send(ClientMessage::ConnectUpdate(ConnectUpdate {
+                        items_handling: 0b111,
+                        tags: vec![String::from("AP"), String::from("DeathLink")],
+                    }))
+                    .await
+                    .expect("TODO: panic message");
+                }
+            }
+        }
+        Err(err) => {
+            error!("Failed to get mapping lock: {}", err);
         }
     }
     mapping::use_mappings()?;
