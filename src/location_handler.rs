@@ -1,9 +1,8 @@
 use crate::archipelago::get_checked_locations;
 use crate::check_handler::Location;
-use crate::constants::{EventCode, ItemCategory, EVENT_TABLES, ITEM_ID_MAP};
+use crate::constants::{EventCode, ItemCategory, DUMMY_ID, EVENT_TABLES, ITEM_ID_MAP, REMOTE_ID};
 use crate::data::generated_locations;
 use crate::game_manager::get_mission;
-use crate::hook::{DUMMY_ID, REMOTE_ID};
 use crate::{constants, game_manager, mapping, utilities};
 use anyhow::anyhow;
 use std::error::Error;

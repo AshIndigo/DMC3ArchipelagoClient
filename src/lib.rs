@@ -19,24 +19,21 @@ use log4rs::encode::pattern::PatternEncoder;
 use log4rs::Config;
 use std::collections::HashMap;
 use std::env::current_exe;
-use std::ffi::c_void;
+use std::ffi::{c_void};
 use std::io::ErrorKind;
 use std::sync::atomic::Ordering;
 use std::sync::RwLock;
-use std::{fs, ptr, thread};
+use std::{fs, thread};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Receiver;
 use ui::ui::CONNECTION_STATUS;
-use winapi::shared::guiddef::REFIID;
-use winapi::shared::minwindef::{DWORD, LPVOID};
-use winapi::um::libloaderapi::{GetModuleHandleW, LoadLibraryA};
-use winapi::um::winnt::HRESULT;
-use windows::core::BOOL;
+use windows::core::{BOOL, GUID, HRESULT, PCSTR};
 use windows::Win32::Foundation::*;
 use windows::Win32::System::Console::{
-    AllocConsole, FreeConsole, GetConsoleMode, GetStdHandle, SetConsoleMode,
+    AllocConsole, GetConsoleMode, GetStdHandle, SetConsoleMode,
     ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_OUTPUT_HANDLE,
 };
+use windows::Win32::System::LibraryLoader::LoadLibraryA;
 use xxhash_rust::const_xxh3::xxh3_64;
 
 mod archipelago;
@@ -74,7 +71,7 @@ macro_rules! create_hook {
 }
 
 static mut REAL_DIRECTINPUT8CREATE: Option<
-    unsafe extern "system" fn(HINSTANCE, DWORD, REFIID, *mut *mut c_void, *mut c_void) -> HRESULT,
+    unsafe extern "system" fn(HINSTANCE, u32, GUID, *mut *mut c_void, *mut c_void) -> HRESULT,
 > = None;
 
 fn load_real_dinput8() {
@@ -90,8 +87,8 @@ fn load_real_dinput8() {
             REAL_DIRECTINPUT8CREATE = Some(
                 *lib.get::<unsafe extern "system" fn(
                     HINSTANCE,
-                    DWORD,
-                    REFIID,
+                    u32,
+                    GUID,
                     *mut *mut c_void,
                     *mut c_void,
                 ) -> HRESULT>(b"DirectInput8Create\0")
@@ -107,7 +104,7 @@ fn load_real_dinput8() {
 pub extern "system" fn DllMain(
     _hinst_dll: HINSTANCE,
     fdw_reason: u32,
-    _lpv_reserved: LPVOID,
+    _lpv_reserved: *mut std::os::raw::c_void,
 ) -> BOOL {
     const DLL_PROCESS_ATTACH: u32 = 1;
     const DLL_PROCESS_DETACH: u32 = 0;
@@ -116,6 +113,7 @@ pub extern "system" fn DllMain(
 
     match fdw_reason {
         DLL_PROCESS_ATTACH => {
+
             thread::spawn(|| {
                 load_real_dinput8();
                 if current_exe().unwrap().ends_with("dmc3.exe") {
@@ -142,6 +140,10 @@ pub extern "system" fn DllMain(
                     create_console();
                     // I'll lose color if I do this first then console
                     setup_logger();
+                    thread::spawn(|| {
+                        let _ = ui::dx11_hooks::install_hook();
+                    });
+                    // let _ = ui::overlay::install_hook();
                     for log in pre_logs {
                         log::log!(log.level, "{}", log.message);
                     }
@@ -168,6 +170,7 @@ pub extern "system" fn DllMain(
                     main_setup();
                 }
             });
+
         }
         DLL_PROCESS_DETACH => {
             // For cleanup
@@ -194,11 +197,10 @@ impl PreLog {
 
 fn load_other_dlls(pre_logs: &mut Vec<PreLog>) -> Result<(), std::io::Error> {
     // The game will immolate if both of these try to load
-
     if !(*config::CONFIG).mods.disable_ddmk {
         match is_file_valid("Mary.dll", 7087074874482460961) {
             Ok(_) => {
-                let _ = unsafe { LoadLibraryA(b"Mary.dll\0".as_ptr() as _) };
+                let _ = unsafe {LoadLibraryA(PCSTR::from_raw("Mary.dll\0".as_ptr()))};
                 if is_ddmk_loaded() {
                     pre_logs.push(PreLog::new(
                         Level::Warn,
@@ -245,7 +247,7 @@ fn load_other_dlls(pre_logs: &mut Vec<PreLog>) -> Result<(), std::io::Error> {
                 }
             },
         }
-        let _ = unsafe { LoadLibraryA(b"Crimson.dll\0".as_ptr() as _) };
+        let _ = unsafe {LoadLibraryA(PCSTR::from_raw("Crimson.dll\0".as_ptr()))};
         if is_crimson_loaded() {
             pre_logs.push(PreLog::new(
                 Level::Info,
@@ -326,7 +328,7 @@ fn main_setup() {
     } else {
         log::info!("DDMK or Crimson are not loaded!");
         if (*config::CONFIG).force_enable_egui {
-            thread::spawn(move || ui::egui_ui::start_egui());
+            //thread::spawn(move || ui::egui_ui::start_egui());
         }
     }
     log::info!("DMC3 Base Address is: {:X}", *utilities::DMC3_ADDRESS);
@@ -342,8 +344,8 @@ fn main_setup() {
 #[unsafe(no_mangle)]
 pub extern "system" fn DirectInput8Create(
     hinst: HINSTANCE,
-    dwVersion: DWORD,
-    riidltf: REFIID,
+    dwVersion: u32,
+    riidltf: GUID,
     ppvOut: *mut *mut c_void,
     punkOuter: *mut c_void,
 ) -> HRESULT {
@@ -381,17 +383,6 @@ pub fn create_console() {
         } else {
             log::info!("Failed to allocate console!");
         }
-    }
-}
-#[unsafe(no_mangle)]
-pub unsafe extern "system" fn free_self() -> bool {
-    unsafe {
-        FreeConsole().expect("Unable to free console");
-        let module_handle = GetModuleHandleW(ptr::null());
-        if module_handle.is_null() {
-            return false;
-        }
-        winapi::um::libloaderapi::FreeLibrary(module_handle) != 0
     }
 }
 

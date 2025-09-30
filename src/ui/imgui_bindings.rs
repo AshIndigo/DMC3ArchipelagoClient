@@ -5,6 +5,7 @@ use imgui_sys::{
 };
 use std::os::raw::c_char;
 use std::sync::OnceLock;
+use crate::constants::BasicNothingFunc;
 
 pub type ImGuiBegin =
     extern "C" fn(name: *const cty::c_char, p_open: *mut bool, flags: ImGuiWindowFlags) -> bool;
@@ -21,7 +22,6 @@ pub const TEXT_ADDR: usize = if USE_2022_DDMK { 0x65210 } else { 0x69db0 }; //0x
 
 pub const NEXT_POS_FUNC_ADDR: usize = if USE_2022_DDMK { 0x351b0 } else { 0x374a0 };
 pub const NEXT_WINDOW_SIZE_ADDR: usize = if USE_2022_DDMK { 0x35240 } else { 0x37530 };
-//pub const CHECKBOX_FUNC_ADDR: usize = 0x5a7e0;
 
 pub fn text<T: AsRef<str>>(text: T) {
     let s = text.as_ref();
@@ -34,8 +34,6 @@ pub fn text<T: AsRef<str>>(text: T) {
         );
     }
 }
-
-pub type BasicNothingFunc = unsafe extern "system" fn(); // No args no returns
 
 static IMGUI_END: OnceLock<BasicNothingFunc> = OnceLock::new();
 static IMGUI_BEGIN: OnceLock<ImGuiBegin> = OnceLock::new();

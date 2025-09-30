@@ -7,8 +7,7 @@ use std::sync::{LazyLock, OnceLock};
 use std::time::{Duration, Instant};
 use std::{ptr, thread};
 use std::ops::Add;
-use winapi::um::memoryapi::VirtualProtect;
-use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
+use windows::Win32::System::Memory::{VirtualProtect, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS};
 
 pub static CANCEL_TEXT: AtomicBool = AtomicBool::new(false);
 pub static LAST_OBTAINED_ID: AtomicU8 = AtomicU8::new(0);
@@ -172,7 +171,7 @@ pub fn replace_displayed_item_id(item_get: usize) {
     if CANCEL_TEXT.load(Ordering::SeqCst) {
         let base = *DMC3_ADDRESS;
         let offset = base + 0x2957e3;
-        let mut old_protect = 0;
+        let mut old_protect = PAGE_PROTECTION_FLAGS::default();
         const LENGTH: usize = 6;
         unsafe {
             VirtualProtect(
@@ -180,7 +179,7 @@ pub fn replace_displayed_item_id(item_get: usize) {
                 LENGTH,
                 PAGE_EXECUTE_READWRITE,
                 &mut old_protect,
-            );
+            ).expect("Unable to replace displayed item id - Before");
             write_unaligned(
                 offset as *mut [u8; LENGTH],
                 [0xBA, 60u8, 0x00, 0x00, 0x00, 0x90],
@@ -192,7 +191,7 @@ pub fn replace_displayed_item_id(item_get: usize) {
                 offset as *mut [u8; LENGTH],
                 [0x8B, 0x93, 0x44, 0x09, 0x00, 0x00],
             );
-            VirtualProtect(offset as *mut _, LENGTH, old_protect, &mut old_protect);
+            VirtualProtect(offset as *mut _, LENGTH, old_protect, &mut old_protect).expect("Unable to replace displayed item id - After");
         }
     } else {
         unsafe {

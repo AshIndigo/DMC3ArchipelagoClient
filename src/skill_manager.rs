@@ -3,8 +3,7 @@ use crate::game_manager::ACTIVE_CHAR_DATA;
 use crate::utilities::{read_data_from_address, DMC3_ADDRESS};
 use std::collections::{HashMap, HashSet};
 use std::ptr::{read_unaligned, write_unaligned};
-use std::sync::atomic::AtomicU8;
-use std::sync::atomic::Ordering::Relaxed;
+
 use std::sync::{LazyLock, RwLock};
 
 struct SkillData {
@@ -227,58 +226,61 @@ pub(crate) fn set_skills() {
 }
 
 // Certain skills have two levels they can gain
-static STINGER_LEVEL: AtomicU8 = AtomicU8::new(0);
-static JET_STREAM_LEVEL: AtomicU8 = AtomicU8::new(0);
-static REVERB_LEVEL: AtomicU8 = AtomicU8::new(0);
-pub static ACQUIRED_SKILLS: LazyLock<RwLock<HashSet<&'static str>>> = LazyLock::new(|| RwLock::new(HashSet::new()));
+pub static ACQUIRED_SKILLS: LazyLock<RwLock<HashSet<&'static str>>> =
+    LazyLock::new(|| RwLock::new(HashSet::new()));
 
 pub(crate) fn add_skill(id: usize) {
-    match id {
-        0x40 => {
-            STINGER_LEVEL.fetch_add(1, Relaxed);
-        }
-        0x46 => {
-            JET_STREAM_LEVEL.fetch_add(1, Relaxed);
-        }
-        0x4A => {
-            REVERB_LEVEL.fetch_add(1, Relaxed);
-        }
-        _ => {}
-    }
-    match (*ACQUIRED_SKILLS).write() {
-        Ok(mut skill_list) => {
-            let skill_name = match id {
-                0x40 => match std::cmp::min(2, STINGER_LEVEL.load(Relaxed)) {
-                    1 => 0x40,
-                    2 => 0x41,
-                    _ => unreachable!(),
-                },
-                0x46 => match std::cmp::min(2, JET_STREAM_LEVEL.load(Relaxed)) {
-                    1 => 0x46,
-                    2 => 0x47,
-                    _ => unreachable!(),
-                },
-                0x4A => match std::cmp::min(2, REVERB_LEVEL.load(Relaxed)) {
-                    1 => 0x4A,
-                    2 => 0x4B,
-                    _ => unreachable!(),
-                },
-                _ => id,
-            };
-            skill_list.insert(ID_SKILL_MAP.get(&skill_name).unwrap());
-        }
+    match game_manager::ARCHIPELAGO_DATA.write() {
+        Ok(mut data) => match id {
+            0x40 => {
+                data.add_stinger_level();
+            }
+            0x46 => {
+                data.add_jet_stream_level();
+            }
+            0x4A => {
+                data.add_reverb_level();
+            }
+            _ => {}
+        },
         Err(err) => {
-            log::error!(
-                "Unable to write to internal acquired skills list: {:?}",
-                err
-            );
+            log::error!("Failed to get ArchipelagoData: {}", err);
         }
     }
-    return;
-}
+    match game_manager::ARCHIPELAGO_DATA.read() {
+        Ok(data) => match (*ACQUIRED_SKILLS).write() {
+            Ok(mut skill_list) => {
+                let skill_name = match id {
+                    0x40 => match data.stinger_level {
+                        1 => 0x40,
+                        2 => 0x41,
+                        _ => unreachable!(),
+                    },
+                    0x46 => match data.jet_stream_level {
+                        1 => 0x46,
+                        2 => 0x47,
+                        _ => unreachable!(),
+                    },
+                    0x4A => match data.reverb_level {
+                        1 => 0x4A,
+                        2 => 0x4B,
+                        _ => unreachable!(),
+                    },
+                    _ => id,
+                };
+                skill_list.insert(ID_SKILL_MAP.get(&skill_name).unwrap());
+            }
+            Err(err) => {
+                log::error!(
+                    "Unable to write to internal acquired skills list: {:?}",
+                    err
+                );
+            }
+        },
+        Err(err) => {
+            log::error!("Failed to get ArchipelagoData: {}", err);
+        }
+    }
 
-pub(crate) fn reset_progressive_trackers() {
-    STINGER_LEVEL.store(0, Relaxed);
-    JET_STREAM_LEVEL.store(0, Relaxed);
-    REVERB_LEVEL.store(0, Relaxed);
+    return;
 }

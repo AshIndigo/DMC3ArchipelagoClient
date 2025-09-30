@@ -1,7 +1,7 @@
 use crate::archipelago::get_connected;
 use crate::data::generated_locations;
 use crate::hook::modify_item_table;
-use crate::{constants, hook, location_handler};
+use crate::{constants, location_handler};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{from_value, Value};
 use std::collections::HashMap;
@@ -110,6 +110,8 @@ pub struct Mapping {
     pub death_link: bool,
     #[serde(deserialize_with = "parse_boolean_option")]
     pub randomize_skills: bool,
+    #[serde(deserialize_with = "parse_boolean_option")]
+    pub randomize_styles: bool
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -137,7 +139,7 @@ pub fn use_mappings() -> Result<(), Box<dyn std::error::Error>> {
                 Some(_id) => {
                     if location_handler::location_is_checked_and_end(location_name) {
                         // If the item procs an end mission event, replace with a dummy ID in order to not immediately trigger a mission end
-                        modify_item_table(entry.offset, *hook::DUMMY_ID as u8)
+                        modify_item_table(entry.offset, *constants::DUMMY_ID as u8)
                     } else {
                         // Replace the item ID with the new one
                         // Leave this alone unless needed

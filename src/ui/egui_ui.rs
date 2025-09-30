@@ -1,7 +1,6 @@
 // Nothing wrong with this. Runs as a separate window so would have to alt-tab if full screen. Could at least be a backup HUD if DDMK isn't available
 
 use crate::constants::{ItemCategory, Status};
-use crate::item_sync::{BLUE_ORBS_OBTAINED, PURPLE_ORBS_OBTAINED};
 use crate::ui::ui;
 use crate::ui::ui::{CHECKLIST, CONNECTION_STATUS};
 use crate::{bank, constants};
@@ -75,8 +74,8 @@ fn setup_tracker_grid(ui: &mut Ui) {
                 id += 1;
                 ui.end_row();
             }
-            ui.label(format!("Blue Orbs: {}", BLUE_ORBS_OBTAINED.load(Ordering::Relaxed)));
-            ui.label(format!("Purple Orbs: {}", PURPLE_ORBS_OBTAINED.load(Ordering::Relaxed)));
+            // ui.label(format!("Blue Orbs: {}", BLUE_ORBS_OBTAINED.load(Ordering::Relaxed)));
+            // ui.label(format!("Purple Orbs: {}", PURPLE_ORBS_OBTAINED.load(Ordering::Relaxed)));
         });
 }
 

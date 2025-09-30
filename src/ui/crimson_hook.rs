@@ -1,5 +1,5 @@
 use core::sync::atomic::Ordering;
-use crate::ui::imgui_bindings::BasicNothingFunc;
+use crate::constants::BasicNothingFunc;
 use crate::{config, utilities};
 use minhook::MinHook;
 use std::sync::{LazyLock, OnceLock};

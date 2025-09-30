@@ -2,56 +2,146 @@ use crate::constants::{
     get_items_by_category, get_weapon_id, Difficulty, ItemCategory, BASE_HP, GUN_NAMES, ITEM_ID_MAP, ITEM_OFFSET_MAP,
     MAX_HP, MAX_MAGIC, MELEE_NAMES, ONE_ORB,
 };
-use crate::item_sync;
+use crate::hook::ORIGINAL_GIVE_STYLE_XP;
 use crate::ui::ui::CHECKLIST;
 use crate::utilities::{
     get_inv_address, read_data_from_address, replace_single_byte, DMC3_ADDRESS,
 };
 use std::collections::HashMap;
 use std::ptr::{read_unaligned, write_unaligned};
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{LazyLock, RwLockReadGuard};
+use std::sync::{LazyLock, RwLock, RwLockReadGuard};
 
 pub(crate) const GAME_SESSION_DATA: usize = 0xC8F250;
-pub(crate) static GUN_LEVELS: [AtomicU32; 5] = [
-    AtomicU32::new(0),
-    AtomicU32::new(0),
-    AtomicU32::new(0),
-    AtomicU32::new(0),
-    AtomicU32::new(0),
-];
+
+#[derive(Debug, Default)]
+pub(crate) struct ArchipelagoData {
+    pub(crate) blue_orbs: i32,
+    pub(crate) purple_orbs: i32,
+    gun_levels: [u32; 5],
+    style_levels: [i32; 4],
+    pub(crate) stinger_level: u8,
+    pub(crate) jet_stream_level: u8,
+    pub(crate) reverb_level: u8,
+}
+
+#[derive(Copy, Clone, strum_macros::Display, strum_macros::FromRepr)]
+pub(crate) enum Style {
+    Trickster = 0,
+    Swordmaster = 1,
+    Gunslinger = 2,
+    Royalguard = 3,
+}
+
+impl Style {
+    pub fn index(&self) -> usize {
+        *self as usize
+    }
+
+    pub fn get_internal_order(&self) -> usize {
+        match &self {
+            Style::Trickster => 2,
+            Style::Swordmaster => 0,
+            Style::Gunslinger => 1,
+            Style::Royalguard => 3,
+        }
+    }
+}
+
+pub static ARCHIPELAGO_DATA: LazyLock<RwLock<ArchipelagoData>> =
+    LazyLock::new(|| RwLock::new(ArchipelagoData::default()));
+
+impl ArchipelagoData {
+    pub(crate) fn add_blue_orb(&mut self) {
+        self.blue_orbs = (self.blue_orbs + 1).min(14);
+    }
+
+    pub(crate) fn add_purple_orb(&mut self) {
+        self.purple_orbs = (self.purple_orbs + 1).min(10);
+    }
+
+    pub(crate) fn add_dt(&mut self) {
+        self.purple_orbs = (self.purple_orbs + 3).min(10);
+    }
+
+    pub(crate) fn add_gun_level(&mut self, gun_index: usize) {
+        self.gun_levels[gun_index] = (self.gun_levels[gun_index] + 1).min(2);
+    }
+
+    pub(crate) fn add_style_level(&mut self, style: Style) {
+        /*
+        0 = not unlocked
+        1 = level 1
+        2 = level 2
+        3 = level 3
+
+        In terms of style levelling, the game considers 0 to be level 1
+         */
+        self.style_levels[style.index()] = (self.style_levels[style.index()] + 1).min(3);
+    }
+
+    pub(crate) fn get_style_unlocked(&self) -> [bool; 4] {
+        let mut style_table = [false, false, false, false];
+        for i in 0..4 {
+            style_table[i] = self.style_levels[i] > 0;
+        }
+        style_table
+    }
+
+    // Sword, Gun, Trick, Royal for style_levels
+    // Trick, Sword, Gun, Royal - Default order
+    fn get_style_level_array(&self) -> [u32; 6] {
+        let mut style_levels = [0, 0, 0, 0, 0, 0];
+        style_levels[0] = (self.style_levels[1] - 1).max(0) as u32;
+        style_levels[1] = (self.style_levels[2] - 1).max(0) as u32;
+        style_levels[2] = (self.style_levels[0] - 1).max(0) as u32;
+        style_levels[3] = (self.style_levels[3] - 1).max(0) as u32;
+
+        style_levels
+    }
+
+    pub(crate) fn add_stinger_level(&mut self) {
+        self.stinger_level = (self.stinger_level + 1).min(2);
+    }
+
+    pub(crate) fn add_jet_stream_level(&mut self) {
+        self.jet_stream_level = (self.jet_stream_level + 1).min(2);
+    }
+    pub(crate) fn add_reverb_level(&mut self) {
+        self.reverb_level = (self.reverb_level + 1).min(2);
+    }
+}
 
 #[repr(C)]
 pub struct SessionData {
     pub(crate) mission: u32,
-    other_mission: u32, // Don't know what this does, copies from mission after a second
-    pub(crate) room: i32, // Should be right?
+    pub(crate) other_mission: u32, // Don't know what this does, copies from mission after a second
+    pub(crate) room: i32,          // Should be right?
     pub(crate) difficulty: u32,
     pub(crate) hoh: bool,
-    _unknown2: u8,
+    pub _unknown2: u8,
     tutorial: bool,
     gold_orb_mode: bool,
-    char: u8,
-    _unknown3: [u8; 7],
+    pub(crate) char: u8,
+    pub(crate) _unknown3: [u8; 7],
     bloody_palace: bool,
     _unknown4: [u8; 15],
     red_orbs: u32,
-    items: [u8; 20],
+    pub(crate) items: [u8; 20],
     unknown5: [u8; 2],
     unlocks: [bool; 14],
     unknown6: [u8; 48],
-    weapons: [u8; 8],
+    pub(crate) weapons: [u8; 8],
     unknown7: [u8; 20],
     pub(crate) ranged_weapon_levels: [u32; 5],
-    unknown8: [u8; 20],
-    melee_index: u32,
-    gun_index: u32,
+    pub(crate) unknown8: [u8; 20],
+    pub melee_index: u32,
+    pub gun_index: u32,
     costume: u8,
-    unlocked_dt: bool,
-    unknown9: [u8; 2],
+    pub unlocked_dt: bool,
+    pub unknown9: [u8; 2],
     pub max_hp: f32,
     pub max_magic: f32,
-    style: u32,
+    pub style: u32,
     style_levels: [u32; 6],
     style_xp: [f32; 6],
     pub(crate) expertise: [u32; 8],
@@ -235,16 +325,17 @@ pub fn set_max_hp_and_magic() {
             s.max_hp,
             s.max_magic
         );
-        s.max_hp = f32::min(
-            BASE_HP + (item_sync::BLUE_ORBS_OBTAINED.load(Ordering::SeqCst) as f32 * ONE_ORB),
-            MAX_HP,
-        );
-        log::debug!("New HP is: {}", s.max_hp);
-        s.max_magic = f32::min(
-            item_sync::PURPLE_ORBS_OBTAINED.load(Ordering::SeqCst) as f32 * ONE_ORB,
-            MAX_MAGIC,
-        );
-        log::debug!("New Magic is: {}", s.max_magic);
+        match ARCHIPELAGO_DATA.read() {
+            Ok(data) => {
+                s.max_hp = f32::min(BASE_HP + (data.blue_orbs as f32 * ONE_ORB), MAX_HP);
+                log::debug!("New HP is: {}", s.max_hp);
+                s.max_magic = f32::min(data.purple_orbs as f32 * ONE_ORB, MAX_MAGIC);
+                log::debug!("New Magic is: {}", s.max_magic);
+            }
+            Err(err) => {
+                log::error!("Failed to read data from ARCHIPELAGO_DATA: {}", err);
+            }
+        }
     })
     .unwrap();
 }
@@ -298,16 +389,14 @@ pub(crate) fn set_weapons_in_inv() {
 
 pub(crate) fn set_gun_levels() {
     log::debug!("Setting gun levels");
-    with_session(|s| {
-        for i in 0..s.ranged_weapon_levels.len() {
-            let new_level = std::cmp::min(2, GUN_LEVELS[i].load(Ordering::SeqCst));
-            // log::debug!(
-            //     "Setting {} from {} to {}",
-            //     i,
-            //     s.ranged_weapon_levels[i],
-            //     new_level
-            // );
-            s.ranged_weapon_levels[i] = new_level;
+    with_session(|s| match ARCHIPELAGO_DATA.read() {
+        Ok(data) => {
+            for i in 0..s.ranged_weapon_levels.len() {
+                s.ranged_weapon_levels[i] = data.gun_levels[i];
+            }
+        }
+        Err(err) => {
+            log::error!("Failed to read data from ARCHIPELAGO_DATA: {}", err);
         }
     })
     .expect("Unable to edit session data");
@@ -317,14 +406,67 @@ pub(crate) fn set_gun_levels() {
         unsafe {
             let mut gun_levels =
                 read_unaligned((char_data_ptr + gun_upgrade_offset) as *mut [u32; 10]);
-            for i in 0..(*GUN_NAMES).len() {
-                gun_levels[get_weapon_id(&*GUN_NAMES[i]) as usize] +=
-                    std::cmp::min(2, GUN_LEVELS[i].load(Ordering::SeqCst));
+            match ARCHIPELAGO_DATA.read() {
+                Ok(data) => {
+                    for i in 0..(*GUN_NAMES).len() {
+                        gun_levels[get_weapon_id(&*GUN_NAMES[i]) as usize] += data.gun_levels[i];
+                    }
+                }
+                Err(err) => {
+                    log::error!("Failed to read data from ARCHIPELAGO_DATA: {}", err);
+                }
             }
             write_unaligned(
                 (char_data_ptr + gun_upgrade_offset) as *mut [u32; 10],
                 gun_levels,
             )
+        }
+    }
+}
+
+pub(crate) fn set_style_levels() {
+    with_session(|s| match ARCHIPELAGO_DATA.read() {
+        Ok(data) => {
+            s.style_levels = data.get_style_level_array();
+        }
+        Err(err) => {
+            log::error!("Failed to read data from ARCHIPELAGO_DATA: {}", err);
+        }
+    })
+    .unwrap();
+}
+
+pub(crate) fn apply_style_levels(style: Style) {
+    //set_style_levels();
+    let char_data_ptr: usize = read_data_from_address(*DMC3_ADDRESS + ACTIVE_CHAR_DATA);
+    if char_data_ptr != 0 {
+        unsafe {
+            const LEVEL_1_XP: f32 = 30000f32; // XP To get to LV2
+            const LEVEL_2_XP: f32 = 99999f32; // LV2 -> LV3
+            const PTR_3: usize = 0xCF2548; //0xC90E28 + 0x18;
+            let equipped_style = read_data_from_address::<u32>(char_data_ptr + 0x6338) as usize;
+            if style.get_internal_order() == equipped_style {
+                let level = read_data_from_address::<u32>(char_data_ptr + 0x6358);
+                let ptr = read_data_from_address::<usize>(*DMC3_ADDRESS + PTR_3);
+                if ptr != 0 {
+                    match level {
+                        0 => {
+                            ORIGINAL_GIVE_STYLE_XP.get().unwrap()(ptr, LEVEL_1_XP);
+                        }
+                        1 => {
+                            ORIGINAL_GIVE_STYLE_XP.get().unwrap()(ptr, LEVEL_2_XP);
+                        }
+                        2 => {
+                            log::debug!("Style {} is max level", style);
+                        }
+                        _ => {
+                            log::error!("Unknown level: {}", level);
+                        }
+                    }
+                } else {
+                    log::error!("ptr 3 was 0: {:#X}", *DMC3_ADDRESS + PTR_3)
+                }
+            }
         }
     }
 }

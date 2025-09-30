@@ -1,11 +1,12 @@
 use crate::constants::{get_item_name, MISSION_ITEM_MAP};
-use crate::game_manager::get_mission;
+use crate::game_manager::{get_mission, Style};
 use crate::hook::CLIENT;
+use crate::mapping::MAPPING;
 use crate::ui::ui;
 use crate::ui::ui::CHECKLIST;
 use crate::{archipelago, bank, cache, constants, game_manager, skill_manager, text_handler};
 use archipelago_rs::client::ArchipelagoClient;
-use archipelago_rs::protocol::{ReceivedItems};
+use archipelago_rs::protocol::ReceivedItems;
 use log;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -16,7 +17,6 @@ use std::path::Path;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
-use crate::mapping::MAPPING;
 
 const SYNC_FILE: &str = "archipelago.json";
 pub(crate) static SYNC_DATA: OnceLock<Mutex<SyncData>> = OnceLock::new();
@@ -67,9 +67,6 @@ pub(crate) fn read_save_data() -> Result<SyncData, Box<dyn Error>> {
     }
 }
 
-pub static BLUE_ORBS_OBTAINED: AtomicI32 = AtomicI32::new(0);
-pub static PURPLE_ORBS_OBTAINED: AtomicI32 = AtomicI32::new(0);
-
 pub(crate) async fn handle_received_items_packet(
     received_items_packet: ReceivedItems,
     client: &mut ArchipelagoClient,
@@ -96,126 +93,155 @@ pub(crate) async fn handle_received_items_packet(
         if received_items_packet.index == 0 {
             // If 0 abandon previous inv.
             bank::read_values(client).await?;
-            BLUE_ORBS_OBTAINED.store(0, Ordering::SeqCst);
-            PURPLE_ORBS_OBTAINED.store(0, Ordering::SeqCst);
-            skill_manager::reset_progressive_trackers();
-            skill_manager::reset_expertise();
-            game_manager::GUN_LEVELS
-                .iter()
-                .for_each(|lvl| lvl.store(0, Ordering::SeqCst));
-            for item in &received_items_packet.items {
-                match item.item {
-                    0x07 => {
-                        BLUE_ORBS_OBTAINED.fetch_add(1, Ordering::SeqCst);
+            match game_manager::ARCHIPELAGO_DATA.write() {
+                Ok(mut data) => {
+                    *data = game_manager::ArchipelagoData::default();
+                    skill_manager::reset_expertise();
+                    for item in &received_items_packet.items {
+                        match item.item {
+                            0x07 => {
+                                data.add_blue_orb();
+                            }
+                            0x08 => {
+                                data.add_purple_orb();
+                            }
+                            0x19 => {
+                                // Awakened Rebellion
+                                data.add_dt();
+                            }
+                            0x53 => {
+                                // Ebony & Ivory
+                                data.add_gun_level(0);
+                            }
+                            0x54 => {
+                                // Shotgun
+                                data.add_gun_level(1);
+                            }
+                            0x55 => {
+                                // Artemis
+                                data.add_gun_level(2);
+                            }
+                            0x56 => {
+                                // Spiral
+                                data.add_gun_level(3);
+                            }
+                            0x57 => {
+                                // Kalina Ann
+                                data.add_gun_level(4);
+                            }
+                            0x60 => data.add_style_level(Style::Trickster),
+                            0x61 => data.add_style_level(Style::Swordmaster),
+                            0x62 => data.add_style_level(Style::Gunslinger),
+                            0x63 => data.add_style_level(Style::Royalguard),
+                            _ => {}
+                        }
+                        if item.item < 0x53 && item.item > 0x39 {
+                            skill_manager::add_skill(item.item as usize);
+                        }
                     }
-                    0x08 => {
-                        PURPLE_ORBS_OBTAINED.fetch_add(1, Ordering::SeqCst);
-                    }
-                    0x19 => {
-                        // Awakened Rebellion
-                        PURPLE_ORBS_OBTAINED.fetch_add(3, Ordering::SeqCst);
-                    }
-                    0x53 => {
-                        // Ebony & Ivory
-                        game_manager::GUN_LEVELS[0].fetch_add(1, Ordering::SeqCst);
-                    }
-                    0x54 => {
-                        // Shotgun
-                        game_manager::GUN_LEVELS[1].fetch_add(1, Ordering::SeqCst);
-                    }
-                    0x55 => {
-                        // Artemis
-                        game_manager::GUN_LEVELS[2].fetch_add(1, Ordering::SeqCst);
-                    }
-                    0x56 => {
-                        // Spiral
-                        game_manager::GUN_LEVELS[3].fetch_add(1, Ordering::SeqCst);
-                    }
-                    0x57 => {
-                        // Kalina Ann
-                        game_manager::GUN_LEVELS[4].fetch_add(1, Ordering::SeqCst);
-                    }
-                    _ => {}
                 }
-                if item.item < 0x53 && item.item > 0x39 {
-                    skill_manager::add_skill(item.item as usize);
+                Err(err) => {
+                    log::error!("Couldn't get ArchipelagoData for write: {}", err)
                 }
             }
         }
         if received_items_packet.index > CURRENT_INDEX.load(Ordering::SeqCst) {
-            for item in &received_items_packet.items {
-                text_handler::display_text(
-                    &format!("Received {}!", constants::get_item_name(item.item as u32)),
-                    Duration::from_secs(1),
-                    // Roughly up and to the left
-                    100,
-                    -100,
-                );
-                if item.item < 0x14 {
-                    if let Some(tx) = bank::TX_BANK_MESSAGE.get() {
-                        tx.send((get_item_name(item.item as u32), 1))
-                            .await?;
-                    }
-                }
-                log::debug!("Supplying added HP/Magic if needed");
-                match item.item {
-                    0x07 => {
-                        BLUE_ORBS_OBTAINED.fetch_add(1, Ordering::SeqCst);
-                        game_manager::give_hp(constants::ONE_ORB);
-                    }
-                    0x08 => {
-                        PURPLE_ORBS_OBTAINED.fetch_add(1, Ordering::SeqCst);
-                        game_manager::give_magic(constants::ONE_ORB);
-                    }
-                    0x19 => {
-                        // Awakened Rebellion
-                        PURPLE_ORBS_OBTAINED.fetch_add(3, Ordering::SeqCst);
-                        game_manager::give_magic(constants::ONE_ORB * 3.0);
-                    }
-                    0x53 => {
-                        // Ebony & Ivory
-                        game_manager::GUN_LEVELS[0].fetch_add(1, Ordering::SeqCst);
-                    }
-                    0x54 => {
-                        // Shotgun
-                        game_manager::GUN_LEVELS[1].fetch_add(1, Ordering::SeqCst);
-                    }
-                    0x55 => {
-                        // Artemis
-                        game_manager::GUN_LEVELS[2].fetch_add(1, Ordering::SeqCst);
-                    }
-                    0x56 => {
-                        // Spiral
-                        game_manager::GUN_LEVELS[3].fetch_add(1, Ordering::SeqCst);
-                    }
-                    0x57 => {
-                        // Kalina Ann
-                        game_manager::GUN_LEVELS[4].fetch_add(1, Ordering::SeqCst);
-                    }
-                    _ => {}
-                }
-                // For key items
-                if item.item >= 0x24 && item.item <= 0x39 {
-                    log::debug!("Setting newly acquired key items");
-                    match MISSION_ITEM_MAP.get(&(get_mission())) {
-                        None => {} // No items for the mission
-                        Some(item_list) => {
-                            let item_name = constants::get_item_name(item.item as u32);
-                            if item_list.contains(&item_name) {
-                                game_manager::set_item(item_name, true, true);
+            match game_manager::ARCHIPELAGO_DATA.write() {
+                Ok(mut data) => {
+                    for item in &received_items_packet.items {
+                        text_handler::display_text(
+                            &format!("Received {}!", get_item_name(item.item as u32)),
+                            Duration::from_secs(1),
+                            // Roughly up and to the left
+                            100,
+                            -100,
+                        );
+                        if item.item < 0x14 {
+                            if let Some(tx) = bank::TX_BANK_MESSAGE.get() {
+                                tx.send((get_item_name(item.item as u32), 1)).await?;
+                            }
+                        }
+                        log::debug!("Supplying added HP/Magic if needed");
+                        match item.item {
+                            0x07 => {
+                                data.add_blue_orb();
+                                game_manager::give_hp(constants::ONE_ORB);
+                            }
+                            0x08 => {
+                                data.add_purple_orb();
+                                game_manager::give_magic(constants::ONE_ORB);
+                            }
+                            0x19 => {
+                                // Awakened Rebellion
+                                data.add_dt();
+                                game_manager::give_magic(constants::ONE_ORB * 3.0);
+                            }
+                            0x53 => {
+                                // Ebony & Ivory
+                                data.add_gun_level(0);
+                            }
+                            0x54 => {
+                                // Shotgun
+                                data.add_gun_level(1);
+                            }
+                            0x55 => {
+                                // Artemis
+                                data.add_gun_level(2);
+                            }
+                            0x56 => {
+                                // Spiral
+                                data.add_gun_level(3);
+                            }
+                            0x57 => {
+                                // Kalina Ann
+                                data.add_gun_level(4);
+                            }
+                            0x60 => {
+                                data.add_style_level(Style::Trickster);
+                                game_manager::apply_style_levels(Style::Trickster)
+                            }
+                            0x61 => {
+                                data.add_style_level(Style::Swordmaster);
+                                game_manager::apply_style_levels(Style::Swordmaster)
+                            }
+                            0x62 => {
+                                data.add_style_level(Style::Gunslinger);
+                                game_manager::apply_style_levels(Style::Gunslinger)
+                            }
+                            0x63 => {
+                                data.add_style_level(Style::Royalguard);
+                                game_manager::apply_style_levels(Style::Royalguard)
+                            }
+                            _ => {log::debug!("Non style/gun level id: {}", item.item)}
+                        }
+                        // For key items
+                        if item.item >= 0x24 && item.item <= 0x39 {
+                            log::debug!("Setting newly acquired key items");
+                            match MISSION_ITEM_MAP.get(&(get_mission())) {
+                                None => {} // No items for the mission
+                                Some(item_list) => {
+                                    let item_name = get_item_name(item.item as u32);
+                                    if item_list.contains(&item_name) {
+                                        game_manager::set_item(item_name, true, true);
+                                    }
+                                }
+                            }
+                        }
+                        if item.item < 0x53 && item.item > 0x39 {
+                            if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
+                                if mapping.randomize_skills {
+                                    skill_manager::add_skill(item.item as usize);
+                                    skill_manager::set_skills(); // Hacky...
+                                }
                             }
                         }
                     }
                 }
-                if item.item < 0x53 && item.item > 0x39 {
-                    if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
-                        if mapping.randomize_skills {
-                            skill_manager::add_skill(item.item as usize);
-                            skill_manager::set_skills(); // Hacky...
-                        }
-                    }
+                Err(err) => {
+                    log::error!("Couldn't get ArchipelagoData for write: {}", err)
                 }
             }
+
             CURRENT_INDEX.store(received_items_packet.index, Ordering::SeqCst);
             let mut sync_data = get_sync_data().lock().unwrap();
             if sync_data.room_sync_info.contains_key(&get_index(client)) {
@@ -245,7 +271,7 @@ pub(crate) fn get_index(cl: &ArchipelagoClient) -> String {
     )
 }
 
-// TODO May remov
+// TODO May remove
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
 pub(crate) async fn _sync_items() {
     if let Some(ref mut client) = CLIENT.lock().await.as_mut() {
@@ -265,7 +291,7 @@ pub(crate) async fn _sync_items() {
             }
         }
     }
-} 
+}
 
 /// Adds an offline location to be sent when room connection is restored
 pub(crate) async fn add_offline_check(

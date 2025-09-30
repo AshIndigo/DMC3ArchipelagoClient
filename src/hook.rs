@@ -1,18 +1,19 @@
-use crate::archipelago::{
-    get_checked_locations, DeathLinkData, TX_DEATHLINK,
-};
+use crate::archipelago::{get_checked_locations, DeathLinkData, TX_DEATHLINK};
 use crate::constants::ItemEntry;
 use crate::constants::*;
 use crate::data::generated_locations;
 use crate::game_manager::{
-    get_difficulty, get_mission, get_room, set_item, set_loc_chk_flg, set_weapons_in_inv,
+    get_difficulty, get_mission, get_room, set_item, set_loc_chk_flg, set_weapons_in_inv, Style,
 };
 use crate::location_handler::in_key_item_room;
 use crate::mapping::{Mapping, MAPPING};
 use crate::text_handler::LAST_OBTAINED_ID;
 use crate::ui::ui::{CHECKLIST, CONNECTION_STATUS};
 use crate::utilities::{read_data_from_address, replace_single_byte, DMC3_ADDRESS};
-use crate::{bank, check_handler, create_hook, game_manager, mapping, save_handler, skill_manager, text_handler, utilities};
+use crate::{
+    bank, check_handler, create_hook, game_manager, mapping, save_handler, skill_manager,
+    text_handler, utilities,
+};
 use archipelago_rs::client::ArchipelagoClient;
 use log::error;
 use minhook::{MinHook, MH_STATUS};
@@ -23,11 +24,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, OnceLock, RwLockReadGuard};
 use std::{ptr, slice};
 use tokio::sync::Mutex;
-use winapi::um::memoryapi::VirtualProtect;
-use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
+use windows::Win32::System::Memory::{VirtualProtect, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS};
 
-pub(crate) const DUMMY_ID: LazyLock<u32> = LazyLock::new(|| *ITEM_ID_MAP.get("Dummy").unwrap()); //0x20;
-pub(crate) const REMOTE_ID: LazyLock<u32> = LazyLock::new(|| *ITEM_ID_MAP.get("Remote").unwrap()); //0x26;
+pub(crate) static CLIENT: LazyLock<Mutex<Option<ArchipelagoClient>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 static HOOKS_CREATED: AtomicBool = AtomicBool::new(false);
 
@@ -111,6 +111,24 @@ unsafe fn create_hooks() -> Result<(), MH_STATUS> {
             ORIGINAL_ADD_SHOTGUN_OR_CERBERUS,
             "Don't add the Shotgun/Cerberus to second slot"
         );
+        create_hook!(
+            CUSTOMIZE_STYLE_MENU,
+            modify_available_styles,
+            ORIGINAL_STYLE_MENU,
+            "Hide styles that aren't available"
+        );
+        create_hook!(
+            GIVE_STYLE_XP,
+            give_no_xp,
+            ORIGINAL_GIVE_STYLE_XP,
+            "Don't give style XP"
+        );
+        create_hook!(
+            SET_NEW_SESSION_DATA,
+            set_rando_session_data,
+            ORIGINAL_SET_NEW_SESSION_DATA,
+            "Set session data for new game"
+        );
         text_handler::setup_text_hooks()?;
         save_handler::setup_save_hooks()?;
         bank::setup_bank_hooks()?;
@@ -135,6 +153,9 @@ fn enable_hooks() {
         SKILL_SHOP_ADDR,
         GUN_SHOP_ADDR,
         ADD_SHOTGUN_OR_CERBERUS_ADDR,
+        CUSTOMIZE_STYLE_MENU,
+        GIVE_STYLE_XP,
+        SET_NEW_SESSION_DATA,
         // Bank
         bank::OPEN_INV_SCREEN_ADDR,
         bank::CLOSE_INV_SCREEN_ADDR,
@@ -157,9 +178,34 @@ fn enable_hooks() {
     })
 }
 
-pub(crate) static CLIENT: LazyLock<Mutex<Option<ArchipelagoClient>>> =
-    LazyLock::new(|| Mutex::new(None));
+/// Disable hooks, used for disconnecting
+pub fn disable_hooks() -> Result<(), MH_STATUS> {
+    let base_address = *DMC3_ADDRESS;
+    unsafe {
+        MinHook::disable_hook((base_address + ITEM_SPAWNS_ADDR) as *mut _)?;
+        MinHook::disable_hook((base_address + EDIT_EVENT_HOOK_ADDR) as *mut _)?;
+        MinHook::disable_hook((base_address + LOAD_NEW_ROOM_ADDR) as *mut _)?;
+        MinHook::disable_hook((base_address + SETUP_PLAYER_DATA_ADDR) as *mut _)?;
+        save_handler::disable_save_hooks(base_address)?;
+        MinHook::disable_hook((base_address + EQUIPMENT_SCREEN_ADDR) as *mut _)?;
+        MinHook::disable_hook((base_address + DAMAGE_CALC_ADDR) as *mut _)?;
+        MinHook::disable_hook((base_address + ADJUDICATOR_DATA_ADDR) as *mut _)?;
+        MinHook::disable_hook((base_address + SKILL_SHOP_ADDR) as *mut _)?;
+        MinHook::disable_hook((base_address + GUN_SHOP_ADDR) as *mut _)?;
+        MinHook::disable_hook((base_address + ADD_SHOTGUN_OR_CERBERUS_ADDR) as *mut _)?;
+        MinHook::disable_hook((base_address + CUSTOMIZE_STYLE_MENU) as *mut _)?;
+        MinHook::disable_hook((base_address + SET_NEW_SESSION_DATA) as *mut _)?;
+        text_handler::disable_text_hooks(base_address)?;
+        check_handler::disable_check_hooks(base_address)?;
+        bank::disable_bank_hooks(base_address)?;
+    }
+    Ok(())
+}
 
+pub const EDIT_EVENT_HOOK_ADDR: usize = 0x1a9bc0;
+pub static ORIGINAL_EDIT_EVENT: OnceLock<
+    unsafe extern "C" fn(param_1: usize, param_2: i32, param_3: usize),
+> = OnceLock::new();
 pub fn edit_event_drop(param_1: usize, param_2: i32, param_3: usize) {
     let (mapping, mission_event_tables, checked_locations) =
         if let (Ok(mapping), Some(mission_event_tables), Some(checked_locations)) = (
@@ -245,15 +291,16 @@ pub fn edit_event_drop(param_1: usize, param_2: i32, param_3: usize) {
 // Set these from 02 to 01
 pub(crate) fn rewrite_mode_table() {
     let table_address = ITEM_MODE_TABLE + *DMC3_ADDRESS;
-    let mut old_protect = 0;
+    let mut old_protect = PAGE_PROTECTION_FLAGS::default();
     let length = 16;
     unsafe {
+
         VirtualProtect(
             table_address as *mut _,
             length, // Length of table I need to modify
             PAGE_EXECUTE_READWRITE,
             &mut old_protect,
-        );
+        ).expect("Unable to rewrite mode table - Before");
 
         let table = slice::from_raw_parts_mut(table_address as *mut u8, length);
         table.fill(0x01u8); // 0 = orbs, 1 = items, 2 = bad
@@ -263,10 +310,14 @@ pub(crate) fn rewrite_mode_table() {
             length,
             old_protect,
             &mut old_protect,
-        );
+        ).expect("Unable to rewrite mode table - After");
     }
 }
 
+pub const ADJUDICATOR_DATA_ADDR: usize = 0x24f970;
+pub static ORIGINAL_ADJUDICATOR_DATA: OnceLock<
+    unsafe extern "C" fn(param_1: usize, param_2: usize, param_3: usize, param_4: usize) -> usize,
+> = OnceLock::new();
 /// Modify adjudicator weapon and rank info
 fn modify_adjudicator(
     param_1: usize,
@@ -279,7 +330,8 @@ fn modify_adjudicator(
     const WEAPON_OFFSET: usize = 0x06;
     for (location_name, entry) in generated_locations::ITEM_MISSION_MAP.iter() {
         // Run through all locations
-        if entry.adjudicator && entry.room_number == get_room() { //&& entry.mission == get_mission() {
+        if entry.adjudicator && entry.room_number == get_room() {
+            //&& entry.mission == get_mission() {
             if LOG_ADJU_DATA {
                 log::debug!("Adjudicator found at location {}", &location_name);
                 log::debug!(
@@ -347,6 +399,9 @@ fn modify_adjudicator(
     }
 }
 
+pub const ITEM_SPAWNS_ADDR: usize = 0x1b4440; // 0x1b4480
+pub static ORIGINAL_ITEM_SPAWNS: OnceLock<unsafe extern "C" fn(loc_chk_id: usize)> =
+    OnceLock::new();
 fn item_spawns_hook(unknown: usize) {
     unsafe {
         #[allow(unused_assignments)]
@@ -408,6 +463,11 @@ fn item_spawns_hook(unknown: usize) {
     }
 }
 
+pub const DAMAGE_CALC_ADDR: usize = 0x088190;
+pub static ORIGINAL_DAMAGE_CALC: OnceLock<
+    unsafe extern "C" fn(damage_calc: usize, param_1: usize, param_2: usize, param_3: usize),
+> = OnceLock::new();
+
 fn monitor_hp(damage_calc: usize, param_1: usize, param_2: usize, param_3: usize) {
     unsafe { ORIGINAL_DAMAGE_CALC.get().unwrap()(damage_calc, param_1, param_2, param_3) }
     let char_data_ptr: usize =
@@ -451,7 +511,10 @@ async fn send_deathlink() {
         }
     }
 }
-    
+
+pub const EQUIPMENT_SCREEN_ADDR: usize = 0x28CBD0;
+pub static ORIGINAL_EQUIPMENT_SCREEN: OnceLock<unsafe extern "C" fn(cuid_weapon: usize) -> i32> =
+    OnceLock::new();
 /// Edits the initially selected index when viewing weapons in the status screen
 fn edit_initial_index(custom_weapon: usize) -> i32 {
     let current_inv_addr = utilities::get_inv_address();
@@ -632,28 +695,6 @@ fn set_relevant_key_items() {
     .unwrap();
 }
 
-/// Disable hooks, used for disconnecting
-pub fn disable_hooks() -> Result<(), MH_STATUS> {
-    let base_address = *DMC3_ADDRESS;
-    unsafe {
-        MinHook::disable_hook((base_address + ITEM_SPAWNS_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + EDIT_EVENT_HOOK_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + LOAD_NEW_ROOM_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + SETUP_PLAYER_DATA_ADDR) as *mut _)?;
-        save_handler::disable_save_hooks(base_address)?;
-        MinHook::disable_hook((base_address + EQUIPMENT_SCREEN_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + DAMAGE_CALC_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + ADJUDICATOR_DATA_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + SKILL_SHOP_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + GUN_SHOP_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + ADD_SHOTGUN_OR_CERBERUS_ADDR) as *mut _)?;
-        text_handler::disable_text_hooks(base_address)?;
-        check_handler::disable_check_hooks(base_address)?;
-        bank::disable_bank_hooks(base_address)?;
-    }
-    Ok(())
-}
-
 pub const LOAD_NEW_ROOM_ADDR: usize = 0x23e610;
 
 pub static ORIGINAL_LOAD_NEW_ROOM: OnceLock<unsafe extern "C" fn(param_1: usize) -> bool> =
@@ -688,6 +729,9 @@ pub fn set_player_data(param_1: usize) -> bool {
             game_manager::set_gun_levels();
             skill_manager::set_skills();
         }
+        if mapping.randomize_styles {
+            game_manager::set_style_levels()
+        }
     }
     LAST_OBTAINED_ID.store(0, Ordering::SeqCst); // Should stop random item jumpscares
     unsafe {
@@ -710,19 +754,19 @@ pub fn modify_item_table(offset: usize, id: u8) {
         if offset == 0x0 {
             return; // Undecided/ignorable
         }
-        let mut old_protect = 0;
+        let mut old_protect = PAGE_PROTECTION_FLAGS::default();
         VirtualProtect(
             true_offset as *mut _,
             4, // Length of table I need to modify
             PAGE_EXECUTE_READWRITE,
             &mut old_protect,
-        );
+        ).expect("Unable to modify item table - Before");
 
         let table = slice::from_raw_parts_mut(true_offset as *mut u8, 4);
 
         table[3] = id;
 
-        VirtualProtect(true_offset as *mut _, 4, old_protect, &mut old_protect);
+        VirtualProtect(true_offset as *mut _, 4, old_protect, &mut old_protect).expect("Unable to modify item table - After");
         // log::trace!(
         //     "Modified Item Table: Address: 0x{:x}, ID: 0x{:x}, Offset: 0x{:x}",
         //     true_offset,
@@ -740,19 +784,19 @@ pub(crate) fn restore_item_table() {
         .for_each(|(_key, val)| {
             unsafe {
                 let true_offset = val.offset + *DMC3_ADDRESS + 0x1A00usize;
-                let mut old_protect = 0;
+                let mut old_protect = PAGE_PROTECTION_FLAGS::default();
                 VirtualProtect(
                     true_offset as *mut _,
                     4, // Length of table I need to modify
                     PAGE_EXECUTE_READWRITE,
                     &mut old_protect,
-                );
+                ).expect("Unable to restore item table - Before");
 
                 let table = slice::from_raw_parts_mut(true_offset as *mut u8, 4);
 
                 table[3] = val.item_id as u8;
 
-                VirtualProtect(true_offset as *mut _, 4, old_protect, &mut old_protect);
+                VirtualProtect(true_offset as *mut _, 4, old_protect, &mut old_protect).expect("Unable to restore item table - After");
             }
         })
 }
@@ -760,7 +804,7 @@ pub(crate) fn restore_item_table() {
 /// Set the modified modes back to 1 from 2
 pub(crate) fn restore_mode_table() {
     let table_address = ITEM_MODE_TABLE + *DMC3_ADDRESS;
-    let mut old_protect = 0;
+    let mut old_protect = PAGE_PROTECTION_FLAGS::default();
     let length = 16;
     unsafe {
         VirtualProtect(
@@ -768,7 +812,7 @@ pub(crate) fn restore_mode_table() {
             length, // Length of table I need to modify
             PAGE_EXECUTE_READWRITE,
             &mut old_protect,
-        );
+        ).expect("Unable to restore mode table - Before");
 
         let table = slice::from_raw_parts_mut(table_address as *mut u8, length);
         table.fill(0x02u8); // 0 = orbs, 1 = items, 2 = bad
@@ -778,9 +822,13 @@ pub(crate) fn restore_mode_table() {
             length,
             old_protect,
             &mut old_protect,
-        );
+        ).expect("Unable to restore mode table - After");
     }
 }
+
+pub const SKILL_SHOP_ADDR: usize = 0x288280;
+pub static ORIGINAL_SKILL_SHOP: OnceLock<unsafe extern "C" fn(custom_skill: usize)> =
+    OnceLock::new();
 
 // TODO I would like to make this show a custom message denied message, but for now, just do nothing
 pub fn deny_skill_purchasing(custom_skill: usize) {
@@ -794,6 +842,8 @@ pub fn deny_skill_purchasing(custom_skill: usize) {
     }
 }
 
+pub const GUN_SHOP_ADDR: usize = 0x283d60;
+pub static ORIGINAL_GUN_SHOP: OnceLock<unsafe extern "C" fn(custom_gun: usize)> = OnceLock::new();
 pub fn deny_gun_upgrade(custom_gun: usize) {
     if read_data_from_address::<u8>(custom_gun + 0x08) == 0x03 {
         unsafe { replace_single_byte(custom_gun + 0x08, 0x01) }
@@ -805,7 +855,111 @@ pub fn deny_gun_upgrade(custom_gun: usize) {
     }
 }
 
+pub const ADD_SHOTGUN_OR_CERBERUS_ADDR: usize = 0x1fcfa0;
+pub static ORIGINAL_ADD_SHOTGUN_OR_CERBERUS: OnceLock<
+    unsafe extern "C" fn(custom_gun: usize, id: u8) -> bool,
+> = OnceLock::new();
 // Disabling vanilla behavior of inserting the shotgun/cerberus into the second weapon slot
 pub fn deny_cerberus_or_shotgun(_param_1: usize, _id: u8) -> bool {
     false
+}
+
+pub const CUSTOMIZE_STYLE_MENU: usize = 0x2b8a10;
+pub static ORIGINAL_STYLE_MENU: OnceLock<unsafe extern "C" fn(custom_gun: usize) -> bool> =
+    OnceLock::new();
+// Control what styles are actually unlocked
+pub fn modify_available_styles(data_ptr: usize) -> bool {
+    if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
+        if mapping.randomize_styles {
+            unsafe {
+                // Only original 4, quicksilver and doppelganger are controlled by their respective items
+                // Trick, Sword, Gun, Royal
+                match game_manager::ARCHIPELAGO_DATA.read() {
+                    Ok(data) => {
+                        ptr::write(
+                            (data_ptr + 0x98C6) as *mut [bool; 4],
+                            data.get_style_unlocked(),
+                        );
+                    }
+                    Err(err) => {
+                        log::error!("Failed to get ArchipelagoData: {}", err)
+                    }
+                }
+            }
+        }
+    }
+    if let Some(orig) = ORIGINAL_STYLE_MENU.get() {
+        unsafe { return orig(data_ptr) }
+    }
+    false
+}
+
+pub const GIVE_STYLE_XP: usize = 0x1fa2c0;
+pub static ORIGINAL_GIVE_STYLE_XP: OnceLock<
+    unsafe extern "C" fn(ptr: usize, xp_amount: f32) -> f32,
+> = OnceLock::new();
+// Deny giving style XP
+pub fn give_no_xp(param_1: usize, xp_amount: f32) -> f32 {
+    if let Some(orig) = ORIGINAL_GIVE_STYLE_XP.get() {
+        if MAPPING.read().unwrap().as_ref().unwrap().randomize_styles {
+            unsafe { orig(param_1, 0f32) }
+        } else {
+            unsafe { orig(param_1, xp_amount) }
+        }
+    } else {
+        panic!("Failed to get original give style xp method")
+    }
+}
+
+pub const SET_NEW_SESSION_DATA: usize = 0x212760; //0x242cc0; // Use current address to have compat with crimson
+pub static ORIGINAL_SET_NEW_SESSION_DATA: OnceLock<unsafe extern "C" fn(ptr: usize) -> f32> =
+    OnceLock::new();
+
+pub fn set_rando_session_data(ptr: usize) {
+    if let Some(orig) = ORIGINAL_SET_NEW_SESSION_DATA.get() {
+        unsafe {
+            orig(ptr);
+        }
+    }
+    log::debug!("Starting new game, setting appropriate data");
+    game_manager::with_session(|s| {
+        if s.char != Character::Dante as u8 {
+            log::error!("Character is {} not Dante", Character::from_repr(s.char as usize).unwrap());
+            log::info!("Only Dante is supported at the moment");
+            return;
+        }
+        if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
+            // Set initial style if relevant
+            if mapping.randomize_styles {
+                if let Some(index) = game_manager::ARCHIPELAGO_DATA
+                    .read()
+                    .unwrap()
+                    .get_style_unlocked()
+                    .iter()
+                    .position(|&x| x)
+                {
+                    let style = Style::from_repr(index).unwrap();
+                    s.style = style.get_internal_order() as u32;
+                }
+            }
+            // Set starter weapons
+            s.weapons[0] = get_weapon_id(mapping.start_melee.as_str());
+            s.weapons[1] = 0xFF;
+            s.weapons[2] = get_weapon_id(mapping.start_gun.as_str());
+            s.weapons[3] = 0xFF;
+            // Disable buying blue/purple orbs
+            s.items[7] = 6;
+            s.items[8] = 7;
+            // Unlock DT off the bat
+            s.unlocked_dt = true;
+            /* Should see if I can change unlocked files? Or unlock them all.
+            Game seemed to just auto unlock them though when the weapon is used
+            Overall, not too important */
+                
+            // This is also where I'd want to set what missions are available, but I haven't figured that out yet
+            // 29A5E8
+            // 0x45FECCA
+        }
+    })
+    .unwrap();
 }

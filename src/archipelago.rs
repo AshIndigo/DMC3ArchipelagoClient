@@ -6,7 +6,7 @@ use crate::data::generated_locations;
 use crate::ui::ui;
 use crate::ui::ui::CONNECTION_STATUS;
 use crate::{
-    bank, cache, constants, game_manager, hook, item_sync, location_handler, mapping, save_handler,
+    bank, cache, constants, game_manager, hook, item_sync, location_handler, mapping,
     text_handler,
 };
 use anyhow::anyhow;
@@ -231,7 +231,6 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) -> Result<(), Box<dyn Error>>
         }
     }
     mapping::use_mappings()?;
-    save_handler::create_special_save()?;
     Ok(())
 }
 
@@ -437,12 +436,12 @@ fn handle_retrieved(retrieved: Retrieved) -> Result<(), Box<dyn Error>> {
     let mut bank = get_bank().write()?;
     bank.iter_mut().for_each(|(item_name, count)| {
         log::debug!("Reading {}", item_name);
-        *count = retrieved
-            .keys
-            .get(get_bank_key(item_name))
-            .unwrap()
-            .as_i64()
-            .unwrap_or_default() as i32;
+        match retrieved.keys.get(get_bank_key(item_name)) {
+            None => {
+                log::error!("{} not found", item_name);
+            }
+            Some(cnt) => {*count = cnt.as_i64().unwrap_or_default() as i32}
+        }
         log::debug!("Set count {}", item_name);
     });
     Ok(())

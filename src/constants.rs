@@ -2,44 +2,18 @@ use crate::cache::DATA_PACKAGE;
 use crate::skill_manager::ID_SKILL_MAP;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
-use std::sync::{LazyLock, OnceLock};
+use std::sync::LazyLock;
+
+pub type BasicNothingFunc = unsafe extern "system" fn();
+
+pub(crate) const DUMMY_ID: LazyLock<u32> = LazyLock::new(|| *ITEM_ID_MAP.get("Dummy").unwrap());
+
+pub(crate) const REMOTE_ID: LazyLock<u32> = LazyLock::new(|| *ITEM_ID_MAP.get("Remote").unwrap());
+
 // DMC3 Offsets+Functions - Offsets are from 2022 DDMK's version
 
-pub const ITEM_SPAWNS_ADDR: usize = 0x1b4440; // 0x1b4480
-pub static ORIGINAL_ITEM_SPAWNS: OnceLock<unsafe extern "C" fn(loc_chk_id: usize)> =
-    OnceLock::new();
-
-pub const EDIT_EVENT_HOOK_ADDR: usize = 0x1a9bc0;
-pub static ORIGINAL_EDIT_EVENT: OnceLock<
-    unsafe extern "C" fn(param_1: usize, param_2: i32, param_3: usize),
-> = OnceLock::new();
 pub const ITEM_MODE_TABLE: usize = 0x1B4534; // This is actually a constant, we like this one
 
-pub const EQUIPMENT_SCREEN_ADDR: usize = 0x28CBD0;
-pub static ORIGINAL_EQUIPMENT_SCREEN: OnceLock<unsafe extern "C" fn(cuid_weapon: usize) -> i32> =
-    OnceLock::new();
-
-pub const DAMAGE_CALC_ADDR: usize = 0x088190;
-pub static ORIGINAL_DAMAGE_CALC: OnceLock<
-    unsafe extern "C" fn(damage_calc: usize, param_1: usize, param_2: usize, param_3: usize),
-> = OnceLock::new();
-
-pub const ADJUDICATOR_DATA_ADDR: usize = 0x24f970;
-pub static ORIGINAL_ADJUDICATOR_DATA: OnceLock<
-    unsafe extern "C" fn(param_1: usize, param_2: usize, param_3: usize, param_4: usize) -> usize,
-> = OnceLock::new();
-
-pub const SKILL_SHOP_ADDR: usize = 0x288280;
-pub static ORIGINAL_SKILL_SHOP: OnceLock<unsafe extern "C" fn(custom_skill: usize)> =
-    OnceLock::new();
-
-pub const GUN_SHOP_ADDR: usize = 0x283d60;
-pub static ORIGINAL_GUN_SHOP: OnceLock<unsafe extern "C" fn(custom_gun: usize)> = OnceLock::new();
-
-pub const ADD_SHOTGUN_OR_CERBERUS_ADDR: usize = 0x1fcfa0;
-pub static ORIGINAL_ADD_SHOTGUN_OR_CERBERUS: OnceLock<
-    unsafe extern "C" fn(custom_gun: usize, id: u8) -> bool,
-> = OnceLock::new();
 pub const ONE_ORB: f32 = 1000.0; // One Blue/Purple orb is worth 1000 "points"
 pub const BASE_HP: f32 = 6.0 * ONE_ORB;
 pub const MAX_HP: f32 = 20000.0;
@@ -949,12 +923,12 @@ pub(crate) enum Difficulty {
     VeryHard = 3,
     #[strum(to_string = "Dante Must Die")]
     DanteMustDie = 4,
+    // Swap to boolean check for oneHitKill?
     #[strum(to_string = "Heaven or Hell")]
     HeavenOrHell = 5,
 }
 
 #[derive(Copy, Clone, strum_macros::Display, strum_macros::FromRepr)]
-#[allow(dead_code)]
 pub(crate) enum Rank {
     D = 0,
     C = 1,
@@ -997,7 +971,7 @@ pub fn get_weapon_id(weapon: &str) -> u8 {
         "Artemis" => 7,
         "Spiral" => 8,
         "Kalina Ann" => 9,
-        _ => 0,
+        _ => 0xFF,
     }
 }
 
@@ -1020,4 +994,13 @@ impl PartialEq for Coordinates {
     fn eq(&self, other: &Self) -> bool {
         self.x == other.x && self.y == self.y && self.z == other.z
     }
+}
+
+#[derive(Copy, Clone, strum_macros::Display, strum_macros::FromRepr)]
+pub(crate) enum Character {
+    // Values from DDMK, only care about Dante or Vergil though
+    Dante,
+    _Bob,
+    _Lady,
+    Vergil
 }

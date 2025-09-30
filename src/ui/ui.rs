@@ -19,7 +19,7 @@ pub fn set_checklist_item(item: &str, value: bool) {
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
-pub async fn connect_button_pressed(url: String, name: String, password: String) {
+pub async fn send_connect_message(url: String, name: String, password: String) {
     log::debug!("Connecting to Archipelago");
     match archipelago::TX_ARCH.get() {
         None => log::error!("Connect TX doesn't exist"),
@@ -61,7 +61,7 @@ pub(crate) fn auto_connect() {
     loop {
         if CONNECTION_STATUS.load(Ordering::SeqCst) != 1 {
             log::debug!("Attempting to connect to local client");
-            connect_button_pressed(
+            send_connect_message(
                 format!(
                     "{}:{}",
                     (*config::CONFIG).connections.address,

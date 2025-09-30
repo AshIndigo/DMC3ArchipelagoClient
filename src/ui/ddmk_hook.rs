@@ -1,5 +1,4 @@
-use crate::constants::ItemCategory;
-use crate::item_sync::{BLUE_ORBS_OBTAINED, PURPLE_ORBS_OBTAINED};
+use crate::constants::{BasicNothingFunc, ItemCategory};
 use crate::ui::imgui_bindings::*;
 use crate::ui::ui::{get_status_text, CHECKLIST};
 use crate::utilities::read_data_from_address;
@@ -86,14 +85,22 @@ unsafe fn tracking_window() {
                 .join("  "); // TODO Pretty this up later
             text(format!("{}\0", row_text));
         }
-        text(format!(
-            "Blue Orbs: {}\0",
-            BLUE_ORBS_OBTAINED.load(Ordering::SeqCst)
-        ));
-        text(format!(
-            "Purple Orbs: {}\0",
-            PURPLE_ORBS_OBTAINED.load(Ordering::SeqCst)
-        ));
+        match game_manager::ARCHIPELAGO_DATA.read() {
+            Ok(data) => {
+                text(format!(
+                    "Blue Orbs: {}\0",
+                    data.blue_orbs
+                ));
+                text(format!(
+                    "Purple Orbs: {}\0",
+                    data.purple_orbs
+                ));
+            }
+            Err(err) => {
+                log::error!("Failed to read ArchipelagoData: {:?}", err);
+            }
+        }
+
         get_imgui_end()();
     }
 }

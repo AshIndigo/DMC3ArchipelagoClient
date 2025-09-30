@@ -1,11 +1,10 @@
-use winapi::um::errhandlingapi::AddVectoredExceptionHandler;
-use winapi::um::winnt::EXCEPTION_POINTERS;
+
 
 use std::{ffi::c_void, path::Path};
-use winapi::shared::minwindef::{HINSTANCE, HMODULE};
-use winapi::um::libloaderapi::{
-    GetModuleFileNameW, GetModuleHandleExW, GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
-};
+use windows::core::PCWSTR;
+use windows::Win32::Foundation::{HMODULE};
+use windows::Win32::System::Diagnostics::Debug::{AddVectoredExceptionHandler, EXCEPTION_POINTERS};
+use windows::Win32::System::LibraryLoader::{GetModuleFileNameW, GetModuleHandleExW, GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS};
 
 // There's probably more to add, but figured this would be good to start
 fn exception_code_to_str(code: u32) -> &'static str {
@@ -18,19 +17,20 @@ fn exception_code_to_str(code: u32) -> &'static str {
         0xC0000096 => "Privileged Instruction",
         0xC00000FD => "Stack Overflow",
         0xC0000374 => "Heap Corruption",
+        0xE06D7363 => "C++ Exception",
         _ => "Unknown Exception",
     }
 }
 
 /// Resolve address → (module base, filename)
-unsafe fn module_from_address(addr: *const c_void) -> Option<(HINSTANCE, String)> {
+unsafe fn module_from_address(addr: *const c_void) -> Option<(HMODULE, String)> {
     let mut hmod = HMODULE::default();
     unsafe {
         if GetModuleHandleExW(
             GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
-            addr as *const u16,
+            PCWSTR::from_raw( addr as *const u16),
             &mut hmod,
-        ) == 0
+        ).is_err()
         {
             return None;
         }
@@ -38,7 +38,7 @@ unsafe fn module_from_address(addr: *const c_void) -> Option<(HINSTANCE, String)
 
     let mut buf = [0u16; 260]; // MAX_PATH
     unsafe {
-        let len = GetModuleFileNameW(hmod, buf.as_mut_ptr(), buf.len() as u32);
+        let len = GetModuleFileNameW(Option::from(hmod), &mut buf);
         if len == 0 {
             return None;
         }
@@ -64,12 +64,11 @@ unsafe extern "system" fn exception_handler(info: *mut EXCEPTION_POINTERS) -> i3
 
         let code = record.ExceptionCode;
         let address = record.ExceptionAddress as usize;
-        if code < 0x80000000 {
-            // Don't care
+        if code.is_ok() {
             return 0;
         }
 
-        if code == 0xE06D7363 { // TODO, this is jank af
+        if code.0 == 0xE06D7363u32 as i32 { // TODO, this is jank af
             log::error!("C++ Exception detected at {:?}", record.ExceptionAddress);
 
             // ExceptionInformation[0] is a magic number for C++ EH
@@ -93,11 +92,11 @@ unsafe extern "system" fn exception_handler(info: *mut EXCEPTION_POINTERS) -> i3
 
         // Get the module+offset
         if let Some((base, name)) = module_from_address(address as *const c_void) {
-            let offset = address - base as usize;
+            let offset = address - base.0 as usize;
             log::error!(
                 "Exception {:#X} ({}) at {:#p} in {}+0x{:X}",
-                code,
-                exception_code_to_str(code),
+                code.0,
+                exception_code_to_str(code.0 as u32),
                 address as *const c_void,
                 name,
                 offset
@@ -105,8 +104,8 @@ unsafe extern "system" fn exception_handler(info: *mut EXCEPTION_POINTERS) -> i3
         } else {
             log::error!(
                 "Exception {:#X} ({}) at {:#p} (module unknown)",
-                code,
-                exception_code_to_str(code),
+                code.0,
+                exception_code_to_str(code.0 as u32),
                 address as *const c_void
             );
         }
@@ -155,4 +154,5 @@ pub fn install_exception_handler() {
     unsafe {
         AddVectoredExceptionHandler(1, Some(exception_handler));
     }
+    log::debug!("Installed exception handler");
 }

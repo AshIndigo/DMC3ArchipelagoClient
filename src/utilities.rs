@@ -2,11 +2,10 @@ use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::slice;
 use std::sync::LazyLock;
-use winapi::shared::minwindef::{FALSE, HINSTANCE};
-use winapi::um::errhandlingapi::GetLastError;
-use winapi::um::libloaderapi::GetModuleHandleW;
-use winapi::um::memoryapi::VirtualProtect;
-use winapi::um::winnt::PAGE_EXECUTE_READWRITE;
+use windows::core::PCWSTR;
+use windows::Win32::Foundation::{GetLastError};
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::System::Memory::{VirtualProtect, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS};
 
 /// The base address for DMC3
 pub static DMC3_ADDRESS: LazyLock<usize> = LazyLock::new(|| get_base_address("dmc3.exe"));
@@ -43,9 +42,8 @@ pub(crate) fn get_base_address(module_name: &str) -> usize {
         .chain(std::iter::once(0))
         .collect();
     unsafe {
-        let module_handle: HINSTANCE = GetModuleHandleW(wide_name.as_ptr());
-        if !module_handle.is_null() {
-            module_handle as *mut _ as usize
+        if let Ok(module_handle) = GetModuleHandleW(PCWSTR::from_raw(wide_name.as_ptr())) {
+            module_handle.0 as usize
         } else {
             0
         }
@@ -72,8 +70,11 @@ pub fn is_library_loaded(name: &str) -> bool {
         .chain(std::iter::once(0))
         .collect();
     unsafe {
-        let module_handle: HINSTANCE = GetModuleHandleW(wide_name.as_ptr());
-        !module_handle.is_null()
+        if let Ok(module_handle) = GetModuleHandleW(PCWSTR::from_raw(wide_name.as_ptr())) {
+            !module_handle.is_invalid()
+        } else {
+            false
+        }
     }
 }
 
@@ -87,19 +88,19 @@ const LOG_BYTE_REPLACEMENTS: bool = false;
 pub unsafe fn replace_single_byte(offset: usize, new_value: u8) {
     unsafe {
         let length = 1;
-        let mut old_protect = 0;
+        let mut old_protect = PAGE_PROTECTION_FLAGS::default();
         if VirtualProtect(
             offset as *mut _,
             length,
             PAGE_EXECUTE_READWRITE,
             &mut old_protect,
-        ) == FALSE
+        ).is_err()
         {
-            log::error!("Failed to use VirtualProtect (1): {}", GetLastError());
+            log::error!("Failed to use VirtualProtect (1): {:?}", GetLastError());
         }
         slice::from_raw_parts_mut(offset as *mut u8, length)[0] = new_value;
-        if VirtualProtect(offset as *mut _, length, old_protect, &mut old_protect) == FALSE {
-            log::error!("Failed to use VirtualProtect (2): {}", GetLastError());
+        if VirtualProtect(offset as *mut _, length, old_protect, &mut old_protect) .is_err() {
+            log::error!("Failed to use VirtualProtect (2): {:?}", GetLastError());
         }
         if LOG_BYTE_REPLACEMENTS {
             log::debug!(
