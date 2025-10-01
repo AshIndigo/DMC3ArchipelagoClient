@@ -1,16 +1,13 @@
 use minhook::{MinHook, MH_STATUS};
 use std::ffi::c_void;
-use std::ptr;
 use std::sync::OnceLock;
-use windows::core::BOOL;
 use windows::core::HRESULT;
 use windows::core::PCSTR;
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::{HMODULE, HWND};
-use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE, D3D_DRIVER_TYPE_UNKNOWN, D3D_FEATURE_LEVEL, D3D_FEATURE_LEVEL_11_0};
-use windows::Win32::Graphics::Direct3D11::{D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_CREATE_DEVICE_FLAG, D3D11_SDK_VERSION};
-use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory, IDXGIAdapter, IDXGIFactory, IDXGISwapChain, DXGI_MWA_NO_ALT_ENTER, DXGI_SWAP_CHAIN_DESC, DXGI_SWAP_EFFECT_DISCARD, DXGI_USAGE_RENDER_TARGET_OUTPUT};
-use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_MODE_DESC, DXGI_SAMPLE_DESC};
+use windows::Win32::Foundation::{HMODULE};
+use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE, D3D_FEATURE_LEVEL};
+use windows::Win32::Graphics::Direct3D11::{D3D11_CREATE_DEVICE_FLAG};
+use windows::Win32::Graphics::Dxgi::{IDXGISwapChain, DXGI_SWAP_CHAIN_DESC};
 use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 
 type D3D11CreateDeviceAndSwapChain = unsafe extern "system" fn(
@@ -34,20 +31,6 @@ static ORIGINAL_DEV_CHAIN: OnceLock<D3D11CreateDeviceAndSwapChain> = OnceLock::n
 
 static PRESENT_PTR: OnceLock<usize> = OnceLock::new();
 pub(crate) static ORIGINAL_PRESENT: OnceLock<PresentFn> = OnceLock::new();
-
-#[derive(Copy, Clone, Debug)]
-pub(crate) struct SafeHwnd(pub HWND);
-
-unsafe impl Send for SafeHwnd {}
-unsafe impl Sync for SafeHwnd {}
-
-pub(crate) static GAME_HWND: OnceLock<SafeHwnd> = OnceLock::new();
-
-pub struct Resources {
-    pub(crate) device: ID3D11Device,
-    pub(crate) _device_context: ID3D11DeviceContext,
-    pub(crate) swap_chain: IDXGISwapChain,
-}
 
 
 pub fn wide(s: &str) -> Vec<u16> {
@@ -163,54 +146,4 @@ pub fn install_hook() -> Result<(), MH_STATUS> {
     }
 
     Ok(())
-}
-
-pub fn create_device_and_swap_chain(
-) -> windows::core::Result<Resources> {
-    let dxgi_factory: IDXGIFactory = unsafe { CreateDXGIFactory() }?;
-    let dxgi_adapter: IDXGIAdapter = unsafe { dxgi_factory.EnumAdapters(0) }?;
-    let window = GAME_HWND.get().unwrap().0;
-    let mut device = None;
-    let mut device_context = None;
-    unsafe {
-        D3D11CreateDevice(
-            &dxgi_adapter,
-            D3D_DRIVER_TYPE_UNKNOWN,
-            HMODULE(ptr::null_mut()),
-            D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-            Some(&[D3D_FEATURE_LEVEL_11_0]),
-            D3D11_SDK_VERSION,
-            Some(&mut device),
-            None,
-            Some(&mut device_context),
-        )
-    }?;
-    let device = device.unwrap();
-    let device_context = device_context.unwrap();
-
-    let swap_chain_desc = DXGI_SWAP_CHAIN_DESC {
-        BufferDesc: DXGI_MODE_DESC {
-            Width: 0,
-            Height: 0,
-            Format: DXGI_FORMAT_B8G8R8A8_UNORM,
-            ..DXGI_MODE_DESC::default()
-        },
-        SampleDesc: DXGI_SAMPLE_DESC {
-            Count: 1,
-            Quality: 0,
-        },
-        BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
-        BufferCount: 2,
-        OutputWindow: window,
-        Windowed: BOOL(1),
-        SwapEffect: DXGI_SWAP_EFFECT_DISCARD,
-        Flags: 0,
-    };
-
-    let mut swap_chain = None;
-    unsafe { dxgi_factory.CreateSwapChain(&device, &swap_chain_desc, &mut swap_chain) }.ok()?;
-    let swap_chain = swap_chain.unwrap();
-
-    unsafe { dxgi_factory.MakeWindowAssociation(window, DXGI_MWA_NO_ALT_ENTER) }?;
-    Ok(Resources{device, _device_context: device_context, swap_chain })
 }

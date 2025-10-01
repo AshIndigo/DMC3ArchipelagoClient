@@ -11,3 +11,5 @@ thePalindrome for putting up with my ramblings
 DDMK for being an invaluable tool for development 
 
 Capcom for making this wonderful series
+
+Roboto License: https://openfontlicense.org/open-font-license-official-text/

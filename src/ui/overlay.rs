@@ -1,190 +1,204 @@
-use core::sync::atomic::Ordering;
-use std::mem::ManuallyDrop;
-use std::sync::atomic::AtomicBool;
-use std::sync::OnceLock;
+use std::slice::from_raw_parts;
+use std::sync::atomic::Ordering;
+use std::sync::{LazyLock, OnceLock};
 
-use crate::ui::dx11_hooks;
-use crate::ui::dx11_hooks::{create_device_and_swap_chain, wide, Resources};
-use windows::core::Interface;
-use windows::core::PCWSTR;
-use windows::Win32::Foundation::GetLastError;
-use windows::Win32::Graphics::Direct2D::Common::*;
-use windows::Win32::Graphics::Direct2D::*;
-use windows::Win32::Graphics::DirectWrite::*;
-use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_UNKNOWN;
+use crate::constants::Status;
+use crate::ui::font_handler::{FontAtlas, FontColorCB};
+use crate::ui::ui::CONNECTION_STATUS;
+use crate::ui::{dx11_hooks, font_handler};
+use crate::utilities;
+use windows::core::PCSTR;
+use windows::Win32::Foundation::RECT;
+use windows::Win32::Graphics::Direct3D::Fxc::D3DCompile;
+use windows::Win32::Graphics::Direct3D::ID3DBlob;
+use windows::Win32::Graphics::Direct3D11::*;
+use windows::Win32::Graphics::Direct3D11::{ID3D11Device, ID3D11Texture2D};
+use windows::Win32::Graphics::Dxgi::Common::{
+    DXGI_FORMAT_R32G32B32_FLOAT, DXGI_FORMAT_R32G32_FLOAT,
+};
 use windows::Win32::Graphics::Dxgi::*;
+use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
 
-static DW_FACTORY: OnceLock<IDWriteFactory> = OnceLock::new();
-static D2D_CONTEXT: OnceLock<ID2D1DeviceContext> = OnceLock::new();
-static RESOURCES: OnceLock<Resources> = OnceLock::new();
+static FONT_ATLAS: OnceLock<FontAtlas> = OnceLock::new();
 
-static IN_OVERLAY_PRESENT: AtomicBool = AtomicBool::new(false);
+static INPUT_LAYOUT: OnceLock<ID3D11InputLayout> = OnceLock::new();
 
-fn setup_direct_write_devices() -> Result<(), Box<dyn std::error::Error>> {
-    let d2d_factory: ID2D1Factory1 =
-        unsafe { D2D1CreateFactory(D2D1_FACTORY_TYPE_MULTI_THREADED, None) }?;
-    if DW_FACTORY.get().is_none() {
-        DW_FACTORY
-            .set(unsafe { DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED) }?)
-            .expect("Failed to set DW factory");
-    }
-    let resources = RESOURCES.get_or_init(|| match create_device_and_swap_chain() {
-        Ok(res) => res,
-        Err(err) => {
-            panic!("Failed to create DX11 device: {}", err);
-        }
-    });
+static VERTEX_BUFFER: OnceLock<ID3D11Buffer> = OnceLock::new();
+
+static RTV: OnceLock<ID3D11RenderTargetView> = OnceLock::new();
+pub(crate) static SHADERS: LazyLock<(ID3DBlob, ID3DBlob)> = LazyLock::new(|| {
+    let mut vs_blob: Option<ID3DBlob> = None;
+    let mut ps_blob: Option<ID3DBlob> = None;
+    let mut err_blob: Option<ID3DBlob> = None;
+
+    let vs_bytes = include_bytes!(".././data/text_vs.hlsl");
+    let ps_bytes = include_bytes!(".././data/text_ps.hlsl");
+
     unsafe {
-        if D2D_CONTEXT.get().is_none() {
-            match resources.device.cast::<IDXGIDevice>() {
-                Ok(dxgi_device) => match d2d_factory.CreateDevice(&dxgi_device) {
-                    Ok(device) => {
-                        D2D_CONTEXT
-                            .set(
-                                device
-                                    .CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE)
-                                    .unwrap(),
-                            )
-                            .expect("Failed to set D2D Context");
-                    }
-                    Err(err) => {
-                        log::error!("Failed to create D2d device: {}", err);
-                    }
-                },
-                Err(err) => {
-                    log::error!("Failed to cast dxgi device: {}", err);
-                }
-            }
-        }
+        D3DCompile(
+            vs_bytes.as_ptr() as *const _,
+            vs_bytes.len(),
+            None,
+            None,
+            None,
+            PCSTR::from_raw("main\0".as_ptr()),
+            PCSTR::from_raw("vs_5_0\0".as_ptr()),
+            0,
+            0,
+            &mut vs_blob,
+            Some(&mut err_blob),
+        )
+        .expect("Couldn't compile VS");
+        D3DCompile(
+            ps_bytes.as_ptr() as *const _,
+            ps_bytes.len(),
+            None,
+            None,
+            None,
+            PCSTR::from_raw("main\0".as_ptr()),
+            PCSTR::from_raw("ps_5_0\0".as_ptr()),
+            0,
+            0,
+            &mut ps_blob,
+            Some(&mut err_blob),
+        )
+        .expect("Couldn't compile PS");
     }
-
-    Ok(())
-}
-
-pub unsafe fn create_overlay(
-    sync_interval: u32,
-    flags: u32,
-) -> Result<(), Box<dyn std::error::Error>> {
-    if let Some(resources) = RESOURCES.get() {
-        let swap_chain = &resources.swap_chain;
-        if let Some(dw_factory) = DW_FACTORY.get() {
-            let bitmap_props = D2D1_BITMAP_PROPERTIES1 {
-                pixelFormat: D2D1_PIXEL_FORMAT {
-                    format: DXGI_FORMAT_UNKNOWN,
-                    alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
-                },
-                dpiX: 96.0,
-                dpiY: 96.0,
-                bitmapOptions: D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
-                colorContext: ManuallyDrop::new(None),
-            };
-
-            let text_format = unsafe {
-                dw_factory.CreateTextFormat(
-                    PCWSTR(wide("Consolas").as_ptr()),
-                    None,
-                    DWRITE_FONT_WEIGHT_REGULAR,
-                    DWRITE_FONT_STYLE_NORMAL,
-                    DWRITE_FONT_STRETCH_NORMAL,
-                    24.0,
-                    PCWSTR(wide("en-us").as_ptr()),
-                )
-            }?;
-            let backbuffer: IDXGISurface = unsafe { swap_chain.GetBuffer::<IDXGISurface>(0) }?;
-
-            if let Some(d2d_context) = D2D_CONTEXT.get() {
-                let d2d_target = unsafe {
-                    d2d_context.CreateBitmapFromDxgiSurface(&backbuffer, Some(&bitmap_props))
-                }?;
-                unsafe {
-                    d2d_context.SetTarget(&d2d_target);
-                    d2d_context.BeginDraw();
-                }
-                let size = unsafe { d2d_context.GetSize() };
-                let rect_layout = D2D_RECT_F {
-                    left: 0.0,
-                    top: 0.0,
-                    right: size.width,
-                    bottom: size.height,
-                };
-                unsafe {
-                    d2d_context.Clear(Some(&D2D1_COLOR_F {
-                        r: 0.0,
-                        g: 0.0,
-                        b: 0.0,
-                        a: 1.0,
-                    }));
-                }
-                let brush = unsafe {
-                    d2d_context.CreateSolidColorBrush(
-                        &D2D1_COLOR_F {
-                            r: 1.0,
-                            g: 1.0,
-                            b: 1.0,
-                            a: 1.0,
-                        },
-                        None,
-                    )
-                }?;
-                unsafe {
-                    d2d_context.DrawText(
-                        &*wide("Hello from D2D + DWrite"),
-                        &text_format,
-                        &rect_layout,
-                        &brush,
-                        D2D1_DRAW_TEXT_OPTIONS_NONE,
-                        DWRITE_MEASURING_MODE_NATURAL,
-                    );
-                    d2d_context.EndDraw(None, None)?;
-                    // cleanup
-                    d2d_context.SetTarget(None);
-                }
-                drop(d2d_target);
-                drop(backbuffer);
-
-                present_overlay(swap_chain, sync_interval, flags);
-            }
-        }
-    }
-    Ok(())
-}
-
-pub fn present_overlay(overlay_swap_chain: &IDXGISwapChain, sync_interval: u32, flags: u32) {
-    unsafe {
-        IN_OVERLAY_PRESENT.store(true, Ordering::Relaxed);
-        if overlay_swap_chain
-            .Present(sync_interval, DXGI_PRESENT(flags))
-            .is_err()
-        {
-            log::error!("swapchain present error: {:?}", GetLastError());
-        }
-        IN_OVERLAY_PRESENT.store(false, Ordering::Relaxed);
-    }
-}
+    (ps_blob.unwrap(), vs_blob.unwrap())
+});
 
 pub(crate) unsafe fn present_hook(
     orig_swap_chain: IDXGISwapChain,
     sync_interval: u32,
     flags: u32,
 ) -> i32 {
-    if dx11_hooks::GAME_HWND.get().is_none() {
-        if let Ok(desc) = unsafe { orig_swap_chain.GetDesc() } {
-            if let Err(..) = dx11_hooks::GAME_HWND.set(dx11_hooks::SafeHwnd(desc.OutputWindow)) {
-                log::error!("Failed to set Game HWND")
-            }
+    let device: ID3D11Device = unsafe { orig_swap_chain.GetDevice() }.unwrap();
+    let context = unsafe { device.GetImmediateContext() }.unwrap();
+    let rtv = RTV.get_or_init(|| {
+        let mut rtv = None;
+        if let Err(e) = unsafe {
+            device.CreateRenderTargetView(
+                &orig_swap_chain.GetBuffer::<ID3D11Texture2D>(0).unwrap(),
+                None,
+                Some(&mut rtv),
+            )
+        } {
+            log::error!("Failed to create RTV: {:?}", e);
         }
-    }
-    if let Err(e) = setup_direct_write_devices() {
-        log::error!("Failed to setup direct write devices: {}", e);
+        rtv.unwrap()
+    });
+    let vertex_buffer = VERTEX_BUFFER.get_or_init(|| {
+        const VERTEX_BUFFER_DESC: D3D11_BUFFER_DESC = D3D11_BUFFER_DESC {
+            ByteWidth: (size_of::<font_handler::Vertex>() * 4 * 256) as u32,
+            Usage: D3D11_USAGE_DYNAMIC,
+            BindFlags: D3D11_BIND_VERTEX_BUFFER.0 as u32,
+            CPUAccessFlags: D3D11_CPU_ACCESS_WRITE.0 as u32,
+            MiscFlags: 0,
+            StructureByteStride: 0,
+        };
+
+        let mut vertex_buffer = None;
+        if let Err(e) =
+            unsafe { device.CreateBuffer(&VERTEX_BUFFER_DESC, None, Some(&mut vertex_buffer)) }
+        {
+            log::error!("Failed to create RTV: {:?}", e);
+        }
+        vertex_buffer.unwrap()
+    });
+    let atlas = FONT_ATLAS.get_or_init(|| {
+        const FONT_SIZE: f32 = 36.0;
+        const ROW_WIDTH: u32 = 256;
+        let chars: Vec<char> = (0u8..=127).map(|c| c as char).collect();
+        font_handler::create_rgba_font_atlas(&device, &*chars, FONT_SIZE, ROW_WIDTH).unwrap()
+    });
+    let input_layout = INPUT_LAYOUT.get_or_init(|| {
+        const INPUT_ELEMENT_DESCS: [D3D11_INPUT_ELEMENT_DESC; 2] = [
+            D3D11_INPUT_ELEMENT_DESC {
+                SemanticName: PCSTR::from_raw(b"POSITION\0".as_ptr() as *const _),
+                SemanticIndex: 0,
+                Format: DXGI_FORMAT_R32G32B32_FLOAT,
+                InputSlot: 0,
+                AlignedByteOffset: 0,
+                InputSlotClass: D3D11_INPUT_PER_VERTEX_DATA,
+                InstanceDataStepRate: 0,
+            },
+            D3D11_INPUT_ELEMENT_DESC {
+                SemanticName: PCSTR::from_raw(b"TEXCOORD\0".as_ptr() as *const _),
+                SemanticIndex: 0,
+                Format: DXGI_FORMAT_R32G32_FLOAT,
+                InputSlot: 0,
+                AlignedByteOffset: 12, // after the float3 position
+                InputSlotClass: D3D11_INPUT_PER_VERTEX_DATA,
+                InstanceDataStepRate: 0,
+            },
+        ];
+        let (_, vsb) = &*SHADERS;
+        let mut input_thingy = None;
+        unsafe {
+            device
+                .CreateInputLayout(
+                    &INPUT_ELEMENT_DESCS,
+                    from_raw_parts(vsb.GetBufferPointer() as *const u8, vsb.GetBufferSize()),
+                    Some(&mut input_thingy),
+                )
+                .unwrap();
+        }
+        input_thingy.unwrap()
+    });
+    let (screen_width, screen_height) = {
+        let mut rect = RECT::default();
+        unsafe { GetClientRect(orig_swap_chain.GetDesc().unwrap().OutputWindow, &mut rect) }
+            .expect("Failed to get ClientRect");
+        (
+            (rect.right - rect.left) as f32,
+            (rect.bottom - rect.top) as f32,
+        )
+    };
+
+    unsafe {
+        context.OMSetRenderTargets(Some(&[Some(rtv.clone())]), None);
+        context.RSSetViewports(Some(&[D3D11_VIEWPORT {
+            TopLeftX: 0.0,
+            TopLeftY: 0.0,
+            Width: screen_width,
+            Height: screen_height,
+            MinDepth: 0.0,
+            MaxDepth: 1.0,
+        }]));
     }
 
-    if !IN_OVERLAY_PRESENT.load(Ordering::SeqCst) {
-        if let Err(err) = unsafe { create_overlay(sync_interval, flags) } {
-            log::debug!("Failed to do the thing: {}", err);
-        }
-    }
-    let res = unsafe {
-        dx11_hooks::ORIGINAL_PRESENT.get().unwrap()(orig_swap_chain, sync_interval, flags)
-    };
-    res
+    font_handler::draw_string(
+        &context,
+        &vertex_buffer,
+        &input_layout,
+        &atlas,
+        format!(
+            "Status: {}",
+            Status::from_repr(CONNECTION_STATUS.load(Ordering::SeqCst) as usize).unwrap()
+        ),
+        0.0,
+        0.0,
+        screen_width,
+        screen_height,
+        FontColorCB {
+            color: [1.0, 0.0, 0.0, 1.0],
+        },
+    );
+
+    font_handler::draw_string(
+        &context,
+        &vertex_buffer,
+        &input_layout,
+        &atlas,
+        format!("Main Menu: {}", utilities::is_on_main_menu()),
+        0.0,
+        80.0,
+        screen_width,
+        screen_height,
+        FontColorCB {
+            color: [0.0, 0.0, 1.0, 1.0],
+        },
+    );
+
+    unsafe { dx11_hooks::ORIGINAL_PRESENT.get().unwrap()(orig_swap_chain, sync_interval, flags) }
 }

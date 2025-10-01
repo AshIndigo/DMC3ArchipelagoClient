@@ -863,6 +863,7 @@ pub(crate) struct EventTable {
 
 pub const GAME_NAME: &str = "Devil May Cry 3";
 
+#[derive(Copy, Clone, strum_macros::Display, strum_macros::FromRepr)]
 pub(crate) enum Status {
     Disconnected = 0,
     Connected = 1,

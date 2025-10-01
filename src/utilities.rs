@@ -10,6 +10,11 @@ use windows::Win32::System::Memory::{VirtualProtect, PAGE_EXECUTE_READWRITE, PAG
 /// The base address for DMC3
 pub static DMC3_ADDRESS: LazyLock<usize> = LazyLock::new(|| get_base_address("dmc3.exe"));
 
+// Seems to sometimes flicker to true when loading? At least when I went to the save selection screen
+pub fn is_on_main_menu() -> bool {
+    read_data_from_address(*DMC3_ADDRESS+0x5D9213)
+}
+
 pub fn get_inv_address() -> Option<usize> {
     const INVENTORY_PTR: usize = 0xC90E28 + 0x8;
     let val = read_data_from_address(*DMC3_ADDRESS + INVENTORY_PTR);
