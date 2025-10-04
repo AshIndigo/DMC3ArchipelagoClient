@@ -7,12 +7,12 @@ use crate::game_manager::{
 };
 use crate::location_handler::in_key_item_room;
 use crate::mapping::{Mapping, MAPPING};
-use crate::text_handler::LAST_OBTAINED_ID;
+use crate::ui::text_handler::LAST_OBTAINED_ID;
 use crate::ui::ui::{CHECKLIST, CONNECTION_STATUS};
 use crate::utilities::{read_data_from_address, replace_single_byte, DMC3_ADDRESS};
 use crate::{
     bank, check_handler, create_hook, game_manager, mapping, save_handler, skill_manager,
-    text_handler, utilities,
+    utilities,
 };
 use archipelago_rs::client::ArchipelagoClient;
 use log::error;
@@ -25,6 +25,7 @@ use std::sync::{LazyLock, OnceLock, RwLockReadGuard};
 use std::{ptr, slice};
 use tokio::sync::Mutex;
 use windows::Win32::System::Memory::{VirtualProtect, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS};
+use crate::ui::text_handler;
 
 pub(crate) static CLIENT: LazyLock<Mutex<Option<ArchipelagoClient>>> =
     LazyLock::new(|| Mutex::new(None));

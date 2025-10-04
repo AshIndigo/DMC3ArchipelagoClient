@@ -19,7 +19,7 @@ use log4rs::encode::pattern::PatternEncoder;
 use log4rs::Config;
 use std::collections::HashMap;
 use std::env::current_exe;
-use std::ffi::{c_void};
+use std::ffi::c_void;
 use std::io::ErrorKind;
 use std::sync::atomic::Ordering;
 use std::sync::RwLock;
@@ -52,9 +52,9 @@ mod location_handler;
 mod mapping;
 mod save_handler;
 mod skill_manager;
-mod text_handler;
 mod ui;
 mod utilities;
+mod compat;
 
 #[macro_export]
 /// Does not enable the hook, that needs to be done separately
@@ -236,7 +236,7 @@ fn load_other_dlls(pre_logs: &mut Vec<PreLog>) -> Result<(), std::io::Error> {
                         Level::Error,
                         "Crimson Hash does not match version 0.4".to_string(),
                     ));
-                    ui::crimson_hook::CRIMSON_HASH_ISSUE.store(true, Ordering::SeqCst);
+                    compat::crimson_hook::CRIMSON_HASH_ISSUE.store(true, Ordering::SeqCst);
                 }
                 ErrorKind::NotFound => {}
                 _ => {
@@ -321,15 +321,12 @@ fn main_setup() {
         .expect("Unable to create the Checklist HashMap");
     if is_ddmk_loaded() {
         log::info!("DDMK is loaded!");
-        ui::ddmk_hook::setup_ddmk_hook();
+        compat::ddmk_hook::setup_ddmk_hook();
     } else if is_crimson_loaded() {
         log::info!("Crimson is loaded!");
-        ui::crimson_hook::setup_crimson_hook();
+        compat::crimson_hook::setup_crimson_hook();
     } else {
         log::info!("DDMK or Crimson are not loaded!");
-        if (*config::CONFIG).force_enable_egui {
-            //thread::spawn(move || ui::egui_ui::start_egui());
-        }
     }
     log::info!("DMC3 Base Address is: {:X}", *utilities::DMC3_ADDRESS);
     thread::Builder::new()

@@ -34,7 +34,7 @@ pub struct Mods {
 pub struct Config {
     pub connections: Connection,
     pub mods: Mods,
-    pub force_enable_egui: bool, // To forcibly re-enable the EGUI window - Deprecated
+    pub force_enable_egui: bool, // To forcibly re-enable the EGUI window - Does nothing
 }
 
 impl Default for Config {

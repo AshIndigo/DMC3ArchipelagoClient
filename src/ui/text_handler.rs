@@ -39,10 +39,11 @@ pub unsafe fn setup_text_hooks() -> Result<(), MH_STATUS> {
 
 pub unsafe fn disable_text_hooks(base_address: usize) -> Result<(), MH_STATUS> {
     log::debug!("Disabling text related hooks");
+    const ADDRESSES: [usize; 3] = [DISPLAY_ITEM_GET_ADDR, DISPLAY_ITEM_GET_DESTRUCTOR_ADDR, SETUP_ITEM_GET_SCREEN_ADDR];
     unsafe {
-        MinHook::disable_hook((base_address + DISPLAY_ITEM_GET_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + DISPLAY_ITEM_GET_DESTRUCTOR_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + SETUP_ITEM_GET_SCREEN_ADDR) as *mut _)?;
+        for addr in ADDRESSES {
+            MinHook::disable_hook((base_address + addr) as *mut _)?;
+        }
     }
     Ok(())
 }

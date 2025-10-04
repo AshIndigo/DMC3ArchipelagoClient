@@ -1,8 +1,9 @@
 use crate::constants::{Coordinates, Difficulty, Rank, EMPTY_COORDINATES};
 use crate::data::generated_locations;
 use crate::game_manager::{get_mission, set_item, with_session_read};
+use crate::ui::text_handler;
 use crate::utilities::{get_inv_address, DMC3_ADDRESS};
-use crate::{constants, create_hook, game_manager, location_handler, text_handler, utilities};
+use crate::{constants, create_hook, game_manager, location_handler, utilities};
 use minhook::{MinHook, MH_STATUS};
 use std::fmt::{Display, Formatter};
 use std::sync::atomic::Ordering::SeqCst;
@@ -51,10 +52,15 @@ pub fn setup_check_hooks() -> Result<(), MH_STATUS> {
 
 pub unsafe fn disable_check_hooks(base_address: usize) -> Result<(), MH_STATUS> {
     log::debug!("Disabling check related hooks");
+    const ADDRESSES: [usize; 3] = [
+        ITEM_HANDLE_PICKUP_ADDR,
+        ITEM_PICKED_UP_ADDR,
+        RESULT_CALC_ADDR,
+    ];
     unsafe {
-        MinHook::disable_hook((base_address + ITEM_HANDLE_PICKUP_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + ITEM_PICKED_UP_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + RESULT_CALC_ADDR) as *mut _)?;
+        for addr in ADDRESSES {
+            MinHook::disable_hook((base_address + addr) as *mut _)?;
+        }
     }
     Ok(())
 }

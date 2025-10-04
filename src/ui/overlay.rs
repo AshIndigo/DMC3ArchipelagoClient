@@ -1,7 +1,7 @@
 use std::slice::from_raw_parts;
 use std::sync::atomic::Ordering;
 use std::sync::{LazyLock, OnceLock};
-
+use std::time::Duration;
 use crate::constants::Status;
 use crate::ui::font_handler::{FontAtlas, FontColorCB};
 use crate::ui::ui::CONNECTION_STATUS;
@@ -67,18 +67,29 @@ pub(crate) static SHADERS: LazyLock<(ID3DBlob, ID3DBlob)> = LazyLock::new(|| {
     (ps_blob.unwrap(), vs_blob.unwrap())
 });
 
-pub(crate) unsafe fn present_hook(
-    orig_swap_chain: IDXGISwapChain,
-    sync_interval: u32,
-    flags: u32,
-) -> i32 {
-    let device: ID3D11Device = unsafe { orig_swap_chain.GetDevice() }.unwrap();
-    let context = unsafe { device.GetImmediateContext() }.unwrap();
+pub static MESSAGE_QUEUE: LazyLock<Vec<OverlayMessage>> = LazyLock::new(|| vec![]);
+pub struct OverlayMessage {
+    text: String,
+    color: FontColorCB,
+    duration: Duration,
+    x: f32,
+    y: f32,
+}
+
+fn get_resources(
+    swap_chain: &IDXGISwapChain,
+) -> (
+    &ID3D11RenderTargetView,
+    &ID3D11Buffer,
+    &FontAtlas,
+    &ID3D11InputLayout,
+) {
+    let device: ID3D11Device = unsafe { swap_chain.GetDevice() }.unwrap();
     let rtv = RTV.get_or_init(|| {
         let mut rtv = None;
         if let Err(e) = unsafe {
             device.CreateRenderTargetView(
-                &orig_swap_chain.GetBuffer::<ID3D11Texture2D>(0).unwrap(),
+                &swap_chain.GetBuffer::<ID3D11Texture2D>(0).unwrap(),
                 None,
                 Some(&mut rtv),
             )
@@ -145,6 +156,18 @@ pub(crate) unsafe fn present_hook(
         }
         input_thingy.unwrap()
     });
+    (rtv, vertex_buffer, atlas, input_layout)
+}
+
+pub(crate) unsafe fn present_hook(
+    orig_swap_chain: IDXGISwapChain,
+    sync_interval: u32,
+    flags: u32,
+) -> i32 {
+    // It bothers me that this is called twice, but not sure how to fix it atm
+    let device: ID3D11Device = unsafe { orig_swap_chain.GetDevice() }.unwrap();
+    let context = unsafe { device.GetImmediateContext() }.unwrap();
+    let (rtv, vertex_buffer, atlas, input_layout) = get_resources(&orig_swap_chain);
     let (screen_width, screen_height) = {
         let mut rect = RECT::default();
         unsafe { GetClientRect(orig_swap_chain.GetDesc().unwrap().OutputWindow, &mut rect) }
@@ -167,6 +190,11 @@ pub(crate) unsafe fn present_hook(
         }]));
     }
 
+    /*
+    TODO:
+        - Want to have some info on the main menu (Connection Status, Version) - Hide when off main menu
+        - Use this to display received items (Really should try to hide it if it's your own item.
+     */
     font_handler::draw_string(
         &context,
         &vertex_buffer,

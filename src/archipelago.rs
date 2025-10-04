@@ -3,11 +3,10 @@ use crate::cache::{read_cache, DATA_PACKAGE};
 use crate::check_handler::Location;
 use crate::constants::{ItemCategory, Status, GAME_NAME};
 use crate::data::generated_locations;
-use crate::ui::ui;
+use crate::ui::{text_handler, ui};
 use crate::ui::ui::CONNECTION_STATUS;
 use crate::{
     bank, cache, constants, game_manager, hook, item_sync, location_handler, mapping,
-    text_handler,
 };
 use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};

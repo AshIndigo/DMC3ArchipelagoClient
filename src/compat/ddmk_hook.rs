@@ -1,15 +1,16 @@
 use crate::constants::{BasicNothingFunc, ItemCategory};
-use crate::ui::imgui_bindings::*;
+use crate::compat::imgui_bindings::*;
 use crate::ui::ui::{get_status_text, CHECKLIST};
 use crate::utilities::read_data_from_address;
-use crate::{bank, check_handler, config, constants, game_manager, text_handler, utilities};
-use imgui_sys::{ImGuiCond, ImGuiCond_Always, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
+use crate::{bank, check_handler, config, constants, game_manager, utilities};
+use imgui_sys::{ImGuiCond, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
 use minhook::MinHook;
 use std::os::raw::c_char;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, OnceLock};
 use std::thread;
 use std::time::Duration;
+use crate::ui::text_handler;
 
 pub static MARY_ADDRESS: LazyLock<usize> =
     LazyLock::new(|| utilities::get_base_address("Mary.dll"));
@@ -43,10 +44,6 @@ unsafe extern "C" fn hooked_render() {
     unsafe {
         if !SETUP.load(Ordering::SeqCst) {
             return;
-        }
-        if false {
-            // TODO: Hud for pause menu and main menu
-            on_screen_hud();
         }
 
         if !read_data_from_address::<bool>(DDMK_UI_ENABLED + *MARY_ADDRESS) {
@@ -82,7 +79,7 @@ unsafe fn tracking_window() {
                 .iter()
                 .map(|&item| checkbox_text(item))
                 .collect::<Vec<String>>()
-                .join("  "); // TODO Pretty this up later
+                .join("  ");
             text(format!("{}\0", row_text));
         }
         match game_manager::ARCHIPELAGO_DATA.read() {
@@ -264,24 +261,4 @@ fn init_timestep_func() {
 
 fn get_orig_timestep_func() -> Option<BasicNothingFunc> {
     *ORIG_TIMESTEP_FUNC.get().unwrap_or(&None)
-}
-
-fn on_screen_hud() {
-    get_imgui_next_pos()(
-        &ImVec2 { x: 800.0, y: 100.0 },
-        ImGuiCond_Always as ImGuiCond,
-        &ImVec2 { x: 0.0, y: 0.0 },
-    );
-    get_imgui_next_size()(
-        &ImVec2 { x: 100.0, y: 100.0 },
-        ImGuiCond_Always as ImGuiCond,
-        &ImVec2 { x: 0.0, y: 0.0 },
-    );
-    let flag = &mut true;
-    get_imgui_begin()(
-        "Archipelago\0".as_ptr() as *const c_char,
-        flag as *mut bool,
-        imgui_sys::ImGuiWindowFlags_AlwaysAutoResize as ImGuiWindowFlags,
-    );
-    text("test\0");
 }
