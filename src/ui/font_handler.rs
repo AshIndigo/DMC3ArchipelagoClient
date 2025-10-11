@@ -37,6 +37,12 @@ pub struct FontAtlas {
     pub atlas_height: u32,
 }
 
+impl FontAtlas {
+    pub(crate) fn glyph_advance(&self, c: char) -> f32 {
+        self.glyphs.get(&c).unwrap().advance as f32
+    }
+}
+
 /// Glyph quad in pixel space (top-left/bottom-right) and UVs.
 pub struct GlyphQuad {
     pub x0: f32,
@@ -58,8 +64,23 @@ pub(crate) struct Vertex {
 
 #[repr(C)]
 pub struct FontColorCB {
-    pub color: [f32; 4], // RGBA
+    color: [f32; 4], // RGBA
 }
+
+impl FontColorCB {
+    pub const fn new(r: f32, g: f32, b: f32, a: f32) -> Self {
+        Self {
+            color: [r, g, b, a],
+        }
+    }
+}
+
+pub const WHITE: FontColorCB = FontColorCB::new(1.0, 1.0, 1.0, 1.0);
+
+pub const RED: FontColorCB = FontColorCB::new(1.0, 0.0, 0.0, 1.0);
+
+pub const GREEN: FontColorCB = FontColorCB::new(0.0, 1.0, 0.0, 1.0);
+pub const YELLOW: FontColorCB = FontColorCB::new(0.98, 0.98, 0.824, 1.0); // Used for other slots
 
 pub fn create_rgba_font_atlas(
     device: &ID3D11Device,
@@ -457,3 +478,4 @@ pub(crate) fn set_shaders(device: &&ID3D11Device) -> (ID3D11VertexShader, ID3D11
     }
     (vs.unwrap(), ps.unwrap())
 }
+

@@ -1,5 +1,5 @@
 use crate::constants::Status;
-use crate::ui::font_handler::{FontAtlas, FontColorCB};
+use crate::ui::font_handler::{FontAtlas, FontColorCB, GREEN, RED, WHITE};
 use crate::ui::ui::CONNECTION_STATUS;
 use crate::ui::{dx11_hooks, font_handler};
 use crate::utilities;
@@ -7,19 +7,18 @@ use std::collections::VecDeque;
 use std::slice::from_raw_parts;
 use std::sync::atomic::Ordering;
 use std::sync::{LazyLock, Mutex, OnceLock, RwLock};
-use std::thread;
 use std::time::{Duration, Instant};
+use windows::core::PCSTR;
 use windows::Win32::Foundation::RECT;
 use windows::Win32::Graphics::Direct3D::Fxc::D3DCompile;
 use windows::Win32::Graphics::Direct3D::ID3DBlob;
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Direct3D11::{ID3D11Device, ID3D11Texture2D};
 use windows::Win32::Graphics::Dxgi::Common::{
-    DXGI_FORMAT_R32G32_FLOAT, DXGI_FORMAT_R32G32B32_FLOAT,
+    DXGI_FORMAT_R32G32B32_FLOAT, DXGI_FORMAT_R32G32_FLOAT,
 };
 use windows::Win32::Graphics::Dxgi::*;
 use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
-use windows::core::PCSTR;
 
 pub(crate) struct D3D11State {
     device: ID3D11Device,
@@ -75,30 +74,49 @@ pub(crate) static SHADERS: LazyLock<(ID3DBlob, ID3DBlob)> = LazyLock::new(|| {
 
 static MESSAGE_QUEUE: LazyLock<Mutex<VecDeque<OverlayMessage>>> =
     LazyLock::new(|| Mutex::new(VecDeque::new()));
+
+static ACTIVE_MESSAGES: LazyLock<Mutex<VecDeque<TimedMessage>>> =
+    LazyLock::new(|| Mutex::new(VecDeque::new()));
+
+pub struct MessageSegment {
+    pub text: String,
+    pub color: FontColorCB,
+}
+
+impl MessageSegment {
+    pub fn new(text: String, color: FontColorCB) -> Self {
+        Self { text, color }
+    }
+}
 pub struct OverlayMessage {
-    text: String,
-    color: FontColorCB,
+    segments: Vec<MessageSegment>,
     duration: Duration,
     x: f32,
     y: f32,
+    msg_type: MessageType,
 }
 
 impl OverlayMessage {
     pub(crate) fn new(
-        text: String,
-        color: FontColorCB,
+        segments: Vec<MessageSegment>,
         duration: Duration,
         x: f32,
         y: f32,
+        msg_type: MessageType,
     ) -> OverlayMessage {
         OverlayMessage {
-            text,
-            color,
+            segments,
             duration,
             x,
             y,
+            msg_type,
         }
     }
+}
+// TODO This doesn't matter right now, but it could be used later
+pub(crate) enum MessageType {
+    Default,  // Take the X and Y values as they are given
+    Received, // Disregard coordinates, automatically align to upper right (Used for newly received items)
 }
 
 pub(crate) fn add_message(overlay: OverlayMessage) {
@@ -112,7 +130,10 @@ pub(crate) fn add_message(overlay: OverlayMessage) {
     }
 }
 
-fn get_rtv_atlas(device: &ID3D11Device, swap_chain: &IDXGISwapChain) -> (ID3D11RenderTargetView, FontAtlas) {
+fn get_rtv_atlas(
+    device: &ID3D11Device,
+    swap_chain: &IDXGISwapChain,
+) -> (ID3D11RenderTargetView, FontAtlas) {
     let atlas = {
         const FONT_SIZE: f32 = 36.0;
         const ROW_WIDTH: u32 = 256;
@@ -286,39 +307,73 @@ pub(crate) unsafe fn present_hook(
                 }]));
             }
 
-            /*
-            TODO:
-                - Want to have some info on the main menu (Connection Status, Version) - Hide when off main menu
-                - Use this to display received items (Really should try to hide it if it's your own item.
-             */
-            font_handler::draw_string(
-                &state,
-                &format!(
-                    "Status: {}",
-                    Status::from_repr(CONNECTION_STATUS.load(Ordering::SeqCst) as usize).unwrap()
-                ),
-                0.0,
-                0.0,
-                screen_width,
-                screen_height,
-                &FontColorCB {
-                    color: [1.0, 0.0, 0.0, 1.0],
-                },
-            );
+            if utilities::is_on_main_menu() {
+                if let Some(atlas) = &state.atlas {
+                    const STATUS: &str = &"Status: ";
+                    font_handler::draw_string(
+                        &state,
+                        &STATUS.to_string(),
+                        0.0,
+                        0.0,
+                        screen_width,
+                        screen_height,
+                        &WHITE,
+                    );
+                    let status =
+                        Status::from_repr(CONNECTION_STATUS.load(Ordering::SeqCst) as usize)
+                            .unwrap();
+                    font_handler::draw_string(
+                        &state,
+                        &format!("{}", status),
+                        STATUS.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>(),
+                        0.0,
+                        screen_width,
+                        screen_height,
+                        &match status {
+                            Status::Connected => GREEN,
+                            _ => RED,
+                        },
+                    );
+                    const VERSION: &str = &"Version: ";
+                    font_handler::draw_string(
+                        &state,
+                        &VERSION.to_string(),
+                        0.0,
+                        50.0,
+                        screen_width,
+                        screen_height,
+                        &WHITE,
+                    );
 
-            pop_buffer_message(screen_width, screen_height);
+                    // TODO Maybe at some point I'd want to have the mod poke github on launch?
+                    font_handler::draw_string(
+                        &state,
+                        &format!("{}", env!("CARGO_PKG_VERSION")),
+                        VERSION.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>(),
+                        50.0,
+                        screen_width,
+                        screen_height,
+                        &WHITE,
+                    );
+                }
+            }
 
-            font_handler::draw_string(
-                &state,
-                &format!("Main Menu: {}", utilities::is_on_main_menu()),
-                0.0,
-                80.0,
-                screen_width,
-                screen_height,
-                &FontColorCB {
-                    color: [0.0, 0.0, 1.0, 1.0],
-                },
-            );
+            pop_buffer_message();
+
+            let now = Instant::now();
+            if let Ok(mut active) = ACTIVE_MESSAGES.lock() {
+                // If it hasn't expired, keep it around
+                active.retain(|msg| msg.expiration > now);
+
+                const PADDING: f32 = 12.0;
+                const LINE_HEIGHT: f32 = 24.0;
+
+                let mut y = PADDING;
+                for msg in active.iter().rev() {
+                    draw_colored_message(&state, msg, screen_width, screen_height, y);
+                    y += LINE_HEIGHT + PADDING;
+                }
+            }
         }
         Err(err) => {
             log::error!("Failed to get resources: {:?}", err);
@@ -328,31 +383,89 @@ pub(crate) unsafe fn present_hook(
     unsafe { dx11_hooks::ORIGINAL_PRESENT.get().unwrap()(orig_swap_chain, sync_interval, flags) }
 }
 
-fn pop_buffer_message(screen_width: f32, screen_height: f32) {
-    match MESSAGE_QUEUE.lock() {
-        Ok(mut queue) => match queue.pop_front() {
-            None => {}
-            Some(msg) => {
-                thread::spawn(move || {
-                    let msg = msg;
-                    let start = Instant::now();
-                    let state = STATE.get().unwrap().read().unwrap();
-                    while start.elapsed() < msg.duration {
-                        font_handler::draw_string(
-                            &state,
-                            &msg.text,
-                            msg.x,
-                            msg.y,
-                            screen_width,
-                            screen_height,
-                            &msg.color,
-                        );
-                    }
-                });
+fn draw_colored_message(
+    state: &D3D11State,
+    msg: &TimedMessage,
+    screen_width: f32,
+    screen_height: f32,
+    y: f32,
+) {
+    const FALLBACK_MULT: f32 = 32.0;
+    let total_width: f32 = msg
+        .message
+        .segments
+        .iter()
+        .map(|seg| {
+            if let Some(atlas) = &state.atlas {
+                seg.text
+                    .chars()
+                    .map(|c| atlas.glyph_advance(c))
+                    .sum::<f32>()
+            } else {
+                seg.text.len() as f32 * FALLBACK_MULT
             }
-        },
-        Err(err) => {
-            log::error!("Failed to lock MESSAGES: {}", err);
+        })
+        .sum();
+
+    // Start on right
+    let mut cursor_x = screen_width - total_width;
+
+    for segment in msg.message.segments.iter() {
+        font_handler::draw_string(
+            state,
+            &segment.text,
+            cursor_x,
+            y,
+            screen_width,
+            screen_height,
+            &segment.color,
+        );
+
+        if let Some(atlas) = &state.atlas {
+            cursor_x += segment
+                .text
+                .chars()
+                .map(|c| atlas.glyph_advance(c))
+                .sum::<f32>();
+        } else {
+            cursor_x += segment.text.len() as f32 * FALLBACK_MULT;
         }
+    }
+}
+
+struct TimedMessage {
+    message: OverlayMessage,
+    expiration: Instant,
+}
+
+fn pop_buffer_message() {
+    if let Ok(mut queue) = MESSAGE_QUEUE.lock() {
+        if let Some(message) = queue.pop_front() {
+            let expiration = Instant::now() + message.duration;
+            let timed = TimedMessage {
+                message,
+                expiration,
+            };
+            if let Ok(mut active) = ACTIVE_MESSAGES.lock() {
+                active.push_back(timed);
+            }
+        }
+    }
+}
+
+pub(crate) fn get_color_for_item(flags: i32) -> FontColorCB {
+    const CYAN: FontColorCB = FontColorCB::new(0.0, 0.933, 0.933, 1.0);
+    const PLUM: FontColorCB = FontColorCB::new(0.686, 0.6, 0.937, 1.0);
+    const STATE_BLUE: FontColorCB = FontColorCB::new(0.427, 0.545, 0.91, 1.0);
+    const SALMON: FontColorCB = FontColorCB::new(0.98, 0.502, 0.447, 1.0);
+    match flags {
+        0b000 => CYAN,       // Cyan for regular/filler
+        0b001 => PLUM,       // Plum for progression
+        0b010 => STATE_BLUE, // 'Stateblue' for useful
+        0b100 => SALMON,     // Salmon for trap
+        0b101 => PLUM,       // Plum for progression
+        0b110 => STATE_BLUE, // 'Stateblue' for useful
+        0b011 => PLUM,       // Plum-gression (could be gold if I wanted to do proguseful)
+        _ => WHITE,
     }
 }

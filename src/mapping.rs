@@ -178,7 +178,9 @@ impl LocationData {
                     }
                 }
             };
-            let item_id = self.item_id.ok_or(Err("Item ID is None, cannot get name")?)? as i64;
+            let item_id = self
+                .item_id
+                .ok_or(Err("Item ID is None, cannot get name")?)? as i64;
             let item_name = cache
                 .item_id_to_name
                 .get(game_name)
@@ -209,30 +211,18 @@ pub fn use_mappings() -> Result<(), Box<dyn std::error::Error>> {
     // Run through each mapping entry
     for (location_name, _location_data) in mapping.items.iter() {
         // Acquire the default location data for a specific location
-        //let ig_id = location_data.get_in_game_id();
-
-            match generated_locations::ITEM_MISSION_MAP.get(location_name as &str) {
-                Some(entry) => {/*match constants::ITEM_MAP.get(&ig_id) { // TODO Remove?
-                    // With the offset acquired, before the necessary replacement
-                    Some(_id) => {*/
-                        if location_handler::location_is_checked_and_end(location_name) {
-                            // If the item procs an end mission event, replace with a dummy ID in order to not immediately trigger a mission end
-                            modify_item_table(entry.offset, *constants::DUMMY_ID as u8)
-                        } else {
-                            // Replace the item ID with the new one
-                            // Leave this alone unless needed
-                            //modify_item_table(entry.offset, *hook::DUMMY_ID as u8)//id as u8)
-                        }
-                /*    }
-                    None => {
-                        log::warn!("Item not found: {:?}", location_data);
-                    }*/
-                },
-                None => {
-                    log::warn!("Location not found: {}", location_name);
+        match generated_locations::ITEM_MISSION_MAP.get(location_name as &str) {
+            Some(entry) => {
+                // With the offset acquired, before the necessary replacement
+                if location_handler::location_is_checked_and_end(location_name) {
+                    // If the item procs an end mission event, replace with a dummy ID in order to not immediately trigger a mission end
+                    modify_item_table(entry.offset, *constants::DUMMY_ID as u8)
                 }
             }
-
+            None => {
+                log::warn!("Location not found: {}", location_name);
+            }
+        }
     }
     Ok(())
 }
@@ -257,15 +247,18 @@ pub fn get_own_slot_name() -> Result<String, Box<dyn std::error::Error>> {
     get_slot_name(SLOT_NUMBER.load(Ordering::SeqCst))
 }
 
-fn get_slot_name(slot: i32) -> Result<String, Box<dyn std::error::Error>> {
+pub(crate) fn get_slot_name(slot: i32) -> Result<String, Box<dyn std::error::Error>> {
     let uslot = slot as usize;
     match CONNECTED.read() {
         Ok(conn_opt) => {
             if let Some(connected) = conn_opt.as_ref() {
-                if (slot < 0) || (uslot-1 >= connected.players.len()) { // TODO Double check, but I think -1 is Server/Archipelago
+                if slot == 0 {
+                    return Ok("Server".to_string());
+                }
+                if (slot < 0) || (uslot - 1 >= connected.players.len()) {
                     return Err(format!("Slot index not valid: {}", slot).into());
                 }
-                Ok(connected.players[uslot-1].name.clone())
+                Ok(connected.players[uslot - 1].name.clone())
             } else {
                 Err("Not connected, cannot get name".into())
             }

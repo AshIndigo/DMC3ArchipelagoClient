@@ -9,9 +9,7 @@ use std::os::raw::c_char;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, OnceLock};
 use std::thread;
-use std::time::Duration;
-use crate::ui::{overlay, text_handler};
-use crate::ui::overlay::OverlayMessage;
+use crate::ui::{text_handler};
 
 pub static MARY_ADDRESS: LazyLock<usize> =
     LazyLock::new(|| utilities::get_base_address("Mary.dll"));
@@ -155,34 +153,6 @@ pub unsafe fn archipelago_window() {
         text(format!("Status: {}\0", get_status_text()));
         const DEBUG: bool = false;
         if DEBUG {
-            if get_imgui_button()(
-                "Display Message\0".as_ptr() as *const c_char,
-                &ImVec2 { x: 0.0, y: 0.0 },
-            ) {
-                // thread::spawn(move || event_table_handler::call_event());
-            }
-            if get_imgui_button()(
-                "Display Message New\0".as_ptr() as *const c_char,
-                &ImVec2 { x: 0.0, y: 0.0 },
-            ) {
-                thread::spawn(move || {
-                  /*  text_handler::display_text(
-                        &"Test Message\x00\x2E".to_string(),
-                        Duration::from_secs(5),
-                        100,
-                        -100,
-                    );*/
-                    overlay::add_message(OverlayMessage::new(
-                        "Test message!".to_string(),
-                        crate::ui::font_handler::FontColorCB {
-                            color: [1.0, 1.0, 1.0, 1.0],
-                        },
-                        Duration::from_secs(1),
-                        500.0,
-                        0.0,
-                    ));
-                });
-            }
             if get_imgui_button()(
                 "Clear dummy flags\0".as_ptr() as *const c_char,
                 &ImVec2 { x: 0.0, y: 0.0 },

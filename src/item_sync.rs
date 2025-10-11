@@ -3,10 +3,10 @@ use crate::constants::{get_item_name, MISSION_ITEM_MAP};
 use crate::game_manager::{get_mission, Style};
 use crate::hook::CLIENT;
 use crate::mapping::MAPPING;
-use crate::ui::overlay::OverlayMessage;
+use crate::ui::overlay::{MessageSegment, OverlayMessage};
 use crate::ui::ui::CHECKLIST;
-use crate::ui::{overlay, ui};
-use crate::{bank, constants, game_manager, skill_manager};
+use crate::ui::{font_handler, overlay, ui};
+use crate::{bank, constants, game_manager, mapping, skill_manager};
 use archipelago_rs::client::ArchipelagoClient;
 use archipelago_rs::protocol::ReceivedItems;
 use log;
@@ -19,6 +19,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
+use crate::ui::font_handler::{WHITE, YELLOW};
 
 const SYNC_FILE: &str = "archipelago.json";
 pub(crate) static SYNC_DATA: OnceLock<Mutex<SyncData>> = OnceLock::new();
@@ -87,7 +88,6 @@ pub(crate) async fn handle_received_items_packet(
             .sync_index,
         Ordering::SeqCst,
     );
-    //if let Some(id_to_name) = cache::ITEM_ID_TO_NAME.read().unwrap().as_ref() {
     for item in &received_items_packet.items {
         ui::set_checklist_item(get_item_name(item.item as u32), true);
     }
@@ -152,14 +152,18 @@ pub(crate) async fn handle_received_items_packet(
             Ok(mut data) => {
                 for item in &received_items_packet.items {
                     let item_name = get_item_name(item.item as u32);
+                    let rec_msg: Vec<MessageSegment> = vec![
+                        MessageSegment::new("Received ".to_string(), WHITE),
+                        MessageSegment::new(item_name.to_string(), overlay::get_color_for_item(item.flags)),
+                        MessageSegment::new(" from ".to_string(), WHITE),
+                        MessageSegment::new(mapping::get_slot_name(item.player)?, YELLOW),
+                    ];
                     overlay::add_message(OverlayMessage::new(
-                        format!("Received {} from {}!", item_name, item.player),
-                        crate::ui::font_handler::FontColorCB {
-                            color: [1.0, 1.0, 1.0, 1.0],
-                        },
-                        Duration::from_secs(1),
-                        500.0,
+                        rec_msg,
+                        Duration::from_secs(3),
                         0.0,
+                        0.0,
+                        overlay::MessageType::Received
                     ));
                     if item.item < 0x14 {
                         if let Some(tx) = bank::TX_BANK_MESSAGE.get() {
@@ -262,7 +266,7 @@ pub(crate) async fn handle_received_items_packet(
                 .insert(get_index(client), RoomSyncInfo::default());
         }
     }
-    //}
+
 
     log::debug!("Writing sync file");
     write_sync_data_file().await?;
