@@ -21,7 +21,6 @@ pub const BUTTON_ADDR: usize = if USE_2022_DDMK { 0x55920 } else { 0x59F80 }; //
 pub const TEXT_ADDR: usize = if USE_2022_DDMK { 0x65210 } else { 0x69db0 }; //0x69d50;
 
 pub const NEXT_POS_FUNC_ADDR: usize = if USE_2022_DDMK { 0x351b0 } else { 0x374a0 };
-pub const NEXT_WINDOW_SIZE_ADDR: usize = if USE_2022_DDMK { 0x35240 } else { 0x37530 };
 
 pub fn text<T: AsRef<str>>(text: T) {
     let s = text.as_ref();
@@ -62,11 +61,5 @@ pub fn get_imgui_button() -> &'static ImGuiButton {
 pub fn get_imgui_next_pos() -> &'static ImGuiNextWindowPos {
     IMGUI_POS.get_or_init(|| unsafe {
         std::mem::transmute::<_, ImGuiNextWindowPos>(*MARY_ADDRESS + NEXT_POS_FUNC_ADDR)
-    })
-}
-
-pub fn get_imgui_next_size() -> &'static ImGuiNextWindowPos {
-    IMGUI_POS.get_or_init(|| unsafe {
-        std::mem::transmute::<_, ImGuiNextWindowPos>(*MARY_ADDRESS + NEXT_WINDOW_SIZE_ADDR)
     })
 }

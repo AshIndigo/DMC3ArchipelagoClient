@@ -4,10 +4,12 @@ use std::sync::OnceLock;
 use windows::core::HRESULT;
 use windows::core::PCSTR;
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::{HMODULE};
+use windows::Win32::Foundation::HMODULE;
 use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE, D3D_FEATURE_LEVEL};
-use windows::Win32::Graphics::Direct3D11::{D3D11_CREATE_DEVICE_FLAG};
-use windows::Win32::Graphics::Dxgi::{IDXGISwapChain, DXGI_SWAP_CHAIN_DESC};
+use windows::Win32::Graphics::Direct3D11::D3D11_CREATE_DEVICE_FLAG;
+use windows::Win32::Graphics::Dxgi::{
+    Common, IDXGISwapChain, DXGI_SWAP_CHAIN_DESC, DXGI_SWAP_CHAIN_FLAG,
+};
 use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 
 type D3D11CreateDeviceAndSwapChain = unsafe extern "system" fn(
@@ -26,12 +28,22 @@ type D3D11CreateDeviceAndSwapChain = unsafe extern "system" fn(
 ) -> HRESULT;
 
 type PresentFn = unsafe extern "system" fn(IDXGISwapChain, u32, u32) -> i32; // *mut IDXGISwapChain
+type ResizeBuffersFn = unsafe extern "system" fn(
+    *mut IDXGISwapChain,
+    u32,
+    u32,
+    u32,
+    Common::DXGI_FORMAT,
+    DXGI_SWAP_CHAIN_FLAG,
+);
 
 static ORIGINAL_DEV_CHAIN: OnceLock<D3D11CreateDeviceAndSwapChain> = OnceLock::new();
 
 static PRESENT_PTR: OnceLock<usize> = OnceLock::new();
 pub(crate) static ORIGINAL_PRESENT: OnceLock<PresentFn> = OnceLock::new();
 
+static RESIZE_BUFFERS_PTR: OnceLock<usize> = OnceLock::new();
+pub(crate) static ORIGINAL_RESIZE_BUFFERS: OnceLock<ResizeBuffersFn> = OnceLock::new();
 
 pub fn wide(s: &str) -> Vec<u16> {
     use std::iter::once;
@@ -108,8 +120,23 @@ unsafe fn hook_d3d11_create_device_and_swap_chain(
                             )
                             .expect("Failed to create hook"),
                         ))
-                        .expect("Failed to set original device chain");
+                        .expect("Failed to set original present");
                     MinHook::enable_hook(present_ptr as _).expect("Failed to enable present hook");
+                }
+
+                let resize_ptr = unsafe { *vtable.add(5) }; // Resize is slot 13
+                RESIZE_BUFFERS_PTR.set(resize_ptr as usize).unwrap();
+                unsafe {
+                    ORIGINAL_RESIZE_BUFFERS
+                        .set(std::mem::transmute::<_, ResizeBuffersFn>(
+                            MinHook::create_hook(
+                                resize_ptr as *mut _,
+                                crate::ui::overlay::resize_hook as _,
+                            )
+                                .expect("Failed to create hook"),
+                        ))
+                        .expect("Failed to set original resize bufffers");
+                    MinHook::enable_hook(resize_ptr as _).expect("Failed to enable resize hook");
                 }
             }
         }

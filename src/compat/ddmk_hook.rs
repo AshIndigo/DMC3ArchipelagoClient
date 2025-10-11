@@ -10,7 +10,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, OnceLock};
 use std::thread;
 use std::time::Duration;
-use crate::ui::text_handler;
+use crate::ui::{overlay, text_handler};
+use crate::ui::overlay::OverlayMessage;
 
 pub static MARY_ADDRESS: LazyLock<usize> =
     LazyLock::new(|| utilities::get_base_address("Mary.dll"));
@@ -165,12 +166,21 @@ pub unsafe fn archipelago_window() {
                 &ImVec2 { x: 0.0, y: 0.0 },
             ) {
                 thread::spawn(move || {
-                    text_handler::display_text(
+                  /*  text_handler::display_text(
                         &"Test Message\x00\x2E".to_string(),
                         Duration::from_secs(5),
                         100,
                         -100,
-                    );
+                    );*/
+                    overlay::add_message(OverlayMessage::new(
+                        "Test message!".to_string(),
+                        crate::ui::font_handler::FontColorCB {
+                            color: [1.0, 1.0, 1.0, 1.0],
+                        },
+                        Duration::from_secs(1),
+                        500.0,
+                        0.0,
+                    ));
                 });
             }
             if get_imgui_button()(

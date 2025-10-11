@@ -1,4 +1,3 @@
-use crate::archipelago::get_checked_locations;
 use crate::check_handler::Location;
 use crate::constants::{EventCode, ItemCategory, DUMMY_ID, EVENT_TABLES, ITEM_ID_MAP, REMOTE_ID};
 use crate::data::generated_locations;
@@ -6,6 +5,7 @@ use crate::game_manager::get_mission;
 use crate::{constants, game_manager, mapping, utilities};
 use anyhow::anyhow;
 use std::error::Error;
+use crate::archipelago::CHECKED_LOCATIONS;
 
 /// If we are in a room with a key item+appropriate mission, return Ok(location_key)
 pub fn in_key_item_room() -> Result<&'static str, Box<dyn Error>> {
@@ -55,19 +55,11 @@ pub fn get_mapped_item_id(location_name: &str) -> Result<u32, Box<dyn Error>> {
     let Some(mapping_data) = mapping_data.as_ref() else {
         return Err(Box::from("No mapping data"));
     };
-    let id = constants::get_item_id(
-        &mapping_data
-            .items
-            .get(location_name)
-            .unwrap()
-            .item_name
-            .as_str(),
-    )
-    .unwrap();
+    let id = mapping_data.items.get(location_name).unwrap().get_in_game_id();
     // To set the displayed graphic to the corresponding weapon
     if id > 0x39 {
         return Ok(match id {
-            (0x40..0x44) => *ITEM_ID_MAP.get("Rebellion (Normal)").unwrap(),
+            (0x40..0x44) => *ITEM_ID_MAP.get("Rebellion").unwrap(),
             0x44 => *ITEM_ID_MAP.get("Cerberus").unwrap(),
             0x45 => *ITEM_ID_MAP.get("Cerberus").unwrap(),
             (0x46..0x4A) => *ITEM_ID_MAP.get("Agni and Rudra").unwrap(),
@@ -122,7 +114,7 @@ pub(crate) fn location_is_checked_and_end(location_key: &str) -> bool {
                 if event_table.location == location_key {
                     for event in event_table.events.iter() {
                         if event.event_type == EventCode::END {
-                            match get_checked_locations().read() {
+                            match CHECKED_LOCATIONS.read() {
                                 Ok(checked_locations) => {
                                     if checked_locations.contains(&location_key) {
                                         return true;

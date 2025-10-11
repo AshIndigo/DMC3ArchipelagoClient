@@ -1,3 +1,4 @@
+use crate::ui::overlay;
 use crate::ui::overlay::SHADERS;
 use fontdue::Font;
 use std::collections::HashMap;
@@ -71,7 +72,7 @@ pub fn create_rgba_font_atlas(
         let (metrics, bitmap) = (&*FONT).rasterize(c, font_size);
         glyph_bitmaps.push((c, bitmap, metrics));
     }
-    
+
     let mut rows: Vec<Vec<(char, Vec<u8>, fontdue::Metrics)>> = Vec::new();
     let mut current_row = Vec::new();
     let mut current_width = 0;
@@ -89,7 +90,7 @@ pub fn create_rgba_font_atlas(
     if !current_row.is_empty() {
         rows.push(current_row);
     }
-    
+
     let atlas_width = max_row_width;
     let atlas_height: u32 = rows
         .iter()
@@ -102,7 +103,7 @@ pub fn create_rgba_font_atlas(
         .sum();
 
     let mut atlas_data = vec![0u8; (atlas_width * atlas_height * 4) as usize]; // RGBA
-    
+
     let mut glyph_infos = HashMap::new();
     let mut y_offset = 0;
 
@@ -125,7 +126,7 @@ pub fn create_rgba_font_atlas(
         for (c, bitmap, metrics) in row {
             let w = metrics.width as u32;
             let h = if w > 0 { bitmap.len() as u32 / w } else { 0 };
-            
+
             if w > 0 && h > 0 {
                 for y in 0..h {
                     for x in 0..w {
@@ -276,17 +277,18 @@ pub fn glyph_vertices(quad: &GlyphQuad, screen_width: f32, screen_height: f32) -
 }
 
 pub fn draw_string(
-    context: &ID3D11DeviceContext,
-    vertex_buffer: &ID3D11Buffer,
-    input_layout: &ID3D11InputLayout,
-    font_atlas: &FontAtlas,
-    text: String,
+    state: &overlay::D3D11State,
+    text: &String,
     x: f32,
     y: f32,
     screen_width: f32,
     screen_height: f32,
-    color: FontColorCB,
+    color: &FontColorCB,
 ) {
+    let context = &state.context;
+    let vertex_buffer = &state.vertex_buffer;
+    let input_layout = &state.input_layout;
+    let font_atlas = &state.atlas.as_ref().unwrap();
     unsafe {
         let stride = size_of::<Vertex>() as u32;
         let offset = 0u32;
@@ -391,7 +393,7 @@ pub fn draw_string(
                 Some(&mut mapped),
             )
             .unwrap();
-        std::ptr::copy_nonoverlapping(&color, mapped.pData as *mut FontColorCB, 1);
+        std::ptr::copy_nonoverlapping(color, mapped.pData as *mut FontColorCB, 1);
         context.Unmap(font_color_cb, 0);
         context.PSSetConstantBuffers(0, Some(&[Some(font_color_cb.clone())]));
 

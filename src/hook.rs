@@ -1,4 +1,4 @@
-use crate::archipelago::{get_checked_locations, DeathLinkData, TX_DEATHLINK};
+use crate::archipelago::{DeathLinkData, CHECKED_LOCATIONS, TX_DEATHLINK};
 use crate::constants::ItemEntry;
 use crate::constants::*;
 use crate::data::generated_locations;
@@ -212,7 +212,7 @@ pub fn edit_event_drop(param_1: usize, param_2: i32, param_3: usize) {
         if let (Ok(mapping), Some(mission_event_tables), Some(checked_locations)) = (
             MAPPING.read(),
             EVENT_TABLES.get(&get_mission()),
-            get_checked_locations().read().ok(),
+            CHECKED_LOCATIONS.read().ok(),
         ) && mapping.is_some()
         {
             (mapping, mission_event_tables, checked_locations)
@@ -496,7 +496,7 @@ async fn send_deathlink() {
                         .send(DeathLinkData {
                             cause: format!(
                                 "{} died in Mission #{} on {}", // TODO Maybe an "against {}" at some point?
-                                mapping::get_slot_name().unwrap().unwrap(),
+                                mapping::get_own_slot_name().unwrap(),
                                 get_mission(),
                                 get_difficulty()
                             ),
@@ -617,7 +617,7 @@ fn dummy_replace(location_key: &&str, item_addr: *mut i32) -> bool {
                 .filter(|event| event.event_type == EventCode::END)
             {
                 // Then if location in question is checked, replace the item with a dummy and return true
-                if let Ok(checked_locations) = get_checked_locations().read() {
+                if let Ok(checked_locations) = CHECKED_LOCATIONS.read() {
                     if checked_locations.contains(location_key) {
                         unsafe {
                             *item_addr = *DUMMY_ID as i32;
@@ -678,7 +678,7 @@ fn set_relevant_key_items() {
         }
         if let Ok(loc) = in_key_item_room() {
             log::debug!("In key room: {}", loc);
-            if get_checked_locations().read().unwrap().contains(&loc) {
+            if CHECKED_LOCATIONS.read().unwrap().contains(&loc) {
                 //set_loc_chk_flg(get_item_name(generated_locations::ITEM_MISSION_MAP.get(loc).unwrap().item_id), true);
             } else {
                 set_loc_chk_flg(

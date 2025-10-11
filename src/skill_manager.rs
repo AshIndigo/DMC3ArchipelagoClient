@@ -14,7 +14,7 @@ struct SkillData {
 
 pub static ID_SKILL_MAP: LazyLock<HashMap<usize, &'static str>> = LazyLock::new(|| {
     let mut map: HashMap<usize, &'static str> =
-        SKILLS_MAP.iter().map(|item| (item.1.id, *item.0)).collect();
+        SKILLS_MAP.iter().map(|(name, data)| (data.id, *name)).collect();
 
     map.extend(HashMap::from([
         (0x53, "Ebony & Ivory Progressive Upgrade"),
@@ -23,13 +23,19 @@ pub static ID_SKILL_MAP: LazyLock<HashMap<usize, &'static str>> = LazyLock::new(
         (0x56, "Spiral Progressive Upgrade"),
         (0x57, "Kalina Ann Progressive Upgrade"),
     ]));
+    map.extend(HashMap::from([
+        (0x60, "Progressive Trickster"),
+        (0x61, "Progressive Swordmaster"),
+        (0x62, "Progressive Gunslinger"),
+        (0x63, "Progressive Royalguard"),
+    ]));
     map
 });
 
 static SKILLS_MAP: LazyLock<HashMap<&str, SkillData>> = LazyLock::new(|| {
     HashMap::from([
         (
-            "Rebellion (Normal) - Stinger Level 1",
+            "Rebellion - Stinger Level 1",
             SkillData {
                 id: 0x40,
                 index: 0,
@@ -37,7 +43,7 @@ static SKILLS_MAP: LazyLock<HashMap<&str, SkillData>> = LazyLock::new(|| {
             },
         ),
         (
-            "Rebellion (Normal) - Stinger Level 2",
+            "Rebellion - Stinger Level 2",
             SkillData {
                 id: 0x41,
                 index: 0,
@@ -45,7 +51,7 @@ static SKILLS_MAP: LazyLock<HashMap<&str, SkillData>> = LazyLock::new(|| {
             },
         ),
         (
-            "Rebellion (Normal) - Drive",
+            "Rebellion - Drive",
             SkillData {
                 id: 0x42,
                 index: 0,
@@ -53,7 +59,7 @@ static SKILLS_MAP: LazyLock<HashMap<&str, SkillData>> = LazyLock::new(|| {
             },
         ),
         (
-            "Rebellion (Normal) - Air Hike",
+            "Rebellion - Air Hike",
             SkillData {
                 id: 0x43,
                 index: 6,

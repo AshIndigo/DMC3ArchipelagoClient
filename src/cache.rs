@@ -1,4 +1,3 @@
-use crate::constants::GAME_NAME;
 use archipelago_rs::protocol::{DataPackageObject, RoomInfo};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -80,54 +79,58 @@ pub(crate) fn read_cache() -> Result<DataPackageObject, Box<dyn Error>> {
     Ok(cache)
 }
 
-pub(crate) static DATA_PACKAGE: LazyLock<RwLock<Option<DataPackageObject>>> =
+
+pub struct DataPackageWrapper {
+    pub dp: DataPackageObject,
+    pub item_id_to_name: HashMap<String, HashMap<i64, String>>,
+    pub location_id_to_name: HashMap<String, HashMap<i64, String>>,
+}
+
+impl DataPackageWrapper {
+    fn new(dp: DataPackageObject) -> Self {
+        let local_dp = dp.clone();
+        // TODO Maybe I should try to only add entries when they are requested
+        let item_id_to_name = {
+            let mut game_map = HashMap::<String, HashMap<i64, String>>::new();
+            for (game_name, data) in &local_dp.games {
+                game_map.insert(game_name.clone(),
+                                data
+                                    .item_name_to_id
+                                    .clone()
+                                    .into_iter()
+                                    .map(|(k, v)| (v, k))
+                                    .collect()
+                );
+            }
+            game_map
+        };
+        let location_id_to_name = {
+            let mut game_map = HashMap::<String, HashMap<i64, String>>::new();
+            for (game_name, data) in &local_dp.games {
+                game_map.insert(game_name.clone(),
+                                data
+                                    .location_name_to_id
+                                    .clone()
+                                    .into_iter()
+                                    .map(|(k, v)| (v, k))
+                                    .collect()
+                );
+            }
+            game_map
+        };
+        Self {
+            dp,
+            item_id_to_name,
+            location_id_to_name,
+        }
+    }
+
+}
+
+pub(crate) static DATA_PACKAGE: LazyLock<RwLock<Option<DataPackageWrapper>>> =
     LazyLock::new(|| RwLock::new(None));
 
-pub(crate) static ITEM_ID_TO_NAME: LazyLock<RwLock<Option<HashMap<i64, String>>>> =
-    LazyLock::new(|| RwLock::new(get_item_id_to_name()));
-
-fn get_item_id_to_name() -> Option<HashMap<i64, String>> {
-    if let Some(data_package) = DATA_PACKAGE.read().unwrap().as_ref() {
-        Some(
-            data_package
-                .games
-                .get(GAME_NAME)
-                .unwrap()
-                .item_name_to_id
-                .clone()
-                .into_iter()
-                .map(|(k, v)| (v, k))
-                .collect(),
-        )
-    } else {
-        None
-    }
-}
-
-pub(crate) static LOCATION_ID_TO_NAME: LazyLock<RwLock<Option<HashMap<i64, String>>>> =
-    LazyLock::new(|| RwLock::new(get_location_id_to_name()));
-
-fn get_location_id_to_name() -> Option<HashMap<i64, String>> {
-    if let Some(data_package) = DATA_PACKAGE.read().unwrap().as_ref() {
-        Some(
-            data_package
-                .games
-                .get(GAME_NAME)
-                .unwrap()
-                .location_name_to_id
-                .clone()
-                .into_iter()
-                .map(|(k, v)| (v, k))
-                .collect(),
-        )
-    } else {
-        None
-    }
-}
-
 pub fn set_data_package(value: DataPackageObject) -> Result<(), Box<dyn Error>> {
-    *DATA_PACKAGE.write()? = Some(value);
-    *ITEM_ID_TO_NAME.write()? = get_item_id_to_name();
-    *LOCATION_ID_TO_NAME.write()? = get_location_id_to_name();
+    *DATA_PACKAGE.write()? = Some(DataPackageWrapper::new(value));
     Ok(())
 }

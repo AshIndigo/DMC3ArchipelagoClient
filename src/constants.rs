@@ -239,7 +239,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
         },
         Item {
             id: 0x16,
-            name: "Rebellion (Normal)",
+            name: "Rebellion",
             offset: Some(0x52),
             category: ItemCategory::Weapon,
             mission: None,
@@ -266,7 +266,7 @@ static ALL_ITEMS: LazyLock<Vec<Item>> = LazyLock::new(|| {
         },
         Item {
             id: 0x19,
-            name: "Rebellion (Awakened)",
+            name: "Devil Trigger", // Awakened Rebellion
             offset: Some(0x55), // Offset is most likely wrong, but since we use this to give 3 runes, rather than an actual weapon, it should be fine
             category: ItemCategory::Weapon,
             mission: None,
@@ -584,15 +584,15 @@ pub static MISSION_ITEM_MAP: LazyLock<HashMap<u32, Vec<&'static str>>> = LazyLoc
 pub static ITEM_ID_MAP: LazyLock<HashMap<&'static str, u32>> =
     LazyLock::new(|| ALL_ITEMS.iter().map(|item| (item.name, item.id)).collect());
 
-pub static ID_ITEM_MAP: LazyLock<HashMap<u32, &'static str>> =
+pub(crate) static ID_ITEM_MAP: LazyLock<HashMap<u32, &'static str>> =
     LazyLock::new(|| ALL_ITEMS.iter().map(|item| (item.id, item.name)).collect());
-pub static ITEM_MAP: LazyLock<HashMap<u32, &'static Item>> =
+pub(crate) static ITEM_MAP: LazyLock<HashMap<u32, &'static Item>> =
     LazyLock::new(|| ALL_ITEMS.iter().map(|item| (item.id, item)).collect());
 
 pub fn get_item_name(item_id: u32) -> &'static str {
     if item_id <= 0x39 {
         ID_ITEM_MAP.get(&item_id).copied().unwrap_or_else(|| {
-            log::error!("No item found with id {}", item_id);
+            log::error!("No item found with id {:#X}", item_id);
             "Unknown"
         })
     } else {
@@ -600,7 +600,7 @@ pub fn get_item_name(item_id: u32) -> &'static str {
             .get(&(item_id as usize))
             .copied()
             .unwrap_or_else(|| {
-                log::error!("Skill with id of {} was not found", item_id);
+                log::error!("Skill with id of {:#X} was not found", item_id);
                 "Unknown"
             })
     }
@@ -612,7 +612,7 @@ pub fn get_item_id(name: &str) -> Option<u32> {
             None => None,
             Some(data_package) => {
                 match data_package
-                    .games
+                    .dp.games
                     .get(GAME_NAME)?
                     .item_name_to_id
                     .get(name)
@@ -952,7 +952,7 @@ pub static GUN_NAMES: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
 });
 pub static MELEE_NAMES: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
     Vec::from([
-        "Rebellion (Normal)",
+        "Rebellion",
         "Cerberus",
         "Agni and Rudra",
         "Nevan",
@@ -962,7 +962,7 @@ pub static MELEE_NAMES: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
 
 pub fn get_weapon_id(weapon: &str) -> u8 {
     match weapon {
-        "Rebellion (Normal)" => 0,
+        "Rebellion" => 0,
         "Cerberus" => 1,
         "Agni and Rudra" => 2,
         "Nevan" => 3,

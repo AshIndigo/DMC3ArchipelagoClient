@@ -3,11 +3,9 @@ use crate::cache::{read_cache, DATA_PACKAGE};
 use crate::check_handler::Location;
 use crate::constants::{ItemCategory, Status, GAME_NAME};
 use crate::data::generated_locations;
-use crate::ui::{text_handler, ui};
 use crate::ui::ui::CONNECTION_STATUS;
-use crate::{
-    bank, cache, constants, game_manager, hook, item_sync, location_handler, mapping,
-};
+use crate::ui::{text_handler, ui};
+use crate::{bank, cache, constants, game_manager, hook, item_sync, location_handler, mapping};
 use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
 use archipelago_rs::protocol::{
@@ -19,42 +17,25 @@ use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::cmp::PartialEq;
-use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::fs::remove_file;
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::{Mutex, OnceLock, RwLock};
+use std::sync::{LazyLock, OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-pub static CHECKED_LOCATIONS: OnceLock<RwLock<Vec<&'static str>>> = OnceLock::new();
-pub static CONNECTED: OnceLock<Mutex<Connected>> = OnceLock::new();
+pub static CHECKED_LOCATIONS: LazyLock<RwLock<Vec<&'static str>>> =
+    LazyLock::new(|| RwLock::new(vec![]));
+//pub static CONNECTED: OnceLock<Mutex<Connected>> = OnceLock::new();
+pub static CONNECTED: RwLock<Option<Connected>> = RwLock::new(None);
 pub static TX_ARCH: OnceLock<Sender<ArchipelagoConnection>> = OnceLock::new();
 pub static TX_DISCONNECT: OnceLock<Sender<bool>> = OnceLock::new();
 
+/// Current connections slot number
 pub static SLOT_NUMBER: AtomicI32 = AtomicI32::new(-1);
 pub static TEAM_NUMBER: AtomicI32 = AtomicI32::new(-1);
-
-pub fn get_checked_locations() -> &'static RwLock<Vec<&'static str>> {
-    CHECKED_LOCATIONS.get_or_init(|| RwLock::new(vec![]))
-}
-
-pub fn get_connected() -> &'static Mutex<Connected> {
-    CONNECTED.get_or_init(|| {
-        Mutex::new(Connected {
-            team: 0,
-            slot: 0,
-            players: vec![],
-            missing_locations: vec![],
-            checked_locations: vec![],
-            slot_data: Default::default(),
-            slot_info: Default::default(),
-            hint_points: 0,
-        })
-    })
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct ArchipelagoConnection {
@@ -88,11 +69,7 @@ pub async fn get_archipelago_client(
 ) -> Result<ArchipelagoClient, ArchipelagoError> {
     if !cache::check_for_cache_file() {
         // If the cache file does not exist, then it needs to be acquired
-        let cl = ArchipelagoClient::with_data_package(
-            &login_data.url,
-            None, //Some(vec![GAME_NAME.parse().expect("Failed to parse string")]),
-        )
-        .await?;
+        let cl = ArchipelagoClient::with_data_package(&login_data.url, None).await?;
         match &cl.data_package() {
             // Write the data package to a local cache file
             None => {
@@ -141,28 +118,62 @@ pub async fn connect_archipelago(
             vec!["AP".to_string()],
         )
         .await?;
-    *get_connected().lock().expect("Failed to get connected") = connected;
-    let Ok(mut checked_locations) = get_checked_locations().write() else {
+    match CONNECTED.write() {
+        Ok(mut con) => {
+            con.replace(connected);
+        }
+        Err(err) => {
+            log::error!("Failed to acquire lock for connection: {}", err);
+            return Err(ArchipelagoError::ConnectionClosed);
+        }
+    }
+    let Ok(mut checked_locations) = CHECKED_LOCATIONS.write() else {
         log::error!("Failed to get checked locations");
         return Err(ArchipelagoError::ConnectionClosed);
     };
     checked_locations.clear();
     log::debug!("Attempting to send offline checks");
     item_sync::send_offline_checks(&mut cl).await.unwrap();
-    let mut connected = get_connected().lock().unwrap();
-    if let Some(location_id_to_name) = cache::LOCATION_ID_TO_NAME.read().unwrap().as_ref() {
-        connected.checked_locations.iter_mut().for_each(|val| {
-            checked_locations.push(
-                generated_locations::ITEM_MISSION_MAP
-                    .get_key_value(location_id_to_name.get(val).unwrap().as_str())
-                    .unwrap()
-                    .0,
-            );
-        });
+    match CONNECTED.read().as_ref() {
+        Ok(con) => {
+            if let Some(con) = &**con {
+                match DATA_PACKAGE.read().as_ref() {
+                    Ok(dpw) => {
+                        if let Some(dpw) = &**dpw {
+                            con.checked_locations.iter().for_each(|val| {
+                                checked_locations.push(
+                                    generated_locations::ITEM_MISSION_MAP
+                                        .get_key_value(
+                                            dpw.location_id_to_name
+                                                .get(GAME_NAME)
+                                                .unwrap()
+                                                .get(val)
+                                                .unwrap()
+                                                .as_str(),
+                                        )
+                                        .unwrap()
+                                        .0,
+                                );
+                            });
+                        }
+                    }
+                    Err(err) => {
+                        log::error!("Failed to get data package: {}", err);
+                        return Err(ArchipelagoError::ConnectionClosed);
+                    }
+                }
+
+                log::info!("Connected info: {:?}", con);
+                SLOT_NUMBER.store(con.slot, Ordering::SeqCst);
+                TEAM_NUMBER.store(con.team, Ordering::SeqCst);
+            }
+        }
+        Err(err) => {
+            log::error!("Failed to acquire lock for connection: {}", err);
+            return Err(ArchipelagoError::ConnectionClosed);
+        }
     }
-    log::info!("Connected info: {:?}", connected);
-    SLOT_NUMBER.store(connected.slot, Ordering::SeqCst);
-    TEAM_NUMBER.store(connected.team, Ordering::SeqCst);
+
     Ok(cl)
 }
 
@@ -286,7 +297,7 @@ async fn send_deathlink_message(
     client: &mut ArchipelagoClient,
     data: DeathLinkData,
 ) -> Result<(), ArchipelagoError> {
-    let name = mapping::get_slot_name().unwrap().unwrap();
+    let name = mapping::get_own_slot_name().unwrap();
     client
         .send(ClientMessage::Bounce(Bounce {
             games: Some(vec![]),
@@ -336,7 +347,16 @@ async fn handle_client_messages(
         Ok(opt_msg) => match opt_msg {
             None => Ok(()),
             Some(ServerMessage::PrintJSON(json_msg)) => {
-                log::info!("{}", handle_print_json(json_msg));
+                match CONNECTED.read().as_ref() {
+                    Ok(fuck) => {
+                        handle_print_json(json_msg, &**fuck);
+                        //&*(*fuck)
+                    }
+                    Err(err) => {
+                        log::error!("Poison Error: {}", err);
+                    }
+                }
+                //log::info!("{}", handle_print_json(json_msg));
                 Ok(())
             }
             Some(ServerMessage::RoomInfo(_)) => Ok(()),
@@ -439,7 +459,7 @@ fn handle_retrieved(retrieved: Retrieved) -> Result<(), Box<dyn Error>> {
             None => {
                 log::error!("{} not found", item_name);
             }
-            Some(cnt) => {*count = cnt.as_i64().unwrap_or_default() as i32}
+            Some(cnt) => *count = cnt.as_i64().unwrap_or_default() as i32,
         }
         log::debug!("Set count {}", item_name);
     });
@@ -474,6 +494,7 @@ async fn handle_item_receive(
         let location_data = mapping_data.items.get(location_key).unwrap();
         // Then see if the item picked up matches the specified in the map
         match data_package
+            .dp
             .games
             .get(GAME_NAME)
             .unwrap()
@@ -482,27 +503,24 @@ async fn handle_item_receive(
         {
             Some(loc_id) => {
                 location_handler::edit_end_event(&location_key); // Needed so a mission will end properly after picking up its trigger.
-                let desc = location_data.description.clone();
-                text_handler::replace_unused_with_text(desc);
+                text_handler::replace_unused_with_text(location_data.get_description()?);
                 text_handler::CANCEL_TEXT.store(true, Ordering::SeqCst);
                 if let Err(arch_err) = client.location_checks(vec![loc_id.clone()]).await {
                     log::error!("Failed to check location: {}", arch_err);
                     item_sync::add_offline_check(loc_id.clone(), client).await?;
                 }
-                match constants::get_item_id(&*location_data.item_name) {
-                    None => {}
-                    Some(id) => {
-                        if id > 0x14 {
-                            ui::set_checklist_item(&*location_data.item_name, true);
-                            log::debug!("Item checked off: {}", location_data.item_name);
-                        }
-                    }
+                log::debug!("Gonna try to get name: {:?}", location_data);
+                let name = location_data.get_item_name()?;
+                if location_data.get_in_game_id() > 0x14 {
+                    ui::set_checklist_item(&*name, true);
+                    log::debug!("Item checked off: {}", name);
                 }
+
                 log::info!(
                     "Location check successful: {} ({}), Item: {}",
                     location_key,
                     loc_id,
-                    location_data.item_name
+                    name
                 );
             }
             None => Err(anyhow::anyhow!("Location not found: {}", location_key))?,
@@ -512,7 +530,7 @@ async fn handle_item_receive(
     Ok(())
 }
 
-fn handle_print_json(print_json: PrintJSON) -> String {
+fn handle_print_json(print_json: PrintJSON, con_opt: &Option<Connected>) -> String {
     // TODO Can I consolidate this down?
     let mut final_message: String = "".to_string();
     match print_json {
@@ -522,7 +540,7 @@ fn handle_print_json(print_json: PrintJSON) -> String {
             item: _item,
         } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message));
+                final_message.push_str(&*handle_message_part(message, con_opt));
             }
         }
         PrintJSON::ItemCheat {
@@ -532,7 +550,7 @@ fn handle_print_json(print_json: PrintJSON) -> String {
             team: _team,
         } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message));
+                final_message.push_str(&*handle_message_part(message, con_opt));
             }
         }
         PrintJSON::Hint {
@@ -542,7 +560,7 @@ fn handle_print_json(print_json: PrintJSON) -> String {
             found: _found,
         } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message));
+                final_message.push_str(&*handle_message_part(message, con_opt));
             }
         }
         PrintJSON::Join {
@@ -552,7 +570,7 @@ fn handle_print_json(print_json: PrintJSON) -> String {
             tags: _tags,
         } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message));
+                final_message.push_str(&*handle_message_part(message, con_opt));
             }
         }
         PrintJSON::Part {
@@ -561,7 +579,7 @@ fn handle_print_json(print_json: PrintJSON) -> String {
             slot: _slot,
         } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message));
+                final_message.push_str(&*handle_message_part(message, con_opt));
             }
         }
         PrintJSON::Chat {
@@ -571,7 +589,7 @@ fn handle_print_json(print_json: PrintJSON) -> String {
             message: _message,
         } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message));
+                final_message.push_str(&*handle_message_part(message, con_opt));
             }
         }
         PrintJSON::ServerChat {
@@ -579,12 +597,12 @@ fn handle_print_json(print_json: PrintJSON) -> String {
             message: _message,
         } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message));
+                final_message.push_str(&*handle_message_part(message, con_opt));
             }
         }
         PrintJSON::Tutorial { data } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message));
+                final_message.push_str(&*handle_message_part(message, con_opt));
             }
         }
         PrintJSON::TagsChanged {
@@ -594,17 +612,17 @@ fn handle_print_json(print_json: PrintJSON) -> String {
             tags: _tags,
         } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message));
+                final_message.push_str(&*handle_message_part(message, con_opt));
             }
         }
         PrintJSON::CommandResult { data } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message));
+                final_message.push_str(&*handle_message_part(message, con_opt));
             }
         }
         PrintJSON::AdminCommandResult { data } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message));
+                final_message.push_str(&*handle_message_part(message, con_opt));
             }
         }
         PrintJSON::Goal {
@@ -613,7 +631,7 @@ fn handle_print_json(print_json: PrintJSON) -> String {
             slot: _slot,
         } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message));
+                final_message.push_str(&*handle_message_part(message, con_opt));
             }
         }
         PrintJSON::Release {
@@ -622,7 +640,7 @@ fn handle_print_json(print_json: PrintJSON) -> String {
             slot: _slot,
         } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message));
+                final_message.push_str(&*handle_message_part(message, con_opt));
             }
         }
         PrintJSON::Collect {
@@ -631,7 +649,7 @@ fn handle_print_json(print_json: PrintJSON) -> String {
             slot: _slot,
         } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message));
+                final_message.push_str(&*handle_message_part(message, con_opt));
             }
         }
         PrintJSON::Countdown {
@@ -639,24 +657,25 @@ fn handle_print_json(print_json: PrintJSON) -> String {
             countdown: _countdown,
         } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message));
+                final_message.push_str(&*handle_message_part(message, con_opt));
             }
         }
         PrintJSON::Text { data } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message));
+                final_message.push_str(&*handle_message_part(message, con_opt));
             }
         }
     }
     final_message
 }
 
-fn handle_message_part(message: JSONMessagePart) -> String {
+fn handle_message_part(message: JSONMessagePart, con_opt: &Option<Connected>) -> String {
+    //let con_opt = (&**CONNECTED.read().as_ref().unwrap());
     match message {
-        JSONMessagePart::PlayerId { text } => get_connected().lock().unwrap().players
-            [text.parse::<usize>().unwrap() - 1]
-            .name
-            .clone(),
+        JSONMessagePart::PlayerId { text } => match &con_opt {
+            None => "<Connected is None>".to_string(),
+            Some(con) => con.players[text.parse::<usize>().unwrap() - 1].name.clone(),
+        },
         JSONMessagePart::PlayerName { text } => text,
         JSONMessagePart::ItemId {
             text,
@@ -664,24 +683,19 @@ fn handle_message_part(message: JSONMessagePart) -> String {
             player,
         } => {
             if let Some(data_package) = DATA_PACKAGE.read().unwrap().as_ref() {
-                // TODO Maybe I can get rid of this later?
-                let id_to_name: HashMap<i64, String> = data_package
-                    .games
-                    .get(
-                        &get_connected().lock().unwrap().slot_info[&player.to_string()]
-                            .game
-                            .clone(),
-                    )
-                    .unwrap()
-                    .item_name_to_id
-                    .clone()
-                    .into_iter()
-                    .map(|(k, v)| (v, k))
-                    .collect();
-                id_to_name
-                    .get(&text.parse::<i64>().unwrap())
-                    .unwrap()
-                    .clone()
+                match con_opt {
+                    None => "<Connected is None>".to_string(),
+                    Some(con) => {
+                        let game = &con.slot_info[&player].game.clone();
+                        data_package
+                            .item_id_to_name
+                            .get(game)
+                            .unwrap()
+                            .get(&text.parse::<i64>().unwrap())
+                            .unwrap()
+                            .clone()
+                    }
+                }
             } else {
                 "<Data package unavailable>".parse().unwrap()
             }
@@ -696,24 +710,19 @@ fn handle_message_part(message: JSONMessagePart) -> String {
         }
         JSONMessagePart::LocationId { text, player } => {
             if let Some(data_package) = DATA_PACKAGE.read().unwrap().as_ref() {
-                // TODO Maybe I can get rid of this later?
-                let id_to_name: HashMap<i64, String> = data_package
-                    .games
-                    .get(
-                        &get_connected().lock().unwrap().slot_info[&player.to_string()]
-                            .game
-                            .clone(),
-                    )
-                    .unwrap()
-                    .location_name_to_id
-                    .clone()
-                    .into_iter()
-                    .map(|(k, v)| (v, k))
-                    .collect();
-                id_to_name
-                    .get(&text.parse::<i64>().unwrap())
-                    .unwrap()
-                    .clone()
+                match con_opt {
+                    None => "<Connected is None>".to_string(),
+                    Some(con) => {
+                        let game = &con.slot_info[&player].game.clone();
+                        data_package
+                            .location_id_to_name
+                            .get(game)
+                            .unwrap()
+                            .get(&text.parse::<i64>().unwrap())
+                            .unwrap()
+                            .clone()
+                    }
+                }
             } else {
                 "<Data package unavailable>".parse().unwrap()
             }
