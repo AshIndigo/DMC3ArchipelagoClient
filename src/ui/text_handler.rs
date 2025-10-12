@@ -4,13 +4,13 @@ use minhook::{MinHook, MH_STATUS};
 use std::ptr::write_unaligned;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{LazyLock, OnceLock};
-use std::time::{Duration, Instant};
-use std::{ptr, thread};
-use std::ops::Add;
+use std::{ptr};
 use windows::Win32::System::Memory::{VirtualProtect, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS};
 
 pub static CANCEL_TEXT: AtomicBool = AtomicBool::new(false);
 pub static LAST_OBTAINED_ID: AtomicU8 = AtomicU8::new(0);
+static TEXT_DISPLAYED: LazyLock<usize> =
+    LazyLock::new(|| *DMC3_ADDRESS + 0xCB89A0); // 0x01 if text is being displayed
 
 pub unsafe fn setup_text_hooks() -> Result<(), MH_STATUS> {
     log::debug!("Setting up text related hooks");
@@ -48,7 +48,8 @@ pub unsafe fn disable_text_hooks(base_address: usize) -> Result<(), MH_STATUS> {
     Ok(())
 }
 
-pub static RENDER_TEXT: OnceLock<
+// TODO Unused, may delete later
+/*pub static RENDER_TEXT: OnceLock<
     unsafe extern "C" fn(
         param_1: usize,
         param_2: *const u8,
@@ -61,8 +62,7 @@ pub static RENDER_TEXT: OnceLock<
     ),
 > = OnceLock::new();
 
-static TEXT_DISPLAYED: LazyLock<usize> =
-    LazyLock::new(|| *DMC3_ADDRESS + 0xCB89A0); // 0x01 if text is being displayed
+
 
 /// Arguments:
 ///
@@ -132,7 +132,7 @@ fn display_message(
         );
     }
 }
-
+*/
 pub static DISPLAY_MESSAGE_VIA_INDEX: OnceLock<
     unsafe extern "C" fn(text_enabled: usize, message_index: i32),
 > = OnceLock::new();

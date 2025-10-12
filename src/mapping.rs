@@ -178,19 +178,24 @@ impl LocationData {
                     }
                 }
             };
-            let item_id = self
-                .item_id
-                .ok_or(Err("Item ID is None, cannot get name")?)? as i64;
-            let item_name = cache
-                .item_id_to_name
-                .get(game_name)
-                .ok_or(Err(format!("{} does not exist in cache", game_name))?)?
-                .get(&(item_id))
-                .ok_or(Err(format!(
-                    "{:?} does not exist in {}'s item cache",
-                    item_id, game_name
-                ))?)?;
-            Ok(item_name.clone())
+            match self.item_id {
+                None => Err("Item ID is None, cannot get name".into()),
+                Some(item_id) => match cache.item_id_to_name.get(game_name) {
+                    None => {
+                        Err(format!("{} does not exist in cache", game_name).into())
+                    }
+                    Some(item_id_to_name) => {
+                        match item_id_to_name.get(&(item_id as i64)) {
+                            None => {
+                                Err(format!("{:?} does not exist in {}'s item cache", item_id, game_name).into())
+                            }
+                            Some(name) => {
+                                Ok(name.clone())
+                            }
+                        }
+                    }
+                },
+            }
         } else {
             Err(Box::from("Data package is not here"))
         }

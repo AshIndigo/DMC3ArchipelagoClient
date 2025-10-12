@@ -127,43 +127,23 @@ pub async fn connect_archipelago(
             return Err(ArchipelagoError::ConnectionClosed);
         }
     }
-    let Ok(mut checked_locations) = CHECKED_LOCATIONS.write() else {
+    if let Ok(mut checked_locations) = CHECKED_LOCATIONS.write() {
+        checked_locations.clear();
+    } else {
         log::error!("Failed to get checked locations");
         return Err(ArchipelagoError::ConnectionClosed);
     };
-    checked_locations.clear();
+
     log::debug!("Attempting to send offline checks");
     item_sync::send_offline_checks(&mut cl).await.unwrap();
+
     match CONNECTED.read().as_ref() {
         Ok(con) => {
             if let Some(con) = &**con {
-                match DATA_PACKAGE.read().as_ref() {
-                    Ok(dpw) => {
-                        if let Some(dpw) = &**dpw {
-                            con.checked_locations.iter().for_each(|val| {
-                                checked_locations.push(
-                                    generated_locations::ITEM_MISSION_MAP
-                                        .get_key_value(
-                                            dpw.location_id_to_name
-                                                .get(GAME_NAME)
-                                                .unwrap()
-                                                .get(val)
-                                                .unwrap()
-                                                .as_str(),
-                                        )
-                                        .unwrap()
-                                        .0,
-                                );
-                            });
-                        }
-                    }
-                    Err(err) => {
-                        log::error!("Failed to get data package: {}", err);
-                        return Err(ArchipelagoError::ConnectionClosed);
-                    }
+                const DEBUG: bool = false;
+                if DEBUG {
+                    log::debug!("Connected info: {:?}", con);
                 }
-
-                log::info!("Connected info: {:?}", con);
                 SLOT_NUMBER.store(con.slot, Ordering::SeqCst);
                 TEAM_NUMBER.store(con.team, Ordering::SeqCst);
             }
@@ -193,6 +173,9 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) -> Result<(), Box<dyn Error>>
         }
     }
 
+
+    update_checked_locations()?;
+
     let mut sync_data = item_sync::get_sync_data().lock()?;
     *sync_data = item_sync::read_save_data().unwrap_or_default();
     if sync_data
@@ -215,7 +198,10 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) -> Result<(), Box<dyn Error>>
     match mapping::parse_slot_data() {
         Ok(_) => {
             log::info!("Successfully parsed mapping information");
-            log::debug!("Mapping data: {:#?}", mapping::MAPPING.read().unwrap());
+            const DEBUG: bool = false;
+            if DEBUG {
+                log::debug!("Mapping data: {:#?}", mapping::MAPPING.read().unwrap());
+            }
         }
         Err(err) => {
             return Err(
@@ -243,6 +229,35 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) -> Result<(), Box<dyn Error>>
     mapping::use_mappings()?;
     Ok(())
 }
+
+fn update_checked_locations() -> Result<(), Box<dyn Error>> {
+    log::debug!("Filling out checked locations");
+    let dpw_lock = DATA_PACKAGE.read()?;
+    let dpw = dpw_lock
+        .as_ref()
+        .ok_or("DataPackageWrapper was None, this is probably not good")?;
+
+    let mut checked_locations = CHECKED_LOCATIONS.write()?;
+    let con_lock = CONNECTED.read()?;
+    let con = con_lock.as_ref().ok_or("Connected was None")?;
+    let loc_map = dpw
+        .location_id_to_name
+        .get(GAME_NAME)
+        .ok_or(format!("No location_id_to_name entry for {}", GAME_NAME))?;
+
+    for val in &con.checked_locations {
+        if let Some(loc_name) = loc_map.get(val) {
+            if let Some((key, _)) =
+                generated_locations::ITEM_MISSION_MAP.get_key_value(loc_name.as_str())
+            {
+                checked_locations.push(key);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 
 pub struct DeathLinkData {
     pub cause: String,

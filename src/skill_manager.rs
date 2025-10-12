@@ -1,5 +1,5 @@
 use crate::game_manager;
-use crate::game_manager::ACTIVE_CHAR_DATA;
+use crate::game_manager::{ArchipelagoData, ACTIVE_CHAR_DATA};
 use crate::utilities::{read_data_from_address, DMC3_ADDRESS};
 use std::collections::{HashMap, HashSet};
 use std::ptr::{read_unaligned, write_unaligned};
@@ -13,8 +13,10 @@ struct SkillData {
 }
 
 pub static ID_SKILL_MAP: LazyLock<HashMap<usize, &'static str>> = LazyLock::new(|| {
-    let mut map: HashMap<usize, &'static str> =
-        SKILLS_MAP.iter().map(|(name, data)| (data.id, *name)).collect();
+    let mut map: HashMap<usize, &'static str> = SKILLS_MAP
+        .iter()
+        .map(|(name, data)| (data.id, *name))
+        .collect();
 
     map.extend(HashMap::from([
         (0x53, "Ebony & Ivory Progressive Upgrade"),
@@ -235,56 +237,47 @@ pub(crate) fn set_skills() {
 pub static ACQUIRED_SKILLS: LazyLock<RwLock<HashSet<&'static str>>> =
     LazyLock::new(|| RwLock::new(HashSet::new()));
 
-pub(crate) fn add_skill(id: usize) {
-    match game_manager::ARCHIPELAGO_DATA.write() {
-        Ok(mut data) => match id {
-            0x40 => {
-                data.add_stinger_level();
-            }
-            0x46 => {
-                data.add_jet_stream_level();
-            }
-            0x4A => {
-                data.add_reverb_level();
-            }
-            _ => {}
-        },
-        Err(err) => {
-            log::error!("Failed to get ArchipelagoData: {}", err);
+pub(crate) fn add_skill(id: usize, data: &mut ArchipelagoData) {
+    match id {
+        0x40 => {
+            data.add_stinger_level();
         }
+        0x46 => {
+            data.add_jet_stream_level();
+        }
+        0x4A => {
+            data.add_reverb_level();
+        }
+        _ => {}
     }
-    match game_manager::ARCHIPELAGO_DATA.read() {
-        Ok(data) => match (*ACQUIRED_SKILLS).write() {
-            Ok(mut skill_list) => {
-                let skill_name = match id {
-                    0x40 => match data.stinger_level {
-                        1 => 0x40,
-                        2 => 0x41,
-                        _ => unreachable!(),
-                    },
-                    0x46 => match data.jet_stream_level {
-                        1 => 0x46,
-                        2 => 0x47,
-                        _ => unreachable!(),
-                    },
-                    0x4A => match data.reverb_level {
-                        1 => 0x4A,
-                        2 => 0x4B,
-                        _ => unreachable!(),
-                    },
-                    _ => id,
-                };
-                skill_list.insert(ID_SKILL_MAP.get(&skill_name).unwrap());
-            }
-            Err(err) => {
-                log::error!(
-                    "Unable to write to internal acquired skills list: {:?}",
-                    err
-                );
-            }
-        },
+    
+    match (*ACQUIRED_SKILLS).write() {
+        Ok(mut skill_list) => {
+            let skill_name = match id {
+                0x40 => match data.stinger_level {
+                    1 => 0x40,
+                    2 => 0x41,
+                    _ => unreachable!(),
+                },
+                0x46 => match data.jet_stream_level {
+                    1 => 0x46,
+                    2 => 0x47,
+                    _ => unreachable!(),
+                },
+                0x4A => match data.reverb_level {
+                    1 => 0x4A,
+                    2 => 0x4B,
+                    _ => unreachable!(),
+                },
+                _ => id,
+            };
+            skill_list.insert(ID_SKILL_MAP.get(&skill_name).unwrap());
+        }
         Err(err) => {
-            log::error!("Failed to get ArchipelagoData: {}", err);
+            log::error!(
+                "Unable to write to internal acquired skills list: {:?}",
+                err
+            );
         }
     }
 

@@ -7,25 +7,26 @@ use crate::game_manager::{
 };
 use crate::location_handler::in_key_item_room;
 use crate::mapping::{Mapping, MAPPING};
+use crate::ui::text_handler;
 use crate::ui::text_handler::LAST_OBTAINED_ID;
 use crate::ui::ui::{CHECKLIST, CONNECTION_STATUS};
 use crate::utilities::{read_data_from_address, replace_single_byte, DMC3_ADDRESS};
 use crate::{
-    bank, check_handler, create_hook, game_manager, mapping, save_handler, skill_manager,
-    utilities,
+    bank, check_handler, create_hook, game_manager, mapping, save_handler, skill_manager, utilities,
 };
 use archipelago_rs::client::ArchipelagoClient;
 use log::error;
 use minhook::{MinHook, MH_STATUS};
 use std::arch::asm;
 use std::collections::HashMap;
-use std::ptr::read_unaligned;
+use std::ptr::{read_unaligned, write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, OnceLock, RwLockReadGuard};
 use std::{ptr, slice};
 use tokio::sync::Mutex;
-use windows::Win32::System::Memory::{VirtualProtect, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS};
-use crate::ui::text_handler;
+use windows::Win32::System::Memory::{
+    VirtualProtect, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS,
+};
 
 pub(crate) static CLIENT: LazyLock<Mutex<Option<ArchipelagoClient>>> =
     LazyLock::new(|| Mutex::new(None));
@@ -295,13 +296,13 @@ pub(crate) fn rewrite_mode_table() {
     let mut old_protect = PAGE_PROTECTION_FLAGS::default();
     let length = 16;
     unsafe {
-
         VirtualProtect(
             table_address as *mut _,
             length, // Length of table I need to modify
             PAGE_EXECUTE_READWRITE,
             &mut old_protect,
-        ).expect("Unable to rewrite mode table - Before");
+        )
+        .expect("Unable to rewrite mode table - Before");
 
         let table = slice::from_raw_parts_mut(table_address as *mut u8, length);
         table.fill(0x01u8); // 0 = orbs, 1 = items, 2 = bad
@@ -311,7 +312,8 @@ pub(crate) fn rewrite_mode_table() {
             length,
             old_protect,
             &mut old_protect,
-        ).expect("Unable to rewrite mode table - After");
+        )
+        .expect("Unable to rewrite mode table - After");
     }
 }
 
@@ -676,6 +678,28 @@ fn set_relevant_key_items() {
                 }
             }
         }
+        // Special case for Ignis Fatuus
+        // Needed so the Ignis Fatuus location can be reached even when the actual key item is acquired
+        if get_room() == 302 {
+            if let Some(event_table_addr) = utilities::get_event_address() {
+                if CHECKED_LOCATIONS
+                    .read()
+                    .unwrap()
+                    .contains(&"Mission #8 - Ignis Fatuus")
+                {
+                    // If we have the location checked, continue normal routing
+                    unsafe {
+                        write((event_table_addr + 0x748) as _, 311);
+                    }
+                } else {
+                    // If location not checked, alter event to get to it
+                    unsafe {
+                        write((event_table_addr + 0x748) as _, 303);
+                    }
+                }
+            }
+        }
+
         if let Ok(loc) = in_key_item_room() {
             log::debug!("In key room: {}", loc);
             if CHECKED_LOCATIONS.read().unwrap().contains(&loc) {
@@ -761,13 +785,15 @@ pub fn modify_item_table(offset: usize, id: u8) {
             4, // Length of table I need to modify
             PAGE_EXECUTE_READWRITE,
             &mut old_protect,
-        ).expect("Unable to modify item table - Before");
+        )
+        .expect("Unable to modify item table - Before");
 
         let table = slice::from_raw_parts_mut(true_offset as *mut u8, 4);
 
         table[3] = id;
 
-        VirtualProtect(true_offset as *mut _, 4, old_protect, &mut old_protect).expect("Unable to modify item table - After");
+        VirtualProtect(true_offset as *mut _, 4, old_protect, &mut old_protect)
+            .expect("Unable to modify item table - After");
         // log::trace!(
         //     "Modified Item Table: Address: 0x{:x}, ID: 0x{:x}, Offset: 0x{:x}",
         //     true_offset,
@@ -791,13 +817,15 @@ pub(crate) fn restore_item_table() {
                     4, // Length of table I need to modify
                     PAGE_EXECUTE_READWRITE,
                     &mut old_protect,
-                ).expect("Unable to restore item table - Before");
+                )
+                .expect("Unable to restore item table - Before");
 
                 let table = slice::from_raw_parts_mut(true_offset as *mut u8, 4);
 
                 table[3] = val.item_id as u8;
 
-                VirtualProtect(true_offset as *mut _, 4, old_protect, &mut old_protect).expect("Unable to restore item table - After");
+                VirtualProtect(true_offset as *mut _, 4, old_protect, &mut old_protect)
+                    .expect("Unable to restore item table - After");
             }
         })
 }
@@ -813,7 +841,8 @@ pub(crate) fn restore_mode_table() {
             length, // Length of table I need to modify
             PAGE_EXECUTE_READWRITE,
             &mut old_protect,
-        ).expect("Unable to restore mode table - Before");
+        )
+        .expect("Unable to restore mode table - Before");
 
         let table = slice::from_raw_parts_mut(table_address as *mut u8, length);
         table.fill(0x02u8); // 0 = orbs, 1 = items, 2 = bad
@@ -823,7 +852,8 @@ pub(crate) fn restore_mode_table() {
             length,
             old_protect,
             &mut old_protect,
-        ).expect("Unable to restore mode table - After");
+        )
+        .expect("Unable to restore mode table - After");
     }
 }
 
@@ -890,7 +920,9 @@ pub fn modify_available_styles(data_ptr: usize) -> bool {
         }
     }
     if let Some(orig) = ORIGINAL_STYLE_MENU.get() {
-        unsafe { return orig(data_ptr) }
+        unsafe {
+            return orig(data_ptr);
+        }
     }
     false
 }
@@ -925,7 +957,10 @@ pub fn set_rando_session_data(ptr: usize) {
     log::debug!("Starting new game, setting appropriate data");
     game_manager::with_session(|s| {
         if s.char != Character::Dante as u8 {
-            log::error!("Character is {} not Dante", Character::from_repr(s.char as usize).unwrap());
+            log::error!(
+                "Character is {} not Dante",
+                Character::from_repr(s.char as usize).unwrap()
+            );
             log::info!("Only Dante is supported at the moment");
             return;
         }
@@ -956,7 +991,6 @@ pub fn set_rando_session_data(ptr: usize) {
             /* Should see if I can change unlocked files? Or unlock them all.
             Game seemed to just auto unlock them though when the weapon is used
             Overall, not too important */
-                
             // This is also where I'd want to set what missions are available, but I haven't figured that out yet
             // 29A5E8
             // 0x45FECCA

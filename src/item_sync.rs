@@ -5,7 +5,7 @@ use crate::hook::CLIENT;
 use crate::mapping::MAPPING;
 use crate::ui::overlay::{MessageSegment, OverlayMessage};
 use crate::ui::ui::CHECKLIST;
-use crate::ui::{font_handler, overlay, ui};
+use crate::ui::{overlay, ui};
 use crate::{bank, constants, game_manager, mapping, skill_manager};
 use archipelago_rs::client::ArchipelagoClient;
 use archipelago_rs::protocol::ReceivedItems;
@@ -91,7 +91,7 @@ pub(crate) async fn handle_received_items_packet(
     for item in &received_items_packet.items {
         ui::set_checklist_item(get_item_name(item.item as u32), true);
     }
-    log::debug!("Received Items Packet: {:?}", received_items_packet);
+
     if received_items_packet.index == 0 {
         // If 0 abandon previous inv.
         bank::read_values(client).await?;
@@ -138,7 +138,7 @@ pub(crate) async fn handle_received_items_packet(
                         _ => {}
                     }
                     if item.item < 0x53 && item.item > 0x39 {
-                        skill_manager::add_skill(item.item as usize);
+                        skill_manager::add_skill(item.item as usize, &mut data);
                     }
                 }
             }
@@ -148,6 +148,7 @@ pub(crate) async fn handle_received_items_packet(
         }
     }
     if received_items_packet.index > CURRENT_INDEX.load(Ordering::SeqCst) {
+        log::debug!("Received new items packet: {:?}", received_items_packet);
         match game_manager::ARCHIPELAGO_DATA.write() {
             Ok(mut data) => {
                 for item in &received_items_packet.items {
@@ -240,7 +241,7 @@ pub(crate) async fn handle_received_items_packet(
                     if item.item < 0x53 && item.item > 0x39 {
                         if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
                             if mapping.randomize_skills {
-                                skill_manager::add_skill(item.item as usize);
+                                skill_manager::add_skill(item.item as usize, &mut data);
                                 skill_manager::set_skills(); // Hacky...
                             }
                         }
