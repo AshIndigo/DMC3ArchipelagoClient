@@ -10,6 +10,7 @@ use crate::utilities::{
 use std::collections::HashMap;
 use std::ptr::{read_unaligned, write_unaligned};
 use std::sync::{LazyLock, RwLock, RwLockReadGuard};
+use crate::mapping::MAPPING;
 
 pub(crate) const GAME_SESSION_DATA: usize = 0xC8F250;
 
@@ -17,6 +18,7 @@ pub(crate) const GAME_SESSION_DATA: usize = 0xC8F250;
 pub(crate) struct ArchipelagoData {
     pub(crate) blue_orbs: i32,
     pub(crate) purple_orbs: i32,
+    pub(crate) dt_unlocked: bool,
     gun_levels: [u32; 5],
     style_levels: [i32; 4],
     pub(crate) stinger_level: u8,
@@ -57,10 +59,23 @@ impl ArchipelagoData {
 
     pub(crate) fn add_purple_orb(&mut self) {
         self.purple_orbs = (self.purple_orbs + 1).min(10);
+        if let Some(mappings) = MAPPING.read().unwrap().as_ref() {
+            if !mappings.devil_trigger_mode {
+                self.dt_unlocked = true;
+            }
+        }
     }
 
     pub(crate) fn add_dt(&mut self) {
-        self.purple_orbs = (self.purple_orbs + 3).min(10);
+        if let Some(mappings) = MAPPING.read().unwrap().as_ref() {
+            if mappings.devil_trigger_mode {
+                self.dt_unlocked = true;
+            }
+            if !mappings.purple_orb_mode {
+                self.purple_orbs = (self.purple_orbs + 3).min(10);
+            }
+        }
+
     }
 
     pub(crate) fn add_gun_level(&mut self, gun_index: usize) {
@@ -329,8 +344,10 @@ pub fn set_max_hp_and_magic() {
             Ok(data) => {
                 s.max_hp = f32::min(BASE_HP + (data.blue_orbs as f32 * ONE_ORB), MAX_HP);
                 log::debug!("New HP is: {}", s.max_hp);
-                s.max_magic = f32::min(data.purple_orbs as f32 * ONE_ORB, MAX_MAGIC);
-                log::debug!("New Magic is: {}", s.max_magic);
+                if data.dt_unlocked {
+                    s.max_magic = f32::min(data.purple_orbs as f32 * ONE_ORB, MAX_MAGIC);
+                    log::debug!("New Magic is: {}", s.max_magic);
+                }
             }
             Err(err) => {
                 log::error!("Failed to read data from ARCHIPELAGO_DATA: {}", err);

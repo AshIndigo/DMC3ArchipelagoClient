@@ -76,27 +76,6 @@ where
     }
 }
 
-fn parse_boolean_option<'de, D>(deserializer: D) -> Result<bool, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let val = Value::deserialize(deserializer)?;
-    match val {
-        Value::Number(n) => match n.as_i64().unwrap_or_default() {
-            0 => Ok(false),
-            1 => Ok(true),
-            _ => Err(serde::de::Error::custom(format!(
-                "Invalid Boolean option: {}",
-                n
-            ))),
-        },
-        other => Err(serde::de::Error::custom(format!(
-            "Unexpected type: {:?}",
-            other
-        ))),
-    }
-}
-
 #[derive(Deserialize, Serialize, Debug)]
 pub struct Mapping {
     // For mapping JSON
@@ -110,11 +89,10 @@ pub struct Mapping {
     #[serde(default = "default_gun")]
     #[serde(deserialize_with = "parse_gun_number")]
     pub start_gun: String,
-    #[serde(deserialize_with = "parse_boolean_option")]
     pub randomize_skills: bool,
-    #[serde(deserialize_with = "parse_boolean_option")]
     pub randomize_styles: bool,
-    #[serde(deserialize_with = "parse_boolean_option")]
+    pub purple_orb_mode: bool,
+    pub devil_trigger_mode: bool,
     pub death_link: bool,
     #[serde(default = "default_goal")]
     pub goal: Goal,
