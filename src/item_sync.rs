@@ -164,7 +164,7 @@ pub(crate) async fn handle_received_items_packet(
                         Duration::from_secs(3),
                         0.0,
                         0.0,
-                        overlay::MessageType::Received
+                        overlay::MessageType::Notification
                     ));
                     if item.item < 0x14 {
                         if let Some(tx) = bank::TX_BANK_MESSAGE.get() {

@@ -3,6 +3,7 @@ use crate::constants::{
     MAX_HP, MAX_MAGIC, MELEE_NAMES, ONE_ORB,
 };
 use crate::hook::ORIGINAL_GIVE_STYLE_XP;
+use crate::mapping::MAPPING;
 use crate::ui::ui::CHECKLIST;
 use crate::utilities::{
     get_inv_address, read_data_from_address, replace_single_byte, DMC3_ADDRESS,
@@ -10,7 +11,6 @@ use crate::utilities::{
 use std::collections::HashMap;
 use std::ptr::{read_unaligned, write_unaligned};
 use std::sync::{LazyLock, RwLock, RwLockReadGuard};
-use crate::mapping::MAPPING;
 
 pub(crate) const GAME_SESSION_DATA: usize = 0xC8F250;
 
@@ -75,7 +75,6 @@ impl ArchipelagoData {
                 self.purple_orbs = (self.purple_orbs + 3).min(10);
             }
         }
-
     }
 
     pub(crate) fn add_gun_level(&mut self, gun_index: usize) {
@@ -355,6 +354,26 @@ pub fn set_max_hp_and_magic() {
         }
     })
     .unwrap();
+}
+
+pub(crate) fn hurt_dante() {
+    // TODO Maybe figure out some better values, unless I want to maybe do a fraction of the players max HP?
+    let damage: f32 = match get_difficulty() {
+        Difficulty::Easy => 1000.0,
+        Difficulty::Normal => 2000.0,
+        Difficulty::Hard => 4000.0,
+        Difficulty::VeryHard => 8000.0,
+        Difficulty::DanteMustDie => 10000.0,
+        // Insta kill
+        Difficulty::HeavenOrHell => MAX_HP,
+    };
+    let hp_addr = read_data_from_address::<usize>(*DMC3_ADDRESS + ACTIVE_CHAR_DATA) + 0x411C;
+    unsafe {
+        write_unaligned(
+            hp_addr as *mut f32,
+            f32::max(read_unaligned(hp_addr as *const f32) - damage, 0.0),
+        );
+    }
 }
 
 pub(crate) fn kill_dante() {

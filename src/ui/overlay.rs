@@ -116,7 +116,7 @@ impl OverlayMessage {
 // TODO This doesn't matter right now, but it could be used later
 pub(crate) enum MessageType {
     Default,  // Take the X and Y values as they are given
-    Received, // Disregard coordinates, automatically align to upper right (Used for newly received items)
+    Notification, // Disregard coordinates, automatically align to upper right (Used for newly received items+DL)
 }
 
 pub(crate) fn add_message(overlay: OverlayMessage) {

@@ -3,16 +3,18 @@ use crate::cache::{read_cache, DATA_PACKAGE};
 use crate::check_handler::Location;
 use crate::constants::{ItemCategory, Status, GAME_NAME};
 use crate::data::generated_locations;
+use crate::mapping::{DeathlinkSetting, MAPPING};
+use crate::ui::font_handler::WHITE;
+use crate::ui::overlay::{MessageSegment, MessageType, OverlayMessage};
 use crate::ui::ui::CONNECTION_STATUS;
 use crate::ui::{text_handler, ui};
 use crate::{bank, cache, constants, game_manager, hook, item_sync, location_handler, mapping};
 use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
 use archipelago_rs::protocol::{
-    Bounce, Bounced, ClientMessage, ClientStatus, ConnectUpdate, Connected, JSONColor,
-    JSONMessagePart, PrintJSON, Retrieved, ServerMessage, StatusUpdate,
+    Bounce, Bounced, ClientMessage, ClientStatus, Connected, JSONColor, JSONMessagePart, PrintJSON,
+    Retrieved, ServerMessage, StatusUpdate,
 };
-use log::error;
 use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -22,7 +24,7 @@ use std::fmt::{Display, Formatter};
 use std::fs::remove_file;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{LazyLock, OnceLock, RwLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync;
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -173,7 +175,6 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) -> Result<(), Box<dyn Error>>
         }
     }
 
-
     update_checked_locations()?;
 
     let mut sync_data = item_sync::get_sync_data().lock()?;
@@ -209,23 +210,6 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) -> Result<(), Box<dyn Error>>
             );
         }
     }
-    match mapping::MAPPING.read() {
-        Ok(mapping) => {
-            if let Some(mapping) = mapping.as_ref() {
-                if mapping.death_link {
-                    cl.send(ClientMessage::ConnectUpdate(ConnectUpdate {
-                        items_handling: 0b111,
-                        tags: vec![String::from("AP"), String::from("DeathLink")],
-                    }))
-                    .await
-                    .expect("TODO: panic message");
-                }
-            }
-        }
-        Err(err) => {
-            error!("Failed to get mapping lock: {}", err);
-        }
-    }
     mapping::use_mappings()?;
     Ok(())
 }
@@ -257,7 +241,6 @@ fn update_checked_locations() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
-
 
 pub struct DeathLinkData {
     pub cause: String,
@@ -448,19 +431,37 @@ async fn handle_bounced(
     if bounced.tags.is_some() {
         if bounced.tags.unwrap().contains(&DEATH_LINK.to_string()) {
             log::debug!("DeathLink detected");
+
+            // TODO Only display this if in game?
             if bounced.data.is_some() {
-                log::info!(
-                    "{}",
-                    bounced
-                        .data
-                        .unwrap()
-                        .get("cause")
-                        .unwrap()
-                        .as_str()
-                        .unwrap()
-                );
+                crate::ui::overlay::add_message(OverlayMessage::new(
+                    vec![MessageSegment::new(
+                        bounced
+                            .data
+                            .unwrap()
+                            .get("cause")
+                            .unwrap()
+                            .as_str()
+                            .unwrap()
+                            .to_string(),
+                        WHITE,
+                    )],
+                    Duration::from_secs(3),
+                    // TODO May want to adjust position, currently added to the 'notification list' so it's in the upper right queue
+                    0.0,
+                    0.0,
+                    MessageType::Notification,
+                ));
             }
-            game_manager::kill_dante();
+            match MAPPING.read()?.as_ref().unwrap().death_link {
+                DeathlinkSetting::DeathLink => {
+                    game_manager::kill_dante();
+                }
+                DeathlinkSetting::HurtLink => {
+                    game_manager::hurt_dante();
+                }
+                DeathlinkSetting::Off => {}
+            }
         }
     }
     Ok(())

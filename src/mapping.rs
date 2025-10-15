@@ -76,6 +76,29 @@ where
     }
 }
 
+/// Figure out which DL setting were on
+fn parse_death_link<'de, D>(deserializer: D) -> Result<DeathlinkSetting, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let val = Value::deserialize(deserializer)?;
+    match val {
+        Value::Number(n) => match n.as_i64().unwrap_or_default() {
+            0 => Ok(DeathlinkSetting::Off),
+            1 => Ok(DeathlinkSetting::DeathLink),
+            2 => Ok(DeathlinkSetting::HurtLink),
+            _ => Err(serde::de::Error::custom(format!(
+                "Invalid gun number: {}",
+                n
+            ))),
+        },
+        other => Err(serde::de::Error::custom(format!(
+            "Unexpected type: {:?}",
+            other
+        ))),
+    }
+}
+
 #[derive(Deserialize, Serialize, Debug)]
 pub struct Mapping {
     // For mapping JSON
@@ -93,7 +116,8 @@ pub struct Mapping {
     pub randomize_styles: bool,
     pub purple_orb_mode: bool,
     pub devil_trigger_mode: bool,
-    pub death_link: bool,
+    #[serde(deserialize_with = "parse_death_link")]
+    pub death_link: DeathlinkSetting,
     #[serde(default = "default_goal")]
     pub goal: Goal,
 }
@@ -103,6 +127,13 @@ pub enum Goal {
     Standard,    // Beat M20 in linear order M1-M20 (Default)
     All,         // Beat all missions, all are unlocked at start
     RandomOrder, // Beat all missions in a randomized linear order
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub enum DeathlinkSetting {
+    DeathLink, // Normal DeathLink Behavior
+    HurtLink,  // Sends out DeathLink messages when you die. But only hurts you if you receive one
+    Off,       // Don't send/receive DL related messages
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -159,19 +190,15 @@ impl LocationData {
             match self.item_id {
                 None => Err("Item ID is None, cannot get name".into()),
                 Some(item_id) => match cache.item_id_to_name.get(game_name) {
-                    None => {
-                        Err(format!("{} does not exist in cache", game_name).into())
-                    }
-                    Some(item_id_to_name) => {
-                        match item_id_to_name.get(&(item_id as i64)) {
-                            None => {
-                                Err(format!("{:?} does not exist in {}'s item cache", item_id, game_name).into())
-                            }
-                            Some(name) => {
-                                Ok(name.clone())
-                            }
-                        }
-                    }
+                    None => Err(format!("{} does not exist in cache", game_name).into()),
+                    Some(item_id_to_name) => match item_id_to_name.get(&(item_id as i64)) {
+                        None => Err(format!(
+                            "{:?} does not exist in {}'s item cache",
+                            item_id, game_name
+                        )
+                        .into()),
+                        Some(name) => Ok(name.clone()),
+                    },
                 },
             }
         } else {

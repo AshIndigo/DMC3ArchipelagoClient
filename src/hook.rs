@@ -15,7 +15,6 @@ use crate::{
     bank, check_handler, create_hook, game_manager, mapping, save_handler, skill_manager, utilities,
 };
 use archipelago_rs::client::ArchipelagoClient;
-use log::error;
 use minhook::{MinHook, MH_STATUS};
 use std::arch::asm;
 use std::collections::HashMap;
@@ -254,17 +253,7 @@ pub fn edit_event_drop(param_1: usize, param_2: i32, param_3: usize) {
                                 log::debug!("Event loc not checked: {}", &event_table.location);
                                 match event.event_type {
                                     // Location has not been checked off!
-                                    EventCode::GIVE => log::debug!("Give event")/*replace_single_byte(
-                                    event_table_addr + event.offset,
-                                    get_item_id(
-                                        &*mapping
-                                            .items
-                                            .get(event_table.location)
-                                            .unwrap()
-                                            .item_name,
-                                    )
-                                    .unwrap(),
-                                )*/,
+                                    EventCode::GIVE => {},
                                     EventCode::CHECK => {
                                         log::debug!("Replaced check at {:#X}", &event.offset);
                                         replace_single_byte(event_table_addr + event.offset, *DUMMY_ID as u8)
@@ -486,33 +475,19 @@ fn monitor_hp(damage_calc: usize, param_1: usize, param_2: usize, param_3: usize
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
 async fn send_deathlink() {
-    log::debug!("Sending deathlink");
-    match MAPPING.read() {
-        Ok(mapping) => {
-            if let Some(mapping) = mapping.as_ref() {
-                if mapping.death_link {
-                    log::debug!("about to send to dl channel");
-                    TX_DEATHLINK
-                        .get()
-                        .unwrap()
-                        .send(DeathLinkData {
-                            cause: format!(
-                                "{} died in Mission #{} on {}", // TODO Maybe an "against {}" at some point?
-                                mapping::get_own_slot_name().unwrap(),
-                                get_mission(),
-                                get_difficulty()
-                            ),
-                        })
-                        .await
-                        .unwrap();
-                    log::debug!("Sent deathlink message to channel");
-                }
-            }
-        }
-        Err(err) => {
-            error!("Failed to get mapping lock: {}", err);
-        }
-    }
+    TX_DEATHLINK
+        .get()
+        .unwrap()
+        .send(DeathLinkData {
+            cause: format!(
+                "{} died in Mission #{} on {}", // TODO Maybe an "against {}" at some point?
+                mapping::get_own_slot_name().unwrap(),
+                get_mission(),
+                get_difficulty()
+            ),
+        })
+        .await
+        .unwrap();
 }
 
 pub const EQUIPMENT_SCREEN_ADDR: usize = 0x28CBD0;
