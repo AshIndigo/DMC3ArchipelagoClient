@@ -146,7 +146,7 @@ pub struct AdjudicatorData {
 pub struct LocationData {
     // Item name, used for descriptions
     #[serde(default)]
-    item_id: Option<i32>,
+    item_id: Option<i64>,
     // Slot ID for recipient
     owner: i32,
 }

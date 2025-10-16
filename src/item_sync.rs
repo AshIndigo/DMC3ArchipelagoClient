@@ -3,9 +3,9 @@ use crate::constants::{get_item_name, MISSION_ITEM_MAP};
 use crate::game_manager::{get_mission, Style};
 use crate::hook::CLIENT;
 use crate::mapping::MAPPING;
+use crate::ui::font_handler::{WHITE, YELLOW};
 use crate::ui::overlay::{MessageSegment, OverlayMessage};
-use crate::ui::ui::CHECKLIST;
-use crate::ui::{overlay, ui};
+use crate::ui::{overlay};
 use crate::{bank, constants, game_manager, mapping, skill_manager};
 use archipelago_rs::client::ArchipelagoClient;
 use archipelago_rs::protocol::ReceivedItems;
@@ -17,9 +17,8 @@ use std::fs::File;
 use std::io::{BufReader, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock, RwLock};
 use std::time::Duration;
-use crate::ui::font_handler::{WHITE, YELLOW};
 
 const SYNC_FILE: &str = "archipelago.json";
 pub(crate) static SYNC_DATA: OnceLock<Mutex<SyncData>> = OnceLock::new();
@@ -89,7 +88,7 @@ pub(crate) async fn handle_received_items_packet(
         Ordering::SeqCst,
     );
     for item in &received_items_packet.items {
-        ui::set_checklist_item(get_item_name(item.item as u32), true);
+        set_checklist_item(get_item_name(item.item as u32), true);
     }
 
     if received_items_packet.index == 0 {
@@ -155,7 +154,10 @@ pub(crate) async fn handle_received_items_packet(
                     let item_name = get_item_name(item.item as u32);
                     let rec_msg: Vec<MessageSegment> = vec![
                         MessageSegment::new("Received ".to_string(), WHITE),
-                        MessageSegment::new(item_name.to_string(), overlay::get_color_for_item(item.flags)),
+                        MessageSegment::new(
+                            item_name.to_string(),
+                            overlay::get_color_for_item(item.flags),
+                        ),
                         MessageSegment::new(" from ".to_string(), WHITE),
                         MessageSegment::new(mapping::get_slot_name(item.player)?, YELLOW),
                     ];
@@ -164,7 +166,7 @@ pub(crate) async fn handle_received_items_packet(
                         Duration::from_secs(3),
                         0.0,
                         0.0,
-                        overlay::MessageType::Notification
+                        overlay::MessageType::Notification,
                     ));
                     if item.item < 0x14 {
                         if let Some(tx) = bank::TX_BANK_MESSAGE.get() {
@@ -268,7 +270,6 @@ pub(crate) async fn handle_received_items_packet(
         }
     }
 
-
     log::debug!("Writing sync file");
     write_sync_data_file().await?;
     Ok(())
@@ -362,4 +363,13 @@ pub(crate) async fn send_offline_checks(
         }
     }
     Ok(())
+}
+
+pub static CHECKLIST: OnceLock<RwLock<HashMap<String, bool>>> = OnceLock::new();
+
+pub fn set_checklist_item(item: &str, value: bool) {
+    if let Some(rwlock) = CHECKLIST.get() {
+        rwlock.write().unwrap().insert(item.to_string(), value);
+        //log::debug!("Checklist: {:?}", *rwlock)
+    }
 }

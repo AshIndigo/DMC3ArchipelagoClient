@@ -1,13 +1,13 @@
 use crate::bank::{get_bank, get_bank_key};
-use crate::cache::{read_cache, DATA_PACKAGE};
+use crate::cache::{read_cache, ChecksumError, DATA_PACKAGE};
 use crate::check_handler::Location;
-use crate::constants::{ItemCategory, Status, GAME_NAME};
+use crate::constants::{ItemCategory, Status, GAME_NAME, REMOTE_ID};
 use crate::data::generated_locations;
 use crate::mapping::{DeathlinkSetting, MAPPING};
 use crate::ui::font_handler::WHITE;
 use crate::ui::overlay::{MessageSegment, MessageType, OverlayMessage};
+use crate::ui::text_handler;
 use crate::ui::ui::CONNECTION_STATUS;
-use crate::ui::{text_handler, ui};
 use crate::{bank, cache, constants, game_manager, hook, item_sync, location_handler, mapping};
 use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
@@ -89,18 +89,30 @@ pub async fn get_archipelago_client(
     } else {
         // If the cache exists, then connect normally and verify the cache file
         let cl = ArchipelagoClient::new(&login_data.url).await?;
-        match cache::find_checksum_errors(cl.room_info()).await {
-            None => {
+        match cache::find_checksum_errors(cl.room_info()) {
+            Ok(()) => {
                 log::info!("Checksums check out!");
                 Ok(cl)
             }
-            Some(failures) => {
-                // If there are checksums that don't match, obliterate the cache file and reconnect to obtain the data package
-                log::info!("Checksums check failures: {:?}", failures);
-                if let Err(err) = remove_file(cache::CACHE_FILENAME) {
-                    log::error!("Failed to remove {}: {}", cache::CACHE_FILENAME, err);
-                };
-                Box::pin(get_archipelago_client(login_data)).await
+            Err(err) => {
+                match err.downcast::<ChecksumError>() {
+                    Ok(checksum_error) => {
+                        log::error!(
+                            "Local DataPackage checksums for {:?} did not match expected values, reacquiring",
+                            checksum_error.games
+                        );
+                        // TODO
+                    }
+                    Err(err) => {
+                        log::error!("Error checking DataPackage checksums: {:?}", err);
+                        if let Err(err) = remove_file(cache::CACHE_FILENAME) {
+                            log::error!("Failed to remove {}: {}", cache::CACHE_FILENAME, err);
+                        };
+                    }
+                }
+                Err(ArchipelagoError::ConnectionClosed)
+                // TODO Auto reconnect should handle this
+                //Box::pin(get_archipelago_client(login_data)).await
             }
         }
     }
@@ -525,11 +537,9 @@ async fn handle_item_receive(
                     log::error!("Failed to check location: {}", arch_err);
                     item_sync::add_offline_check(loc_id.clone(), client).await?;
                 }
-                log::debug!("Gonna try to get name: {:?}", location_data);
                 let name = location_data.get_item_name()?;
-                if location_data.get_in_game_id() > 0x14 {
-                    ui::set_checklist_item(&*name, true);
-                    log::debug!("Item checked off: {}", name);
+                if location_data.get_in_game_id() > 0x14 && location_data.get_in_game_id() != *REMOTE_ID{
+                    item_sync::set_checklist_item(&*name, true);
                 }
 
                 log::info!(

@@ -1,22 +1,11 @@
+use std::convert::Into;
 use crate::archipelago::ArchipelagoConnection;
 use crate::constants::Status;
 use crate::{archipelago, config};
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicIsize, Ordering};
-use std::sync::{OnceLock, RwLock};
 
-pub(crate) static CONNECTION_STATUS: AtomicIsize = AtomicIsize::new(0); // Disconnected
-pub static CHECKLIST: OnceLock<RwLock<HashMap<String, bool>>> = OnceLock::new();
-
-pub fn set_checklist_item(item: &str, value: bool) {
-    if let Some(rwlock) = CHECKLIST.get() {
-        {
-            let mut checklist = rwlock.write().unwrap();
-            checklist.insert(item.to_string(), value);
-        }
-        if let Ok(_checklist) = rwlock.read() {}
-    }
-}
+// Disconnected
+pub(crate) static CONNECTION_STATUS: AtomicIsize = AtomicIsize::new(0);
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
 pub async fn send_connect_message(url: String, name: String, password: String) {
@@ -34,16 +23,6 @@ pub async fn send_connect_message(url: String, name: String, password: String) {
         }
     }
 }
-
-// #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
-// pub(crate) async fn disconnect_button_pressed() {
-//     match archipelago::TX_DISCONNECT.get() {
-//         None => log::error!("Disconnect TX doesn't exist"),
-//         Some(tx) => {
-//             tx.send(true).await.expect("Failed to send data");
-//         }
-//     }
-// }
 
 pub fn get_status_text() -> &'static str {
     match CONNECTION_STATUS.load(Ordering::Relaxed).into() {

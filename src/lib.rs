@@ -4,7 +4,7 @@ use crate::archipelago::{
 use crate::bank::setup_bank_message_channel;
 use crate::constants::Status;
 use crate::hook::CLIENT;
-use crate::ui::ui::CHECKLIST;
+use item_sync::CHECKLIST;
 use crate::utilities::{is_crimson_loaded, is_ddmk_loaded};
 use anyhow::anyhow;
 use archipelago_rs::protocol::ClientStatus;

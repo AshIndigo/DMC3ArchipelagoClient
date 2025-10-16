@@ -1,6 +1,6 @@
 use crate::constants::{BasicNothingFunc, ItemCategory};
 use crate::compat::imgui_bindings::*;
-use crate::ui::ui::{get_status_text, CHECKLIST};
+use crate::ui::ui::get_status_text;
 use crate::utilities::read_data_from_address;
 use crate::{bank, check_handler, config, constants, game_manager, utilities};
 use imgui_sys::{ImGuiCond, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
@@ -9,7 +9,8 @@ use std::os::raw::c_char;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, OnceLock};
 use std::thread;
-use crate::ui::{text_handler};
+use crate::item_sync::CHECKLIST;
+use crate::ui::text_handler;
 
 pub static MARY_ADDRESS: LazyLock<usize> =
     LazyLock::new(|| utilities::get_base_address("Mary.dll"));

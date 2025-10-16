@@ -4,7 +4,7 @@ use crate::constants::{
 };
 use crate::hook::ORIGINAL_GIVE_STYLE_XP;
 use crate::mapping::MAPPING;
-use crate::ui::ui::CHECKLIST;
+use crate::item_sync::CHECKLIST;
 use crate::utilities::{
     get_inv_address, read_data_from_address, replace_single_byte, DMC3_ADDRESS,
 };
