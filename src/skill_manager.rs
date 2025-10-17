@@ -1,10 +1,10 @@
-use crate::game_manager;
-use crate::game_manager::{ArchipelagoData, ACTIVE_CHAR_DATA};
-use crate::utilities::{read_data_from_address, DMC3_ADDRESS};
-use std::collections::{HashMap};
+use crate::game_manager::ArchipelagoData;
+use crate::{game_manager, utilities};
+use std::collections::HashMap;
+use std::ops::BitOrAssign;
 use std::ptr::{read_unaligned, write_unaligned};
 
-use std::sync::{LazyLock};
+use std::sync::LazyLock;
 
 struct SkillData {
     id: usize,
@@ -201,9 +201,8 @@ pub(crate) fn reset_expertise() {
         s.expertise = DEFAULT_SKILLS;
     })
     .expect("Unable to reset expertise");
-    const EXPERTISE_OFFSET: usize = 0x3FEC;
-    let char_data_ptr: usize = read_data_from_address(*DMC3_ADDRESS + ACTIVE_CHAR_DATA);
-    if char_data_ptr != 0 {
+    if let Some(char_data_ptr) = utilities::get_active_char_address() {
+        log::debug!("restting exp. char data");
         unsafe {
             write_unaligned(
                 (char_data_ptr + EXPERTISE_OFFSET) as *mut [u32; 8],
@@ -213,21 +212,22 @@ pub(crate) fn reset_expertise() {
     }
 }
 
+const EXPERTISE_OFFSET: usize = 0x400C;
+
 fn give_skill(skill_name: &&'static str) {
     // This works, might not update files? need to double-check
     log::debug!("Giving skill: {}", skill_name);
     let data = SKILLS_MAP.get(skill_name).unwrap();
     game_manager::with_session(|s| {
-        s.expertise[data.index] += data.flag;
+        s.expertise[data.index].bitor_assign(data.flag);
     })
     .expect("Unable to give skill");
-    const EXPERTISE_OFFSET: usize = 0x3FEC;
-    let char_data_ptr: usize = read_data_from_address(*DMC3_ADDRESS + ACTIVE_CHAR_DATA);
-    if char_data_ptr != 0 {
+
+    if let Some(char_data_ptr) = utilities::get_active_char_address() {
         unsafe {
             let mut active_expertise =
                 read_unaligned((char_data_ptr + EXPERTISE_OFFSET) as *mut [u32; 8]);
-            active_expertise[data.index] += data.flag;
+            active_expertise[data.index].bitor_assign(data.flag);
             write_unaligned(
                 (char_data_ptr + EXPERTISE_OFFSET) as *mut [u32; 8],
                 active_expertise,

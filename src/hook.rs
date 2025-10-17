@@ -457,13 +457,13 @@ pub static ORIGINAL_DAMAGE_CALC: OnceLock<
 
 fn monitor_hp(damage_calc: usize, param_1: usize, param_2: usize, param_3: usize) {
     unsafe { ORIGINAL_DAMAGE_CALC.get().unwrap()(damage_calc, param_1, param_2, param_3) }
-    let char_data_ptr: usize =
-        read_data_from_address(*DMC3_ADDRESS + game_manager::ACTIVE_CHAR_DATA);
-    unsafe {
-        let hp = read_unaligned((char_data_ptr + 0x411C) as *mut f32);
-        if hp <= 0.0 {
-            log::debug!("Dante died!");
-            send_deathlink();
+    if let Some(char_data_ptr) = utilities::get_active_char_address() {
+        unsafe {
+            let hp = read_unaligned((char_data_ptr + 0x411C) as *mut f32);
+            if hp <= 0.0 {
+                log::debug!("Dante died!");
+                send_deathlink();
+            }
         }
     }
 }
@@ -699,6 +699,7 @@ pub fn load_new_room(param_1: usize) -> bool {
     set_weapons_in_inv();
     check_handler::clear_high_roller();
     LAST_OBTAINED_ID.store(0, Ordering::SeqCst); // Should stop random item jumpscares
+    skill_manager::set_skills(&ARCHIPELAGO_DATA.read().unwrap());
     //location_handler::room_transition();
     res
 }

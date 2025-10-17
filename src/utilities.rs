@@ -21,6 +21,12 @@ pub fn get_inv_address() -> Option<usize> {
     if val == 0 { None } else { Some(val) }
 }
 
+pub fn get_active_char_address() -> Option<usize> {
+    const ACTIVE_CHAR_PTR: usize = 0xCF2548;
+    let val = read_data_from_address(*DMC3_ADDRESS + ACTIVE_CHAR_PTR);
+    if val == 0 { None } else { Some(val) }
+}
+
 pub fn get_event_address() -> Option<usize> {
     // Remember kids, assuming makes an ass out of u and ming
     const EVENT_PTR: usize = 0xC9DDB8;

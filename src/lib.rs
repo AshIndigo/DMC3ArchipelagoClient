@@ -63,7 +63,7 @@ macro_rules! create_hook {
         $storage
             .set(std::mem::transmute(original))
             .expect(concat!($name, " hook already set"));
-        log::debug!("{name} hook created", name = $name);
+        //log::debug!("{name} hook created", name = $name);
     }};
 }
 
@@ -115,10 +115,10 @@ pub extern "system" fn DllMain(
                 load_real_dinput8();
                 if current_exe().unwrap().ends_with("dmc3.exe") {
                     let mut pre_logs: Vec<PreLog> = vec![];
-                    pre_logs.push(PreLog::new(
-                        Level::Debug,
-                        format!("Config: {:#?}", *config::CONFIG),
-                    ));
+                    // pre_logs.push(PreLog::new(
+                    //     Level::Debug,
+                    //     format!("Config: {:#?}", *config::CONFIG),
+                    // ));
                     match load_other_dlls(&mut pre_logs) {
                         Ok(_) => {
                             pre_logs.push(PreLog::new(
@@ -300,6 +300,7 @@ fn setup_logger() {
         .logger(Logger::builder().build("winit::window", LevelFilter::Warn))
         .logger(Logger::builder().build("eframe::native::run", LevelFilter::Warn))
         .logger(Logger::builder().build("eframe::native::glow_integration", LevelFilter::Warn))
+        .logger(Logger::builder().build("minhook", LevelFilter::Warn))
         .build(
             Root::builder()
                 .appender("stdout")

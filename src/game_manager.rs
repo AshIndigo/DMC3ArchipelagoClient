@@ -10,6 +10,7 @@ use crate::utilities::{
 };
 use std::ptr::{read_unaligned, write_unaligned};
 use std::sync::{LazyLock, RwLock};
+use crate::utilities;
 
 pub(crate) const GAME_SESSION_DATA: usize = 0xC8F250;
 
@@ -230,7 +231,6 @@ pub fn get_difficulty() -> Difficulty {
 }
 
 const CHARACTER_DATA: usize = 0xC90E30;
-pub(crate) const ACTIVE_CHAR_DATA: usize = 0xCF2548;
 
 pub(crate) fn give_magic(magic_val: f32) {
     let base = *DMC3_ADDRESS;
@@ -247,8 +247,7 @@ pub(crate) fn give_magic(magic_val: f32) {
             (base + CHARACTER_DATA + 0x16C + 0x70) as *mut f32,
             read_unaligned((base + CHARACTER_DATA + 0x16C + 0x70) as *mut f32) + magic_val,
         ); // Max magic
-        let char_data_ptr: usize = read_data_from_address(*DMC3_ADDRESS + ACTIVE_CHAR_DATA);
-        if char_data_ptr != 0 {
+        if let Some(char_data_ptr) = utilities::get_active_char_address() {
             write_unaligned(
                 (char_data_ptr + 0x3EB8) as *mut f32,
                 read_unaligned((char_data_ptr + 0x3EB8) as *mut f32) + magic_val,
@@ -273,8 +272,7 @@ pub(crate) fn give_hp(life_value: f32) {
             (base + CHARACTER_DATA + 0x16C + 0x68) as *mut f32,
             read_unaligned((base + CHARACTER_DATA + 0x16C + 0x68) as *mut f32) + life_value,
         ); // Max life
-        let char_data_ptr: usize = read_data_from_address(*DMC3_ADDRESS + ACTIVE_CHAR_DATA);
-        if char_data_ptr != 0 {
+        if let Some(char_data_ptr) = utilities::get_active_char_address() {
             write_unaligned(
                 (char_data_ptr + 0x411C) as *mut f32,
                 read_unaligned((char_data_ptr + 0x411C) as *mut f32) + life_value,
@@ -377,20 +375,25 @@ pub(crate) fn hurt_dante() {
         // Insta kill
         Difficulty::HeavenOrHell => MAX_HP,
     };
-    let hp_addr = read_data_from_address::<usize>(*DMC3_ADDRESS + ACTIVE_CHAR_DATA) + 0x411C;
-    unsafe {
-        write_unaligned(
-            hp_addr as *mut f32,
-            f32::max(read_unaligned(hp_addr as *const f32) - damage, 0.0),
-        );
+    if let Some(char_data_ptr) = utilities::get_active_char_address() {
+        let hp_addr = char_data_ptr + 0x411C;
+        unsafe {
+            write_unaligned(
+                hp_addr as *mut f32,
+                f32::max(read_unaligned(hp_addr as *const f32) - damage, 0.0),
+            );
+        }
     }
+
 }
 
 pub(crate) fn kill_dante() {
-    let char_data_ptr: usize = read_data_from_address(*DMC3_ADDRESS + ACTIVE_CHAR_DATA);
-    unsafe {
-        write_unaligned((char_data_ptr + 0x411C) as *mut f32, 0.0);
+    if let Some(char_data_ptr) = utilities::get_active_char_address() {
+        unsafe {
+            write_unaligned((char_data_ptr + 0x411C) as *mut f32, 0.0);
+        }
     }
+
 }
 
 pub fn set_session_weapons() {
@@ -446,12 +449,11 @@ pub(crate) fn set_gun_levels() {
         }
     })
     .expect("Unable to edit session data");
-    let gun_upgrade_offset = 0x3FEC;
-    let char_data_ptr: usize = read_data_from_address(*DMC3_ADDRESS + ACTIVE_CHAR_DATA);
-    if char_data_ptr != 0 {
+    const GUN_UPGRADE_OFFSET: usize = 0x3FEC;
+    if let Some(char_data_ptr) = utilities::get_active_char_address() {
         unsafe {
             let mut gun_levels =
-                read_unaligned((char_data_ptr + gun_upgrade_offset) as *mut [u32; 10]);
+                read_unaligned((char_data_ptr + GUN_UPGRADE_OFFSET) as *mut [u32; 10]);
             match ARCHIPELAGO_DATA.read() {
                 Ok(data) => {
                     for i in 0..(*GUN_NAMES).len() {
@@ -463,7 +465,7 @@ pub(crate) fn set_gun_levels() {
                 }
             }
             write_unaligned(
-                (char_data_ptr + gun_upgrade_offset) as *mut [u32; 10],
+                (char_data_ptr + GUN_UPGRADE_OFFSET) as *mut [u32; 10],
                 gun_levels,
             )
         }
@@ -484,23 +486,20 @@ pub(crate) fn set_style_levels() {
 
 pub(crate) fn apply_style_levels(style: Style) {
     //set_style_levels();
-    let char_data_ptr: usize = read_data_from_address(*DMC3_ADDRESS + ACTIVE_CHAR_DATA);
-    if char_data_ptr != 0 {
+    if let Some(char_data_ptr) = utilities::get_active_char_address() {
         unsafe {
             const LEVEL_1_XP: f32 = 30000f32; // XP To get to LV2
             const LEVEL_2_XP: f32 = 99999f32; // LV2 -> LV3
-            const PTR_3: usize = 0xCF2548; //0xC90E28 + 0x18;
             let equipped_style = read_data_from_address::<u32>(char_data_ptr + 0x6338) as usize;
             if style.get_internal_order() == equipped_style {
                 let level = read_data_from_address::<u32>(char_data_ptr + 0x6358);
-                let ptr = read_data_from_address::<usize>(*DMC3_ADDRESS + PTR_3);
-                if ptr != 0 {
+                if let Some(char_data_ptr) = utilities::get_active_char_address() {
                     match level {
                         0 => {
-                            ORIGINAL_GIVE_STYLE_XP.get().unwrap()(ptr, LEVEL_1_XP);
+                            ORIGINAL_GIVE_STYLE_XP.get().unwrap()(char_data_ptr, LEVEL_1_XP);
                         }
                         1 => {
-                            ORIGINAL_GIVE_STYLE_XP.get().unwrap()(ptr, LEVEL_2_XP);
+                            ORIGINAL_GIVE_STYLE_XP.get().unwrap()(char_data_ptr, LEVEL_2_XP);
                         }
                         2 => {
                             log::debug!("Style {} is max level", style);
@@ -509,8 +508,6 @@ pub(crate) fn apply_style_levels(style: Style) {
                             log::error!("Unknown level: {}", level);
                         }
                     }
-                } else {
-                    log::error!("ptr 3 was 0: {:#X}", *DMC3_ADDRESS + PTR_3)
                 }
             }
         }
