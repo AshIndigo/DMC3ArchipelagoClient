@@ -1,16 +1,15 @@
+use std::collections::HashSet;
 use crate::constants::{
     get_items_by_category, get_weapon_id, Difficulty, ItemCategory, BASE_HP, GUN_NAMES, ITEM_ID_MAP, ITEM_OFFSET_MAP,
     MAX_HP, MAX_MAGIC, MELEE_NAMES, ONE_ORB,
 };
 use crate::hook::ORIGINAL_GIVE_STYLE_XP;
 use crate::mapping::MAPPING;
-use crate::item_sync::CHECKLIST;
 use crate::utilities::{
     get_inv_address, read_data_from_address, replace_single_byte, DMC3_ADDRESS,
 };
-use std::collections::HashMap;
 use std::ptr::{read_unaligned, write_unaligned};
-use std::sync::{LazyLock, RwLock, RwLockReadGuard};
+use std::sync::{LazyLock, RwLock};
 
 pub(crate) const GAME_SESSION_DATA: usize = 0xC8F250;
 
@@ -24,6 +23,9 @@ pub(crate) struct ArchipelagoData {
     pub(crate) stinger_level: u8,
     pub(crate) jet_stream_level: u8,
     pub(crate) reverb_level: u8,
+    // TODO Replaces checklist, might flesh out more
+    pub(crate) items: HashSet<&'static str>,
+    pub(crate) skills: HashSet<&'static str>,
 }
 
 #[derive(Copy, Clone, strum_macros::Display, strum_macros::FromRepr)]
@@ -53,6 +55,14 @@ pub static ARCHIPELAGO_DATA: LazyLock<RwLock<ArchipelagoData>> =
     LazyLock::new(|| RwLock::new(ArchipelagoData::default()));
 
 impl ArchipelagoData {
+    pub fn add_item(&mut self, item: &'static str) {
+        self.items.insert(item);
+    }
+
+    pub fn add_skill(&mut self, item: &'static str) {
+        self.skills.insert(item);
+    }
+
     pub(crate) fn add_blue_orb(&mut self) {
         self.blue_orbs = (self.blue_orbs + 1).min(14);
     }
@@ -384,42 +394,42 @@ pub(crate) fn kill_dante() {
 }
 
 pub fn set_session_weapons() {
-    let checklist: RwLockReadGuard<HashMap<String, bool>> =
-        CHECKLIST.get().unwrap().read().unwrap();
-    with_session(|s| {
-        for weapon in get_items_by_category(ItemCategory::Weapon) {
-            if *checklist.get(weapon).unwrap_or(&false) {
-                let weapon_id = get_weapon_id(weapon);
-                if MELEE_NAMES.contains(&weapon) {
-                    if s.weapons[0] != weapon_id && s.weapons[1] == 0xFF {
-                        log::debug!("Inserting {} into second melee slot", weapon);
-                        s.weapons[1] = weapon_id;
+    if let Ok(data) = ARCHIPELAGO_DATA.read() {
+        with_session(|s| {
+            for weapon in get_items_by_category(ItemCategory::Weapon) {
+                if data.items.contains(&weapon) {
+                    let weapon_id = get_weapon_id(weapon);
+                    if MELEE_NAMES.contains(&weapon) {
+                        if s.weapons[0] != weapon_id && s.weapons[1] == 0xFF {
+                            log::debug!("Inserting {} into second melee slot", weapon);
+                            s.weapons[1] = weapon_id;
+                        }
                     }
-                }
-                if GUN_NAMES.contains(&weapon) {
-                    if s.weapons[2] != weapon_id && s.weapons[3] == 0xFF {
-                        log::debug!("Inserting {} into second gun slot", weapon);
-                        s.weapons[3] = weapon_id;
+                    if GUN_NAMES.contains(&weapon) {
+                        if s.weapons[2] != weapon_id && s.weapons[3] == 0xFF {
+                            log::debug!("Inserting {} into second gun slot", weapon);
+                            s.weapons[3] = weapon_id;
+                        }
                     }
                 }
             }
-        }
-    })
-    .unwrap();
+        })
+            .unwrap();
+    }
 }
 //const WEAPON_SLOT: usize = 0x045FF2D8;
 pub(crate) fn set_weapons_in_inv() {
-    let checklist: RwLockReadGuard<HashMap<String, bool>> =
-        CHECKLIST.get().unwrap().read().unwrap();
     let mut flag;
-    for weapon in get_items_by_category(ItemCategory::Weapon) {
-        if *checklist.get(weapon).unwrap_or(&false) {
-            flag = true;
-            log::debug!("Adding weapon/style to inventory {}", weapon);
-        } else {
-            flag = false;
+    if let Ok(data) = ARCHIPELAGO_DATA.read() {
+        for weapon in get_items_by_category(ItemCategory::Weapon) {
+            if data.items.contains(&weapon) {
+                flag = true;
+                log::debug!("Adding weapon/style to inventory {}", weapon);
+            } else {
+                flag = false;
+            }
+            set_item(weapon, flag, true);
         }
-        set_item(weapon, flag, true);
     }
 }
 

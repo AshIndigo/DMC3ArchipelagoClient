@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use crate::constants::{BasicNothingFunc, ItemCategory};
 use crate::compat::imgui_bindings::*;
 use crate::ui::ui::get_status_text;
@@ -9,7 +10,6 @@ use std::os::raw::c_char;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, OnceLock};
 use std::thread;
-use crate::item_sync::CHECKLIST;
 use crate::ui::text_handler;
 
 pub static MARY_ADDRESS: LazyLock<usize> =
@@ -74,16 +74,17 @@ unsafe fn tracking_window() {
             flag as *mut bool,
             imgui_sys::ImGuiWindowFlags_AlwaysAutoResize as ImGuiWindowFlags,
         );
-        for chunk in constants::get_items_by_category(ItemCategory::Key).chunks(3) {
-            let row_text = chunk
-                .iter()
-                .map(|&item| checkbox_text(item))
-                .collect::<Vec<String>>()
-                .join("  ");
-            text(format!("{}\0", row_text));
-        }
+
         match game_manager::ARCHIPELAGO_DATA.read() {
             Ok(data) => {
+                for chunk in constants::get_items_by_category(ItemCategory::Key).chunks(3) {
+                    let row_text = chunk
+                        .iter()
+                        .map(|&item| checkbox_text(item, &data.items))
+                        .collect::<Vec<String>>()
+                        .join("  ");
+                    text(format!("{}\0", row_text));
+                }
                 text(format!(
                     "Blue Orbs: {}\0",
                     data.blue_orbs
@@ -129,13 +130,8 @@ unsafe fn bank_window() {
     }
 }
 
-fn checkbox_text(item: &str) -> String {
-    let state = CHECKLIST
-        .get()
-        .and_then(|lock| lock.read().ok())
-        .and_then(|map| map.get(item).copied())
-        .unwrap_or(false);
-    format!("{} [{}]", item, if state { "X" } else { " " })
+fn checkbox_text(item: &str, list: &HashSet<&str>) -> String {
+    format!("{} [{}]", item, if list.contains(&item) { "X" } else { " " })
 }
 
 pub unsafe fn archipelago_window() {

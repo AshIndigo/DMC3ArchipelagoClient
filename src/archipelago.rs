@@ -1,7 +1,7 @@
 use crate::bank::{get_bank, get_bank_key};
 use crate::cache::{read_cache, ChecksumError, DATA_PACKAGE};
 use crate::check_handler::Location;
-use crate::constants::{ItemCategory, Status, GAME_NAME, REMOTE_ID};
+use crate::constants::{get_item_name, ItemCategory, Status, GAME_NAME, REMOTE_ID};
 use crate::data::generated_locations;
 use crate::mapping::{DeathlinkSetting, MAPPING};
 use crate::ui::font_handler::WHITE;
@@ -27,6 +27,7 @@ use std::sync::{LazyLock, OnceLock, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync;
 use tokio::sync::mpsc::{Receiver, Sender};
+use crate::game_manager::ARCHIPELAGO_DATA;
 
 pub static CHECKED_LOCATIONS: LazyLock<RwLock<Vec<&'static str>>> =
     LazyLock::new(|| RwLock::new(vec![]));
@@ -101,7 +102,7 @@ pub async fn get_archipelago_client(
                             "Local DataPackage checksums for {:?} did not match expected values, reacquiring",
                             checksum_error.games
                         );
-                        // TODO
+                        // TODO Handle the errors
                     }
                     Err(err) => {
                         log::error!("Error checking DataPackage checksums: {:?}", err);
@@ -538,8 +539,10 @@ async fn handle_item_receive(
                     item_sync::add_offline_check(loc_id.clone(), client).await?;
                 }
                 let name = location_data.get_item_name()?;
-                if location_data.get_in_game_id() > 0x14 && location_data.get_in_game_id() != *REMOTE_ID{
-                    item_sync::set_checklist_item(&*name, true);
+                if let Ok(mut archipelago_data) = ARCHIPELAGO_DATA.write() {
+                    if location_data.get_in_game_id() > 0x14 && location_data.get_in_game_id() != *REMOTE_ID {
+                        archipelago_data.add_item(get_item_name(location_data.get_in_game_id()));
+                    }
                 }
 
                 log::info!(

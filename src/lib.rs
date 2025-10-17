@@ -4,7 +4,6 @@ use crate::archipelago::{
 use crate::bank::setup_bank_message_channel;
 use crate::constants::Status;
 use crate::hook::CLIENT;
-use item_sync::CHECKLIST;
 use crate::utilities::{is_crimson_loaded, is_ddmk_loaded};
 use anyhow::anyhow;
 use archipelago_rs::protocol::ClientStatus;
@@ -17,12 +16,10 @@ use log4rs::append::rolling_file::RollingFileAppender;
 use log4rs::config::{Appender, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use log4rs::Config;
-use std::collections::HashMap;
 use std::env::current_exe;
 use std::ffi::c_void;
 use std::io::ErrorKind;
 use std::sync::atomic::Ordering;
-use std::sync::RwLock;
 use std::{fs, thread};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Receiver;
@@ -316,9 +313,6 @@ fn setup_logger() {
 
 fn main_setup() {
     exception_handler::install_exception_handler();
-    CHECKLIST
-        .set(RwLock::new(HashMap::new()))
-        .expect("Unable to create the Checklist HashMap");
     if is_ddmk_loaded() {
         log::info!("DDMK is loaded!");
         compat::ddmk_hook::setup_ddmk_hook();
@@ -418,7 +412,6 @@ pub(crate) async fn spawn_archipelago_thread() {
             Ok(cl) => {
                 client_lock.replace(cl);
                 CONNECTION_STATUS.store(Status::Connected.into(), Ordering::SeqCst);
-                CHECKLIST.get().unwrap().write().unwrap().clear();
             }
             Err(err) => {
                 log::error!("Failed to connect to Archipelago: {}", err);

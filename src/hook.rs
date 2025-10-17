@@ -2,31 +2,25 @@ use crate::archipelago::{DeathLinkData, CHECKED_LOCATIONS, TX_DEATHLINK};
 use crate::constants::ItemEntry;
 use crate::constants::*;
 use crate::data::generated_locations;
-use crate::game_manager::{
-    get_difficulty, get_mission, get_room, set_item, set_loc_chk_flg, set_weapons_in_inv, Style,
-};
+use crate::game_manager::{get_difficulty, get_mission, get_room, set_item, set_loc_chk_flg, set_weapons_in_inv, Style, ARCHIPELAGO_DATA};
 use crate::location_handler::in_key_item_room;
 use crate::mapping::{Mapping, MAPPING};
 use crate::ui::text_handler;
 use crate::ui::text_handler::LAST_OBTAINED_ID;
 use crate::ui::ui::CONNECTION_STATUS;
 use crate::utilities::{read_data_from_address, replace_single_byte, DMC3_ADDRESS};
-use crate::{
-    bank, check_handler, create_hook, game_manager, mapping, save_handler, skill_manager, utilities,
-};
+use crate::{bank, check_handler, create_hook, game_manager, mapping, save_handler, skill_manager, utilities};
 use archipelago_rs::client::ArchipelagoClient;
 use minhook::{MinHook, MH_STATUS};
 use std::arch::asm;
-use std::collections::HashMap;
 use std::ptr::{read_unaligned, write};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{LazyLock, OnceLock, RwLockReadGuard};
+use std::sync::{LazyLock, OnceLock};
 use std::{ptr, slice};
 use tokio::sync::Mutex;
 use windows::Win32::System::Memory::{
     VirtualProtect, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS,
 };
-use crate::item_sync::CHECKLIST;
 
 pub(crate) static CLIENT: LazyLock<Mutex<Option<ArchipelagoClient>>> =
     LazyLock::new(|| Mutex::new(None));
@@ -562,13 +556,6 @@ unsafe fn check_and_replace_item(
         if entry.room_number == room_num && entry.item_id == *item_ref && !entry.adjudicator {
             log::debug!("Seeing if item needs to be dummy");
             if !dummy_replace(location_name, item_addr) {
-                //let ins_val = get_item_id(&*mapping.items.get(*location_name).unwrap().item_name); // Scary
-
-                if ITEM_MAP.get(&entry.item_id).unwrap().category == ItemCategory::Key {
-                    //*item_addr = *(ITEM_ID_MAP.get("Remote").unwrap()) as i32; // 0x26 is high roller card, what is used for remote items.
-                } else {
-                    //*item_addr = ins_val.unwrap() as i32;
-                }
                 log::info!(
                     "Replaced item in room {} ({}) with {} {:#X}",
                     entry.room_number,
@@ -616,84 +603,84 @@ fn set_relevant_key_items() {
     if CONNECTION_STATUS.load(Ordering::Relaxed) != 1 {
         return;
     }
-    let checklist: RwLockReadGuard<HashMap<String, bool>> =
-        CHECKLIST.get().unwrap().read().unwrap();
     let current_inv_addr = utilities::get_inv_address();
     if current_inv_addr.is_none() {
         return;
     }
     log::debug!("Current INV Addr: {:#X}", current_inv_addr.unwrap());
-    game_manager::with_session(|s| {
-        log::debug!("Current mission: {}", s.mission);
-        match MISSION_ITEM_MAP.get(&(s.mission)) {
-            None => {} // No items for the mission
-            Some(item_list) => {
-                for item in item_list.into_iter() {
-                    if *checklist.get(*item).unwrap_or(&false) {
-                        let res = game_manager::has_item_by_flags(item);
-                        if !res {
-                            set_item(item, true, true);
+    if let Ok(data) = ARCHIPELAGO_DATA.read() {
+        game_manager::with_session(|s| {
+            log::debug!("Current mission: {}", s.mission);
+            match MISSION_ITEM_MAP.get(&(s.mission)) {
+                None => {} // No items for the mission
+                Some(item_list) => {
+                    for item in item_list.into_iter() {
+                        if data.items.contains(item) {
+                            let res = game_manager::has_item_by_flags(item);
+                            if !res {
+                                set_item(item, true, true);
+                            }
+                            log::debug!("Item Relevant to mission {} Flag: {}", *item, res);
+                        } else {
+                            set_item(item, false, true);
                         }
-                        log::debug!("Item Relevant to mission {} Flag: {}", *item, res);
+                    }
+                }
+            }
+            match MISSION_ITEM_MAP.get(&(s.mission)) {
+                None => {} // No items for the mission
+                Some(item_list) => {
+                    for item in item_list.into_iter() {
+                        if data.items.contains(item)  {
+                            let res = game_manager::has_item_by_flags(item);
+                            if !res {
+                                set_loc_chk_flg(item, true)
+                            }
+                        }
+                    }
+                }
+            }
+            // Special case for Ignis Fatuus
+            // Needed so the Ignis Fatuus location can be reached even when the actual key item is acquired
+            if get_room() == 302 {
+                if let Some(event_table_addr) = utilities::get_event_address() {
+                    if CHECKED_LOCATIONS
+                        .read()
+                        .unwrap()
+                        .contains(&"Mission #8 - Ignis Fatuus")
+                    {
+                        // If we have the location checked, continue normal routing
+                        unsafe {
+                            write((event_table_addr + 0x748) as _, 311);
+                        }
                     } else {
-                        set_item(item, false, true);
-                    }
-                }
-            }
-        }
-        match MISSION_ITEM_MAP.get(&(s.mission)) {
-            None => {} // No items for the mission
-            Some(item_list) => {
-                for item in item_list.into_iter() {
-                    if *checklist.get(*item).unwrap_or(&false) {
-                        let res = game_manager::has_item_by_flags(item);
-                        if !res {
-                            set_loc_chk_flg(item, true)
+                        // If location not checked, alter event to get to it
+                        unsafe {
+                            write((event_table_addr + 0x748) as _, 303);
                         }
                     }
                 }
             }
-        }
-        // Special case for Ignis Fatuus
-        // Needed so the Ignis Fatuus location can be reached even when the actual key item is acquired
-        if get_room() == 302 {
-            if let Some(event_table_addr) = utilities::get_event_address() {
-                if CHECKED_LOCATIONS
-                    .read()
-                    .unwrap()
-                    .contains(&"Mission #8 - Ignis Fatuus")
-                {
-                    // If we have the location checked, continue normal routing
-                    unsafe {
-                        write((event_table_addr + 0x748) as _, 311);
-                    }
+
+            if let Ok(loc) = in_key_item_room() {
+                log::debug!("In key room: {}", loc);
+                if CHECKED_LOCATIONS.read().unwrap().contains(&loc) {
+                    //set_loc_chk_flg(get_item_name(generated_locations::ITEM_MISSION_MAP.get(loc).unwrap().item_id), true);
                 } else {
-                    // If location not checked, alter event to get to it
-                    unsafe {
-                        write((event_table_addr + 0x748) as _, 303);
-                    }
+                    set_loc_chk_flg(
+                        get_item_name(
+                            generated_locations::ITEM_MISSION_MAP
+                                .get(loc)
+                                .unwrap()
+                                .item_id,
+                        ),
+                        false,
+                    );
                 }
             }
-        }
-
-        if let Ok(loc) = in_key_item_room() {
-            log::debug!("In key room: {}", loc);
-            if CHECKED_LOCATIONS.read().unwrap().contains(&loc) {
-                //set_loc_chk_flg(get_item_name(generated_locations::ITEM_MISSION_MAP.get(loc).unwrap().item_id), true);
-            } else {
-                set_loc_chk_flg(
-                    get_item_name(
-                        generated_locations::ITEM_MISSION_MAP
-                            .get(loc)
-                            .unwrap()
-                            .item_id,
-                    ),
-                    false,
-                );
-            }
-        }
-    })
-    .unwrap();
+        })
+            .unwrap();
+    }
 }
 
 pub const LOAD_NEW_ROOM_ADDR: usize = 0x23e610;
@@ -728,7 +715,7 @@ pub fn set_player_data(param_1: usize) -> bool {
     if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
         if mapping.randomize_skills {
             game_manager::set_gun_levels();
-            skill_manager::set_skills();
+            skill_manager::set_skills(&ARCHIPELAGO_DATA.read().unwrap());
         }
         if mapping.randomize_styles {
             game_manager::set_style_levels()
@@ -881,9 +868,9 @@ pub fn modify_available_styles(data_ptr: usize) -> bool {
             unsafe {
                 // Only original 4, quicksilver and doppelganger are controlled by their respective items
                 // Trick, Sword, Gun, Royal
-                match game_manager::ARCHIPELAGO_DATA.read() {
+                match ARCHIPELAGO_DATA.read() {
                     Ok(data) => {
-                        ptr::write(
+                        write(
                             (data_ptr + 0x98C6) as *mut [bool; 4],
                             data.get_style_unlocked(),
                         );
@@ -943,7 +930,7 @@ pub fn set_rando_session_data(ptr: usize) {
         if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
             // Set initial style if relevant
             if mapping.randomize_styles {
-                if let Some(index) = game_manager::ARCHIPELAGO_DATA
+                if let Some(index) = ARCHIPELAGO_DATA
                     .read()
                     .unwrap()
                     .get_style_unlocked()

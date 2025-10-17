@@ -1,10 +1,10 @@
 use crate::game_manager;
 use crate::game_manager::{ArchipelagoData, ACTIVE_CHAR_DATA};
 use crate::utilities::{read_data_from_address, DMC3_ADDRESS};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap};
 use std::ptr::{read_unaligned, write_unaligned};
 
-use std::sync::{LazyLock, RwLock};
+use std::sync::{LazyLock};
 
 struct SkillData {
     id: usize,
@@ -164,6 +164,7 @@ static SKILLS_MAP: LazyLock<HashMap<&str, SkillData>> = LazyLock::new(|| {
                 flag: 0x2000000,
             },
         ),
+        // TODO These are technically progressive. BU -> RD
         (
             "Beowulf - Beast Uppercut",
             SkillData {
@@ -200,43 +201,50 @@ pub(crate) fn reset_expertise() {
         s.expertise = DEFAULT_SKILLS;
     })
     .expect("Unable to reset expertise");
+    const EXPERTISE_OFFSET: usize = 0x3FEC;
+    let char_data_ptr: usize = read_data_from_address(*DMC3_ADDRESS + ACTIVE_CHAR_DATA);
+    if char_data_ptr != 0 {
+        unsafe {
+            write_unaligned(
+                (char_data_ptr + EXPERTISE_OFFSET) as *mut [u32; 8],
+                DEFAULT_SKILLS,
+            )
+        }
+    }
 }
 
-fn give_skill(skill_name: &'static str) {
+fn give_skill(skill_name: &&'static str) {
     // This works, might not update files? need to double-check
     log::debug!("Giving skill: {}", skill_name);
-    let data = SKILLS_MAP.get(&skill_name).unwrap();
+    let data = SKILLS_MAP.get(skill_name).unwrap();
     game_manager::with_session(|s| {
         s.expertise[data.index] += data.flag;
     })
     .expect("Unable to give skill");
-    let expertise_offset = 0x3FEC;
+    const EXPERTISE_OFFSET: usize = 0x3FEC;
     let char_data_ptr: usize = read_data_from_address(*DMC3_ADDRESS + ACTIVE_CHAR_DATA);
     if char_data_ptr != 0 {
         unsafe {
             let mut active_expertise =
-                read_unaligned((char_data_ptr + expertise_offset) as *mut [u32; 8]);
+                read_unaligned((char_data_ptr + EXPERTISE_OFFSET) as *mut [u32; 8]);
             active_expertise[data.index] += data.flag;
             write_unaligned(
-                (char_data_ptr + expertise_offset) as *mut [u32; 8],
+                (char_data_ptr + EXPERTISE_OFFSET) as *mut [u32; 8],
                 active_expertise,
             )
         }
     }
 }
 
-pub(crate) fn set_skills() {
+pub(crate) fn set_skills(data: &ArchipelagoData) {
     // I kinda don't like this tbh, but oh well, shouldn't really be an issue.
     reset_expertise();
-    for skill in ACQUIRED_SKILLS.read().unwrap().iter() {
-        give_skill(*skill);
+    for skill in data.skills.iter() {
+        give_skill(skill);
     }
 }
 
 // Certain skills have two levels they can gain
-pub static ACQUIRED_SKILLS: LazyLock<RwLock<HashSet<&'static str>>> =
-    LazyLock::new(|| RwLock::new(HashSet::new()));
-
 pub(crate) fn add_skill(id: usize, data: &mut ArchipelagoData) {
     match id {
         0x40 => {
@@ -250,36 +258,24 @@ pub(crate) fn add_skill(id: usize, data: &mut ArchipelagoData) {
         }
         _ => {}
     }
-    
-    match (*ACQUIRED_SKILLS).write() {
-        Ok(mut skill_list) => {
-            let skill_name = match id {
-                0x40 => match data.stinger_level {
-                    1 => 0x40,
-                    2 => 0x41,
-                    _ => unreachable!(),
-                },
-                0x46 => match data.jet_stream_level {
-                    1 => 0x46,
-                    2 => 0x47,
-                    _ => unreachable!(),
-                },
-                0x4A => match data.reverb_level {
-                    1 => 0x4A,
-                    2 => 0x4B,
-                    _ => unreachable!(),
-                },
-                _ => id,
-            };
-            skill_list.insert(ID_SKILL_MAP.get(&skill_name).unwrap());
-        }
-        Err(err) => {
-            log::error!(
-                "Unable to write to internal acquired skills list: {:?}",
-                err
-            );
-        }
-    }
 
-    return;
+    let skill_name = match id {
+        0x40 => match data.stinger_level {
+            1 => 0x40,
+            2 => 0x41,
+            _ => unreachable!(),
+        },
+        0x46 => match data.jet_stream_level {
+            1 => 0x46,
+            2 => 0x47,
+            _ => unreachable!(),
+        },
+        0x4A => match data.reverb_level {
+            1 => 0x4A,
+            2 => 0x4B,
+            _ => unreachable!(),
+        },
+        _ => id,
+    };
+    data.add_skill(ID_SKILL_MAP.get(&skill_name).unwrap());
 }

@@ -17,7 +17,7 @@ use std::fs::File;
 use std::io::{BufReader, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::{Mutex, OnceLock, RwLock};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 const SYNC_FILE: &str = "archipelago.json";
@@ -87,8 +87,10 @@ pub(crate) async fn handle_received_items_packet(
             .sync_index,
         Ordering::SeqCst,
     );
-    for item in &received_items_packet.items {
-        set_checklist_item(get_item_name(item.item as u32), true);
+    if let Ok(mut archipelago_data) = game_manager::ARCHIPELAGO_DATA.write() {
+        for item in &received_items_packet.items {
+            archipelago_data.add_item(get_item_name(item.item as u32));
+        }
     }
 
     if received_items_packet.index == 0 {
@@ -244,7 +246,7 @@ pub(crate) async fn handle_received_items_packet(
                         if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
                             if mapping.randomize_skills {
                                 skill_manager::add_skill(item.item as usize, &mut data);
-                                skill_manager::set_skills(); // Hacky...
+                                skill_manager::set_skills(&data); // Hacky...
                             }
                         }
                     }
@@ -288,7 +290,6 @@ pub(crate) fn get_index(cl: &ArchipelagoClient) -> String {
 pub(crate) async fn _sync_items() {
     if let Some(ref mut client) = CLIENT.lock().await.as_mut() {
         log::info!("Synchronizing items");
-        CHECKLIST.get().unwrap().write().unwrap().clear();
         match client.sync().await {
             Ok(received_items) => {
                 match handle_received_items_packet(received_items, client).await {
@@ -363,13 +364,4 @@ pub(crate) async fn send_offline_checks(
         }
     }
     Ok(())
-}
-
-pub static CHECKLIST: OnceLock<RwLock<HashMap<String, bool>>> = OnceLock::new();
-
-pub fn set_checklist_item(item: &str, value: bool) {
-    if let Some(rwlock) = CHECKLIST.get() {
-        rwlock.write().unwrap().insert(item.to_string(), value);
-        //log::debug!("Checklist: {:?}", *rwlock)
-    }
 }
