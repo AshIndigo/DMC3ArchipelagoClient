@@ -330,6 +330,7 @@ pub(crate) async fn add_offline_check(
 pub(crate) async fn send_offline_checks(
     client: &mut ArchipelagoClient,
 ) -> Result<(), Box<dyn Error>> {
+    log::debug!("Attempting to send offline checks");
     let mut sync_data = get_sync_data().lock()?;
     let index = &get_index(client);
     if sync_data.room_sync_info.contains_key(index) {

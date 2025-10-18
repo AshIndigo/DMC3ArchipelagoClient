@@ -3,6 +3,7 @@ use crate::cache::{read_cache, ChecksumError, DATA_PACKAGE};
 use crate::check_handler::Location;
 use crate::constants::{get_item_name, ItemCategory, Status, GAME_NAME, REMOTE_ID};
 use crate::data::generated_locations;
+use crate::game_manager::ARCHIPELAGO_DATA;
 use crate::mapping::{DeathlinkSetting, MAPPING};
 use crate::ui::font_handler::WHITE;
 use crate::ui::overlay::{MessageSegment, MessageType, OverlayMessage};
@@ -11,10 +12,7 @@ use crate::ui::ui::CONNECTION_STATUS;
 use crate::{bank, cache, constants, game_manager, hook, item_sync, location_handler, mapping};
 use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
-use archipelago_rs::protocol::{
-    Bounce, Bounced, ClientMessage, ClientStatus, Connected, JSONColor, JSONMessagePart, PrintJSON,
-    Retrieved, ServerMessage, StatusUpdate,
-};
+use archipelago_rs::protocol::{Bounce, Bounced, ClientMessage, ClientStatus, Connected, GetDataPackage, JSONColor, JSONMessagePart, PrintJSON, Retrieved, ServerMessage, StatusUpdate};
 use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -27,7 +25,6 @@ use std::sync::{LazyLock, OnceLock, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync;
 use tokio::sync::mpsc::{Receiver, Sender};
-use crate::game_manager::ARCHIPELAGO_DATA;
 
 pub static CHECKED_LOCATIONS: LazyLock<RwLock<Vec<&'static str>>> =
     LazyLock::new(|| RwLock::new(vec![]));
@@ -70,7 +67,49 @@ pub fn setup_disconnect_channel() -> Receiver<bool> {
 pub async fn get_archipelago_client(
     login_data: &ArchipelagoConnection,
 ) -> Result<ArchipelagoClient, ArchipelagoError> {
-    if !cache::check_for_cache_file() {
+    if cache::check_for_cache_file() {
+        // If the cache exists, then connect normally and verify the cache file
+        let mut client = ArchipelagoClient::new(&login_data.url).await?;
+        match cache::find_checksum_errors(client.room_info()) {
+            Ok(()) => {
+                log::info!("Checksums check out!");
+                Ok(client)
+            }
+            Err(err) => {
+                match err.downcast::<ChecksumError>() {
+                    Ok(checksum_error) => {
+                        log::error!(
+                            "Local DataPackage checksums for {:?} did not match expected values, reacquiring",
+                            checksum_error.games
+                        );
+                        client.send(ClientMessage::GetDataPackage(GetDataPackage {
+                            games: Some(checksum_error.games)
+                        })).await?;
+                        match  client.recv().await? {
+                            Some(ServerMessage::DataPackage(pkg)) => {
+                                cache::update_cache(&pkg.data).unwrap_or_else(|err| log::error!("Failed to write cache: {}", err));
+                            },
+                            Some(received) => {
+                                return Err(ArchipelagoError::IllegalResponse {
+                                    received,
+                                    expected: "DataPackage",
+                                })
+                            }
+                            None => return Err(ArchipelagoError::ConnectionClosed),
+                        }
+                        return Ok(client)
+                    }
+                    Err(err) => {
+                        log::error!("Error checking DataPackage checksums: {:?}", err);
+                        if let Err(err) = remove_file(cache::CACHE_FILENAME) {
+                            log::error!("Failed to remove {}: {}", cache::CACHE_FILENAME, err);
+                        };
+                    }
+                }
+                Err(ArchipelagoError::ConnectionClosed)
+            }
+        }
+    } else {
         // If the cache file does not exist, then it needs to be acquired
         let cl = ArchipelagoClient::with_data_package(&login_data.url, None).await?;
         match &cl.data_package() {
@@ -86,33 +125,6 @@ pub async fn get_archipelago_client(
                 Ok(cl)
             }
         }
-    } else {
-        // If the cache exists, then connect normally and verify the cache file
-        let cl = ArchipelagoClient::new(&login_data.url).await?;
-        match cache::find_checksum_errors(cl.room_info()) {
-            Ok(()) => {
-                log::info!("Checksums check out!");
-                Ok(cl)
-            }
-            Err(err) => {
-                match err.downcast::<ChecksumError>() {
-                    Ok(checksum_error) => {
-                        log::error!(
-                            "Local DataPackage checksums for {:?} did not match expected values, reacquiring",
-                            checksum_error.games
-                        );
-                        // TODO Handle the errors
-                    }
-                    Err(err) => {
-                        log::error!("Error checking DataPackage checksums: {:?}", err);
-                        if let Err(err) = remove_file(cache::CACHE_FILENAME) {
-                            log::error!("Failed to remove {}: {}", cache::CACHE_FILENAME, err);
-                        };
-                    }
-                }
-                Err(ArchipelagoError::ConnectionClosed)
-            }
-        }
     }
 }
 
@@ -120,8 +132,8 @@ pub async fn connect_archipelago(
     login_data: ArchipelagoConnection,
 ) -> Result<ArchipelagoClient, ArchipelagoError> {
     log::info!("Attempting room connection");
-    let mut cl = get_archipelago_client(&login_data).await?;
-    let connected = cl
+    let mut ap_client = get_archipelago_client(&login_data).await?;
+    let connected = ap_client
         .connect(
             GAME_NAME,
             &login_data.name,
@@ -139,15 +151,18 @@ pub async fn connect_archipelago(
             return Err(ArchipelagoError::ConnectionClosed);
         }
     }
-    if let Ok(mut checked_locations) = CHECKED_LOCATIONS.write() {
-        checked_locations.clear();
-    } else {
-        log::error!("Failed to get checked locations");
-        return Err(ArchipelagoError::ConnectionClosed);
-    };
 
-    log::debug!("Attempting to send offline checks");
-    item_sync::send_offline_checks(&mut cl).await.unwrap();
+    match CHECKED_LOCATIONS.write() {
+        Ok(mut checked_locations) => {
+            checked_locations.clear();
+        }
+        Err(err) => {
+            log::error!("Failed to get checked locations: {}", err);
+            return Err(ArchipelagoError::ConnectionClosed);
+        }
+    }
+
+    item_sync::send_offline_checks(&mut ap_client).await.unwrap();
 
     match CONNECTED.read().as_ref() {
         Ok(con) => {
@@ -166,7 +181,7 @@ pub async fn connect_archipelago(
         }
     }
 
-    Ok(cl)
+    Ok(ap_client)
 }
 
 /// This is run when a there is a valid connection to a room.
@@ -537,7 +552,9 @@ async fn handle_item_receive(
                 }
                 let name = location_data.get_item_name()?;
                 if let Ok(mut archipelago_data) = ARCHIPELAGO_DATA.write() {
-                    if location_data.get_in_game_id() > 0x14 && location_data.get_in_game_id() != *REMOTE_ID {
+                    if location_data.get_in_game_id() > 0x14
+                        && location_data.get_in_game_id() != *REMOTE_ID
+                    {
                         archipelago_data.add_item(get_item_name(location_data.get_in_game_id()));
                     }
                 }

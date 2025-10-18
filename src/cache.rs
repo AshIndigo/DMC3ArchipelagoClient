@@ -37,7 +37,6 @@ impl Display for ChecksumError {
 
 impl Error for ChecksumError {}
 /// Check the cached checksums with the stored file. Return any that do not match
-// TODO If this detects an error, it trashes the entire cache rather than reacquire what it needs
 pub fn find_checksum_errors(room_info: &RoomInfo) -> Result<(), Box<dyn Error>> {
     let data_package_object = DataPackageObject::deserialize(
         &mut serde_json::Deserializer::from_reader(BufReader::new(File::open(CACHE_FILENAME)?)),
@@ -137,5 +136,17 @@ pub(crate) static DATA_PACKAGE: LazyLock<RwLock<Option<DataPackageWrapper>>> =
 
 pub fn set_data_package(value: DataPackageObject) -> Result<(), Box<dyn Error>> {
     *DATA_PACKAGE.write()? = Some(DataPackageWrapper::new(value));
+    Ok(())
+}
+
+pub(crate) fn update_cache(data: &DataPackageObject) -> Result<(), Box<dyn Error>> {
+    let mut current_cache = read_cache()?;
+    for (game, data) in data.games.iter() {
+        current_cache.games.insert(game.clone(), data.clone());
+    }
+    fs::write(
+        CACHE_FILENAME,
+        serde_json::to_string_pretty(&current_cache)?.as_bytes(),
+    )?;
     Ok(())
 }
