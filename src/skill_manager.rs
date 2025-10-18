@@ -164,7 +164,6 @@ static SKILLS_MAP: LazyLock<HashMap<&str, SkillData>> = LazyLock::new(|| {
                 flag: 0x2000000,
             },
         ),
-        // TODO These are technically progressive. BU -> RD
         (
             "Beowulf - Beast Uppercut",
             SkillData {
@@ -216,7 +215,6 @@ const EXPERTISE_OFFSET: usize = 0x400C;
 
 fn give_skill(skill_name: &&'static str) {
     // This works, might not update files? need to double-check
-    log::debug!("Giving skill: {}", skill_name);
     let data = SKILLS_MAP.get(skill_name).unwrap();
     game_manager::with_session(|s| {
         s.expertise[data.index].bitor_assign(data.flag);
@@ -256,6 +254,9 @@ pub(crate) fn add_skill(id: usize, data: &mut ArchipelagoData) {
         0x4A => {
             data.add_reverb_level();
         }
+        0x50 => {
+            data.add_beowulf_level();
+        }
         _ => {}
     }
 
@@ -273,6 +274,11 @@ pub(crate) fn add_skill(id: usize, data: &mut ArchipelagoData) {
         0x4A => match data.reverb_level {
             1 => 0x4A,
             2 => 0x4B,
+            _ => unreachable!(),
+        },
+        0x50 => match data.beowulf_level {
+            1 => 0x50,
+            2 => 0x51,
             _ => unreachable!(),
         },
         _ => id,

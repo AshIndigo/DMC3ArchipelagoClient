@@ -24,7 +24,8 @@ pub(crate) struct ArchipelagoData {
     pub(crate) stinger_level: u8,
     pub(crate) jet_stream_level: u8,
     pub(crate) reverb_level: u8,
-    // TODO Replaces checklist, might flesh out more
+    // Beast uppercut -> Rising dragon
+    pub(crate) beowulf_level: u8,
     pub(crate) items: HashSet<&'static str>,
     pub(crate) skills: HashSet<&'static str>,
 }
@@ -134,6 +135,10 @@ impl ArchipelagoData {
     pub(crate) fn add_reverb_level(&mut self) {
         self.reverb_level = (self.reverb_level + 1).min(2);
     }
+
+    pub(crate) fn add_beowulf_level(&mut self) {
+        self.beowulf_level = (self.beowulf_level + 1).min(2);
+    }
 }
 
 #[repr(C)]
@@ -232,30 +237,32 @@ pub fn get_difficulty() -> Difficulty {
 
 const CHARACTER_DATA: usize = 0xC90E30;
 
-pub(crate) fn give_magic(magic_val: f32) {
+pub(crate) fn give_magic(magic_val: f32, arch_data: &ArchipelagoData) {
     let base = *DMC3_ADDRESS;
-    unsafe {
-        write_unaligned(
-            (base + GAME_SESSION_DATA + 0xD8) as *mut f32,
-            read_unaligned((base + GAME_SESSION_DATA + 0xD8) as *mut f32) + magic_val,
-        );
-        write_unaligned(
-            (base + CHARACTER_DATA + 0x16C + 0x6C) as *mut f32,
-            read_unaligned((base + CHARACTER_DATA + 0x16C + 0x6C) as *mut f32) + magic_val,
-        ); // Magic
-        write_unaligned(
-            (base + CHARACTER_DATA + 0x16C + 0x70) as *mut f32,
-            read_unaligned((base + CHARACTER_DATA + 0x16C + 0x70) as *mut f32) + magic_val,
-        ); // Max magic
-        if let Some(char_data_ptr) = utilities::get_active_char_address() {
+    if arch_data.dt_unlocked {
+        unsafe {
             write_unaligned(
-                (char_data_ptr + 0x3EB8) as *mut f32,
-                read_unaligned((char_data_ptr + 0x3EB8) as *mut f32) + magic_val,
-            ); // Magic char
+                (base + GAME_SESSION_DATA + 0xD8) as *mut f32,
+                read_unaligned((base + GAME_SESSION_DATA + 0xD8) as *mut f32) + magic_val,
+            );
             write_unaligned(
-                (char_data_ptr + 0x3EBC) as *mut f32,
-                read_unaligned((char_data_ptr + 0x3EBC) as *mut f32) + magic_val,
-            ); // Max magic char
+                (base + CHARACTER_DATA + 0x16C + 0x6C) as *mut f32,
+                read_unaligned((base + CHARACTER_DATA + 0x16C + 0x6C) as *mut f32) + magic_val,
+            ); // Magic
+            write_unaligned(
+                (base + CHARACTER_DATA + 0x16C + 0x70) as *mut f32,
+                read_unaligned((base + CHARACTER_DATA + 0x16C + 0x70) as *mut f32) + magic_val,
+            ); // Max magic
+            if let Some(char_data_ptr) = utilities::get_active_char_address() {
+                write_unaligned(
+                    (char_data_ptr + 0x3EB8) as *mut f32,
+                    read_unaligned((char_data_ptr + 0x3EB8) as *mut f32) + magic_val,
+                ); // Magic char
+                write_unaligned(
+                    (char_data_ptr + 0x3EBC) as *mut f32,
+                    read_unaligned((char_data_ptr + 0x3EBC) as *mut f32) + magic_val,
+                ); // Max magic char
+            }
         }
     }
 }
@@ -263,7 +270,6 @@ pub(crate) fn give_magic(magic_val: f32) {
 pub(crate) fn give_hp(life_value: f32) {
     let base = *DMC3_ADDRESS;
     unsafe {
-        log::debug!("Normal data");
         write_unaligned(
             (base + CHARACTER_DATA + 0x16C + 0x64) as *mut f32,
             read_unaligned((base + CHARACTER_DATA + 0x16C + 0x64) as *mut f32) + life_value,
@@ -287,18 +293,18 @@ pub(crate) fn give_hp(life_value: f32) {
 
 /// Use for weapons/key items
 pub(crate) fn set_item(item_name: &str, has_item: bool, set_flag: bool) {
-    if get_inv_address().is_none() {
-        return;
+    if let Some(inv_address) = get_inv_address() {
+        unsafe {
+            replace_single_byte(
+                inv_address + ITEM_OFFSET_MAP.get(item_name).unwrap().clone() as usize,
+                has_item as u8,
+            )
+        };
+        if set_flag {
+            set_loc_chk_flg(item_name, has_item);
+        }
     }
-    unsafe {
-        replace_single_byte(
-            get_inv_address().unwrap() + ITEM_OFFSET_MAP.get(item_name).unwrap().clone() as usize,
-            has_item as u8,
-        )
-    };
-    if set_flag {
-        set_loc_chk_flg(item_name, has_item);
-    }
+
 }
 
 const LOCATION_FLAGS: usize = 0xc90e28;
@@ -353,8 +359,10 @@ pub fn set_max_hp_and_magic() {
                 log::debug!("New HP is: {}", s.max_hp);
                 if data.dt_unlocked {
                     s.max_magic = f32::min(data.purple_orbs as f32 * ONE_ORB, MAX_MAGIC);
-                    log::debug!("New Magic is: {}", s.max_magic);
+                } else {
+                    s.max_magic = 0.0
                 }
+                log::debug!("New Magic is: {}", s.max_magic);
             }
             Err(err) => {
                 log::error!("Failed to read data from ARCHIPELAGO_DATA: {}", err);

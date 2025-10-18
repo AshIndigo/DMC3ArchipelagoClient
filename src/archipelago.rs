@@ -112,8 +112,6 @@ pub async fn get_archipelago_client(
                     }
                 }
                 Err(ArchipelagoError::ConnectionClosed)
-                // TODO Auto reconnect should handle this
-                //Box::pin(get_archipelago_client(login_data)).await
             }
         }
     }
@@ -560,7 +558,6 @@ async fn handle_item_receive(
 }
 
 fn handle_print_json(print_json: PrintJSON, con_opt: &Option<Connected>) -> String {
-    // TODO Can I consolidate this down?
     let mut final_message: String = "".to_string();
     match print_json {
         PrintJSON::ItemSend {

@@ -87,11 +87,6 @@ pub(crate) async fn handle_received_items_packet(
             .sync_index,
         Ordering::SeqCst,
     );
-    if let Ok(mut archipelago_data) = game_manager::ARCHIPELAGO_DATA.write() {
-        for item in &received_items_packet.items {
-            archipelago_data.add_item(get_item_name(item.item as u32));
-        }
-    }
 
     if received_items_packet.index == 0 {
         // If 0 abandon previous inv.
@@ -183,12 +178,12 @@ pub(crate) async fn handle_received_items_packet(
                         }
                         0x08 => {
                             data.add_purple_orb();
-                            game_manager::give_magic(constants::ONE_ORB);
+                            game_manager::give_magic(constants::ONE_ORB, &*data);
                         }
                         0x19 => {
                             // Awakened Rebellion
                             data.add_dt();
-                            game_manager::give_magic(constants::ONE_ORB * 3.0);
+                            game_manager::give_magic(constants::ONE_ORB * 3.0, &*data);
                         }
                         0x53 => {
                             // Ebony & Ivory
@@ -271,7 +266,11 @@ pub(crate) async fn handle_received_items_packet(
                 .insert(get_index(client), RoomSyncInfo::default());
         }
     }
-
+    if let Ok(mut archipelago_data) = game_manager::ARCHIPELAGO_DATA.write() {
+        for item in &received_items_packet.items {
+            archipelago_data.add_item(get_item_name(item.item as u32));
+        }
+    }
     log::debug!("Writing sync file");
     write_sync_data_file().await?;
     Ok(())
