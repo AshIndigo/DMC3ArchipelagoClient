@@ -80,7 +80,6 @@ pub async fn get_archipelago_client(
                 Err(ArchipelagoError::ConnectionClosed)
             }
             Some(dp) => {
-                log::debug!("Data package rec: {:?}", dp);
                 cache::write_cache(&dp)
                     .await
                     .unwrap_or_else(|err| log::error!("Failed to write cache: {}", err));

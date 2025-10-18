@@ -373,22 +373,22 @@ pub fn set_max_hp_and_magic() {
 }
 
 pub(crate) fn hurt_dante() {
-    // TODO Maybe figure out some better values, unless I want to maybe do a fraction of the players max HP?
-    let damage: f32 = match get_difficulty() {
-        Difficulty::Easy => 1000.0,
-        Difficulty::Normal => 2000.0,
-        Difficulty::Hard => 4000.0,
-        Difficulty::VeryHard => 8000.0,
-        Difficulty::DanteMustDie => 10000.0,
+    let damage_fraction: f32 = match get_difficulty() {
+        Difficulty::Easy => 1.0/4.0,
+        Difficulty::Normal => 1.0/3.0,
+        Difficulty::Hard => 1.0/2.0,
+        Difficulty::VeryHard => 2.0/3.0,
+        Difficulty::DanteMustDie => 5.0/6.0,
         // Insta kill
-        Difficulty::HeavenOrHell => MAX_HP,
+        Difficulty::HeavenOrHell => 1.0,
     };
     if let Some(char_data_ptr) = utilities::get_active_char_address() {
         let hp_addr = char_data_ptr + 0x411C;
         unsafe {
+            let max_hp = read_unaligned((char_data_ptr + 0x40EC) as *mut f32);
             write_unaligned(
                 hp_addr as *mut f32,
-                f32::max(read_unaligned(hp_addr as *const f32) - damage, 0.0),
+                f32::max(read_unaligned(hp_addr as *const f32) - (max_hp * damage_fraction), 0.0),
             );
         }
     }

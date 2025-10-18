@@ -95,11 +95,10 @@ pub struct DataPackageWrapper {
 
 impl DataPackageWrapper {
     fn new(dp: DataPackageObject) -> Self {
-        let local_dp = dp.clone();
         // TODO Maybe I should try to only add entries when they are requested
         let item_id_to_name = {
             let mut game_map = HashMap::<String, HashMap<i64, String>>::new();
-            for (game_name, data) in &local_dp.games {
+            for (game_name, data) in &dp.games {
                 game_map.insert(
                     game_name.clone(),
                     data.item_name_to_id
@@ -113,7 +112,7 @@ impl DataPackageWrapper {
         };
         let location_id_to_name = {
             let mut game_map = HashMap::<String, HashMap<i64, String>>::new();
-            for (game_name, data) in &local_dp.games {
+            for (game_name, data) in &dp.games {
                 game_map.insert(
                     game_name.clone(),
                     data.location_name_to_id

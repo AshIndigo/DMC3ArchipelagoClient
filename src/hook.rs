@@ -323,13 +323,12 @@ fn modify_adjudicator(
     param_3: usize,
     adjudicator_data: usize,
 ) -> usize {
-    const LOG_ADJU_DATA: bool = true;
+    const LOG_ADJU_DATA: bool = false;
     const RANKING_OFFSET: usize = 0x04;
     const WEAPON_OFFSET: usize = 0x06;
     for (location_name, entry) in generated_locations::ITEM_MISSION_MAP.iter() {
         // Run through all locations
         if entry.adjudicator && entry.room_number == get_room() {
-            //&& entry.mission == get_mission() {
             if LOG_ADJU_DATA {
                 log::debug!("Adjudicator found at location {}", &location_name);
                 log::debug!(
@@ -351,21 +350,15 @@ fn modify_adjudicator(
                     read_data_from_address::<u8>(adjudicator_data + WEAPON_OFFSET)
                 );
             }
-            unsafe {
-                match MAPPING.read().as_ref() {
-                    Ok(mapping_opt) => match &**mapping_opt {
-                        Some(mappings) => {
-                            let data = mappings.adjudicators.get(*location_name).unwrap();
-                            replace_single_byte(adjudicator_data + RANKING_OFFSET, data.ranking);
-                            replace_single_byte(
-                                adjudicator_data + WEAPON_OFFSET,
-                                get_weapon_id(&*data.weapon),
-                            );
-                        }
-                        None => {}
-                    },
-                    Err(err) => {
-                        log::error!("Failed to read mapping: {:?}", err);
+            if let Some(mappings) = MAPPING.read().unwrap().as_ref() {
+                if let Some(data) = mappings.adjudicators.get(*location_name) {
+                    //log::debug!("New adjudicator data will be {:?}", data);
+                    unsafe {
+                        replace_single_byte(adjudicator_data + RANKING_OFFSET, data.ranking);
+                        replace_single_byte(
+                            adjudicator_data + WEAPON_OFFSET,
+                            get_weapon_id(&*data.weapon),
+                        );
                     }
                 }
             }
@@ -385,11 +378,9 @@ fn modify_adjudicator(
             }
         }
     }
-    log::debug!("Calling original adjudicator method");
     if let Some(original) = ORIGINAL_ADJUDICATOR_DATA.get() {
         unsafe {
             let res = original(param_1, param_2, param_3, adjudicator_data);
-            log::debug!("Finished adjudicator hook");
             res
         }
     } else {
@@ -659,7 +650,7 @@ fn set_relevant_key_items() {
                     }
                 }
             }
-            
+
             if let Ok(loc) = in_key_item_room() {
                 log::debug!("In key room: {}", loc);
                 if !CHECKED_LOCATIONS.read().unwrap().contains(&loc) {
