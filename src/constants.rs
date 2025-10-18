@@ -713,12 +713,12 @@ pub static EVENT_TABLES: LazyLock<HashMap<u32, Vec<EventTable>>> = LazyLock::new
                 location: "Mission #6 - Artemis",
                 events: vec![
                     Event {
-                        event_type: EventCode::CHECK,
-                        offset: 0x13CC,
-                    },
-                    Event {
                         event_type: EventCode::GIVE,
                         offset: 0x13D0,
+                    },
+                    Event {
+                        event_type: EventCode::CHECK,
+                        offset: 0x13C0,
                     },
                 ],
             }],

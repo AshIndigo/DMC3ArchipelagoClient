@@ -2,14 +2,19 @@ use crate::archipelago::{DeathLinkData, CHECKED_LOCATIONS, TX_DEATHLINK};
 use crate::constants::ItemEntry;
 use crate::constants::*;
 use crate::data::generated_locations;
-use crate::game_manager::{get_difficulty, get_mission, get_room, set_item, set_loc_chk_flg, set_weapons_in_inv, Style, ARCHIPELAGO_DATA};
+use crate::game_manager::{
+    get_difficulty, get_mission, get_room, set_item, set_loc_chk_flg, set_weapons_in_inv, Style,
+    ARCHIPELAGO_DATA,
+};
 use crate::location_handler::in_key_item_room;
 use crate::mapping::{Mapping, MAPPING};
 use crate::ui::text_handler;
 use crate::ui::text_handler::LAST_OBTAINED_ID;
 use crate::ui::ui::CONNECTION_STATUS;
 use crate::utilities::{read_data_from_address, replace_single_byte, DMC3_ADDRESS};
-use crate::{bank, check_handler, create_hook, game_manager, mapping, save_handler, skill_manager, utilities};
+use crate::{
+    bank, check_handler, create_hook, game_manager, mapping, save_handler, skill_manager, utilities,
+};
 use archipelago_rs::client::ArchipelagoClient;
 use minhook::{MinHook, MH_STATUS};
 use std::arch::asm;
@@ -248,14 +253,20 @@ pub fn edit_event_drop(param_1: usize, param_2: i32, param_3: usize) {
                                 log::debug!("Event loc not checked: {}", &event_table.location);
                                 match event.event_type {
                                     // Location has not been checked off!
-                                    EventCode::GIVE => {},
+                                    EventCode::GIVE => {}
                                     EventCode::CHECK => {
                                         log::debug!("Replaced check at {:#X}", &event.offset);
-                                        replace_single_byte(event_table_addr + event.offset, *DUMMY_ID as u8)
+                                        replace_single_byte(
+                                            event_table_addr + event.offset,
+                                            *DUMMY_ID as u8,
+                                        )
                                     }
                                     EventCode::END => {
                                         log::debug!("Replaced end at {:#X}", &event.offset);
-                                        replace_single_byte(event_table_addr + event.offset, *DUMMY_ID as u8)
+                                        replace_single_byte(
+                                            event_table_addr + event.offset,
+                                            *DUMMY_ID as u8,
+                                        )
                                     }
                                 }
                             }
@@ -603,39 +614,26 @@ fn set_relevant_key_items() {
     if CONNECTION_STATUS.load(Ordering::Relaxed) != 1 {
         return;
     }
-    let current_inv_addr = utilities::get_inv_address();
-    if current_inv_addr.is_none() {
-        return;
-    }
-    log::debug!("Current INV Addr: {:#X}", current_inv_addr.unwrap());
+
     if let Ok(data) = ARCHIPELAGO_DATA.read() {
         game_manager::with_session(|s| {
-            log::debug!("Current mission: {}", s.mission);
             match MISSION_ITEM_MAP.get(&(s.mission)) {
                 None => {} // No items for the mission
                 Some(item_list) => {
-                    for item in item_list.into_iter() {
+                    for item in item_list.iter() {
                         if data.items.contains(item) {
                             let res = game_manager::has_item_by_flags(item);
                             if !res {
                                 set_item(item, true, true);
                             }
-                            log::debug!("Item Relevant to mission {} Flag: {}", *item, res);
+                            log::debug!(
+                                "Item Relevant to mission #{} - {} Flag: {}",
+                                s.mission,
+                                *item,
+                                res
+                            );
                         } else {
                             set_item(item, false, true);
-                        }
-                    }
-                }
-            }
-            match MISSION_ITEM_MAP.get(&(s.mission)) {
-                None => {} // No items for the mission
-                Some(item_list) => {
-                    for item in item_list.into_iter() {
-                        if data.items.contains(item)  {
-                            let res = game_manager::has_item_by_flags(item);
-                            if !res {
-                                set_loc_chk_flg(item, true)
-                            }
                         }
                     }
                 }
@@ -661,12 +659,10 @@ fn set_relevant_key_items() {
                     }
                 }
             }
-
+            
             if let Ok(loc) = in_key_item_room() {
                 log::debug!("In key room: {}", loc);
-                if CHECKED_LOCATIONS.read().unwrap().contains(&loc) {
-                    //set_loc_chk_flg(get_item_name(generated_locations::ITEM_MISSION_MAP.get(loc).unwrap().item_id), true);
-                } else {
+                if !CHECKED_LOCATIONS.read().unwrap().contains(&loc) {
                     set_loc_chk_flg(
                         get_item_name(
                             generated_locations::ITEM_MISSION_MAP
@@ -679,7 +675,7 @@ fn set_relevant_key_items() {
                 }
             }
         })
-            .unwrap();
+        .unwrap();
     }
 }
 
@@ -695,12 +691,11 @@ pub fn load_new_room(param_1: usize) -> bool {
             res = original(param_1);
         }
     }
-    set_relevant_key_items();
     set_weapons_in_inv();
+    set_relevant_key_items();
     check_handler::clear_high_roller();
     LAST_OBTAINED_ID.store(0, Ordering::SeqCst); // Should stop random item jumpscares
     skill_manager::set_skills(&ARCHIPELAGO_DATA.read().unwrap());
-    //location_handler::room_transition();
     res
 }
 

@@ -201,7 +201,6 @@ pub(crate) fn reset_expertise() {
     })
     .expect("Unable to reset expertise");
     if let Some(char_data_ptr) = utilities::get_active_char_address() {
-        log::debug!("restting exp. char data");
         unsafe {
             write_unaligned(
                 (char_data_ptr + EXPERTISE_OFFSET) as *mut [u32; 8],
