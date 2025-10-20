@@ -34,7 +34,6 @@ pub struct Mods {
 pub struct Config {
     pub connections: Connection,
     pub mods: Mods,
-    pub force_enable_egui: bool, // To forcibly re-enable the EGUI window - Does nothing
 }
 
 impl Default for Config {
@@ -52,7 +51,6 @@ impl Default for Config {
                 disable_ddmk_hooks: false,
                 disable_crimson_hooks: false,
             },
-            force_enable_egui: false,
         }
     }
 }
