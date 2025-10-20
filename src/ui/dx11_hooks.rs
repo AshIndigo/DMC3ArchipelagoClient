@@ -1,16 +1,19 @@
-use minhook::{MinHook, MH_STATUS};
+use crate::ui::overlay::{present_hook, resize_hook};
+use crate::utilities::DMC3_ADDRESS;
 use std::ffi::c_void;
+use std::fmt::Debug;
+use std::ptr;
 use std::sync::OnceLock;
 use windows::core::HRESULT;
-use windows::core::PCSTR;
-use windows::core::PCWSTR;
 use windows::Win32::Foundation::HMODULE;
 use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE, D3D_FEATURE_LEVEL};
 use windows::Win32::Graphics::Direct3D11::D3D11_CREATE_DEVICE_FLAG;
 use windows::Win32::Graphics::Dxgi::{
     Common, IDXGISwapChain, DXGI_SWAP_CHAIN_DESC, DXGI_SWAP_CHAIN_FLAG,
 };
-use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
+use windows::Win32::System::Memory::{
+    VirtualProtect, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS,
+};
 
 type D3D11CreateDeviceAndSwapChain = unsafe extern "system" fn(
     padapter: *mut c_void,
@@ -21,7 +24,7 @@ type D3D11CreateDeviceAndSwapChain = unsafe extern "system" fn(
     featurelevels: u32,
     sdkversion: u32,
     pswapchaindesc: *const DXGI_SWAP_CHAIN_DESC,
-    ppswapchain: *mut *mut c_void,
+    ppswapchain: *mut *mut IDXGISwapChain,
     ppdevice: *mut *mut c_void,
     pfeaturelevel: *mut D3D_FEATURE_LEVEL,
     ppimmediatecontext: *mut *mut c_void,
@@ -38,42 +41,10 @@ type ResizeBuffersFn = unsafe extern "system" fn(
 );
 
 static ORIGINAL_DEV_CHAIN: OnceLock<D3D11CreateDeviceAndSwapChain> = OnceLock::new();
-
-static PRESENT_PTR: OnceLock<usize> = OnceLock::new();
 pub(crate) static ORIGINAL_PRESENT: OnceLock<PresentFn> = OnceLock::new();
-
-static RESIZE_BUFFERS_PTR: OnceLock<usize> = OnceLock::new();
 pub(crate) static ORIGINAL_RESIZE_BUFFERS: OnceLock<ResizeBuffersFn> = OnceLock::new();
 
-pub fn wide(s: &str) -> Vec<u16> {
-    use std::iter::once;
-    s.encode_utf16().chain(once(0)).collect()
-}
-
-fn get_cdasc() -> Option<usize> {
-    match unsafe { GetModuleHandleW(PCWSTR::from_raw(wide("d3d11.dll\0").as_ptr())) } {
-        Ok(hmodule) => {
-            match unsafe {
-                GetProcAddress(
-                    hmodule,
-                    PCSTR::from_raw(b"D3D11CreateDeviceAndSwapChain\0".as_ptr()),
-                )
-            } {
-                None => {
-                    log::error!("CDASC address was None");
-                    None
-                }
-                Some(addr) => Some(addr as usize),
-            }
-        }
-        Err(err) => {
-            log::error!("Error getting d3d11 module handle: {:?}", err);
-            None
-        }
-    }
-}
-
-unsafe fn hook_d3d11_create_device_and_swap_chain(
+unsafe extern "system" fn hook_d3d11_create_device_and_swap_chain(
     padapter: *mut c_void,
     drivertype: D3D_DRIVER_TYPE,
     software: HMODULE,
@@ -82,7 +53,7 @@ unsafe fn hook_d3d11_create_device_and_swap_chain(
     featurelevels: u32,
     sdkversion: u32,
     pswapchaindesc: *const DXGI_SWAP_CHAIN_DESC,
-    ppswapchain: *mut *mut c_void,
+    ppswapchain: *mut *mut IDXGISwapChain,
     ppdevice: *mut *mut c_void,
     pfeaturelevel: *mut D3D_FEATURE_LEVEL,
     ppimmediatecontext: *mut *mut c_void,
@@ -103,74 +74,76 @@ unsafe fn hook_d3d11_create_device_and_swap_chain(
             ppimmediatecontext,
         )
     };
-
-    if PRESENT_PTR.get().is_none() {
-        let swap_chain_ptr = unsafe { *ppswapchain };
-        if !swap_chain_ptr.is_null() {
-            let vtable = unsafe { *(swap_chain_ptr as *const *const *const c_void) };
-            if !vtable.is_null() {
-                let present_ptr = unsafe { *vtable.add(8) }; // Present is slot 8
-                PRESENT_PTR.set(present_ptr as usize).unwrap();
-                unsafe {
-                    ORIGINAL_PRESENT
-                        .set(std::mem::transmute::<_, PresentFn>(
-                            MinHook::create_hook(
-                                present_ptr as *mut _,
-                                crate::ui::overlay::present_hook as _,
-                            )
-                            .expect("Failed to create hook"),
-                        ))
-                        .expect("Failed to set original present");
-                    MinHook::enable_hook(present_ptr as _).expect("Failed to enable present hook");
-                }
-
-                let resize_ptr = unsafe { *vtable.add(5) }; // Resize is slot 13
-                RESIZE_BUFFERS_PTR.set(resize_ptr as usize).unwrap();
-                unsafe {
-                    ORIGINAL_RESIZE_BUFFERS
-                        .set(std::mem::transmute::<_, ResizeBuffersFn>(
-                            MinHook::create_hook(
-                                resize_ptr as *mut _,
-                                crate::ui::overlay::resize_hook as _,
-                            )
-                                .expect("Failed to create hook"),
-                        ))
-                        .expect("Failed to set original resize bufffers");
-                    MinHook::enable_hook(resize_ptr as _).expect("Failed to enable resize hook");
-                }
-            }
-        }
-    }
-
+    install_present_hook(ppswapchain);
+    log::debug!("Installed present hook");
+    install_resize_hook(ppswapchain);
+    log::debug!("Installed resize hook");
     res
 }
 
-pub fn install_hook() -> Result<(), MH_STATUS> {
-    if let Some(create_swap_and_device_addr) = get_cdasc() {
-        unsafe {
-            if ORIGINAL_DEV_CHAIN.get().is_none() {
-                ORIGINAL_DEV_CHAIN
-                    .set(std::mem::transmute::<_, D3D11CreateDeviceAndSwapChain>(
-                        MinHook::create_hook(
-                            create_swap_and_device_addr as *mut _,
-                            hook_d3d11_create_device_and_swap_chain as _,
-                        )
-                        .expect("Failed to create hook"),
-                    ))
-                    .expect("Failed to set original device chain");
-            }
-
-            if let Err(err) = MinHook::enable_hook(create_swap_and_device_addr as *mut _) {
-                log::error!(
-                    "Failed to enable {:#X} hook: {:?}",
-                    create_swap_and_device_addr,
-                    err
-                );
-            }
+// TODO Consolidate these two and make them return Result's
+fn install_present_hook(ppswapchain: *mut *mut IDXGISwapChain) {
+    unsafe {
+        if ppswapchain.is_null() {
+            return;
         }
-    } else {
-        log::error!("Failed to get Create Swap And Device Address");
+        let swap_ptr = *ppswapchain;
+        if swap_ptr.is_null() {
+            return;
+        }
+        install(
+            *(swap_ptr as *const *const usize).add(8) as *mut PresentFn,
+            present_hook,
+            &ORIGINAL_PRESENT,
+        );
     }
+}
 
-    Ok(())
+fn install_resize_hook(ppswapchain: *mut *mut IDXGISwapChain) {
+    unsafe {
+        if ppswapchain.is_null() {
+            return;
+        }
+        let swap_ptr = *ppswapchain;
+        if swap_ptr.is_null() {
+            return;
+        }
+        install(
+            *(swap_ptr as *const *const usize).add(13) as *mut ResizeBuffersFn,
+            resize_hook,
+            &ORIGINAL_RESIZE_BUFFERS,
+        );
+    }
+}
+
+pub fn setup_overlay() {
+    log::info!("Setting up Archipelago Randomizer Overlay");
+    install(
+        (*DMC3_ADDRESS + 0x34F650) as *mut D3D11CreateDeviceAndSwapChain,
+        hook_d3d11_create_device_and_swap_chain,
+        &ORIGINAL_DEV_CHAIN,
+    );
+    log::debug!("Installed device and swap chain hook");
+}
+
+fn install<T>(dest: *mut T, hook: T, original: &OnceLock<T>)
+where
+    T: Copy + 'static + Debug,
+{
+    unsafe {
+        let orig = ptr::read(dest);
+        let size = size_of::<T>();
+        let mut old_protect = PAGE_PROTECTION_FLAGS::default();
+        let addr = dest as *mut _;
+        if VirtualProtect(addr, size, PAGE_EXECUTE_READWRITE, &mut old_protect).is_err() {
+            log::error!("Install VirtualProtect (1) failed");
+        }
+        ptr::write(dest, hook.into());
+        if VirtualProtect(addr, size, old_protect, &mut old_protect).is_err() {
+            log::error!("Install VirtualProtect (2) failed");
+        }
+        if let Err(err) = original.set(orig) {
+            log::error!("Failed to install overlay related hook: {:?}", err);
+        }
+    }
 }

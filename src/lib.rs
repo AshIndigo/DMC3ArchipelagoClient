@@ -40,6 +40,7 @@ mod check_handler;
 mod constants;
 mod data;
 //mod experiments;
+mod compat;
 mod config;
 mod exception_handler;
 mod game_manager;
@@ -51,7 +52,6 @@ mod save_handler;
 mod skill_manager;
 mod ui;
 mod utilities;
-mod compat;
 
 #[macro_export]
 /// Does not enable the hook, that needs to be done separately
@@ -110,10 +110,10 @@ pub extern "system" fn DllMain(
 
     match fdw_reason {
         DLL_PROCESS_ATTACH => {
-
-            thread::spawn(|| {
-                load_real_dinput8();
-                if current_exe().unwrap().ends_with("dmc3.exe") {
+            load_real_dinput8();
+            if current_exe().unwrap().ends_with("dmc3.exe") {
+                ui::dx11_hooks::setup_overlay();
+                thread::spawn(|| {
                     let mut pre_logs: Vec<PreLog> = vec![];
                     // pre_logs.push(PreLog::new(
                     //     Level::Debug,
@@ -137,10 +137,6 @@ pub extern "system" fn DllMain(
                     create_console();
                     // I'll lose color if I do this first then console
                     setup_logger();
-                    thread::spawn(|| {
-                        let _ = ui::dx11_hooks::install_hook();
-                    });
-                    // let _ = ui::overlay::install_hook();
                     for log in pre_logs {
                         log::log!(log.level, "{}", log.message);
                     }
@@ -165,9 +161,8 @@ pub extern "system" fn DllMain(
                         },
                     }
                     main_setup();
-                }
-            });
-
+                });
+            }
         }
         DLL_PROCESS_DETACH => {
             // For cleanup
@@ -197,12 +192,12 @@ fn load_other_dlls(pre_logs: &mut Vec<PreLog>) -> Result<(), std::io::Error> {
     if !(*config::CONFIG).mods.disable_ddmk {
         match is_file_valid("Mary.dll", 7087074874482460961) {
             Ok(_) => {
-                let _ = unsafe {LoadLibraryA(PCSTR::from_raw("Mary.dll\0".as_ptr()))};
+                let _ = unsafe { LoadLibraryA(PCSTR::from_raw("Mary.dll\0".as_ptr())) };
                 if is_ddmk_loaded() {
                     pre_logs.push(PreLog::new(
                         Level::Warn,
                         "DDMK's Actor system most likely does not work with the DeathLink setting in the randomizer, \
-                please turn it off if you wish to use DeathLink".to_string()
+                please turn it off if you wish to use DeathLink".to_string(),
                     ));
                 }
             }
@@ -244,7 +239,7 @@ fn load_other_dlls(pre_logs: &mut Vec<PreLog>) -> Result<(), std::io::Error> {
                 }
             },
         }
-        let _ = unsafe {LoadLibraryA(PCSTR::from_raw("Crimson.dll\0".as_ptr()))};
+        let _ = unsafe { LoadLibraryA(PCSTR::from_raw("Crimson.dll\0".as_ptr())) };
         if is_crimson_loaded() {
             pre_logs.push(PreLog::new(
                 Level::Info,
@@ -253,7 +248,7 @@ fn load_other_dlls(pre_logs: &mut Vec<PreLog>) -> Result<(), std::io::Error> {
             pre_logs.push(PreLog::new(
                 Level::Warn,
                 "Crimson's Crimson/Style switcher mode does not work with the DeathLink setting in the randomizer, \
-                please turn it off if you wish to use DeathLink".to_string()
+                please turn it off if you wish to use DeathLink".to_string(),
             ));
         }
     }

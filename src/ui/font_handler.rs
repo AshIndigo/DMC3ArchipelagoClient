@@ -8,6 +8,7 @@ use windows::Win32::Foundation::{FALSE, TRUE};
 use windows::Win32::Graphics::Direct3D::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_SAMPLE_DESC};
+use crate::utilities::is_crimson_loaded;
 
 static BLEND_STATE: OnceLock<ID3D11BlendState> = OnceLock::new();
 static SAMPLER: OnceLock<ID3D11SamplerState> = OnceLock::new();
@@ -75,12 +76,21 @@ impl FontColorCB {
     }
 }
 
+pub const BLACK: FontColorCB = FontColorCB::new(0.0, 0.0, 0.0, 1.0);
 pub const WHITE: FontColorCB = FontColorCB::new(1.0, 1.0, 1.0, 1.0);
 
 pub const RED: FontColorCB = FontColorCB::new(1.0, 0.0, 0.0, 1.0);
 
 pub const GREEN: FontColorCB = FontColorCB::new(0.0, 1.0, 0.0, 1.0);
 pub const YELLOW: FontColorCB = FontColorCB::new(0.98, 0.98, 0.824, 1.0); // Used for other slots
+
+pub fn get_default_color() -> &'static FontColorCB {
+    if is_crimson_loaded() {
+        &WHITE
+    } else {
+        &BLACK
+    }
+}
 
 pub fn create_rgba_font_atlas(
     device: &ID3D11Device,

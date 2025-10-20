@@ -1,5 +1,5 @@
 use crate::constants::Status;
-use crate::ui::font_handler::{FontAtlas, FontColorCB, GREEN, RED, WHITE};
+use crate::ui::font_handler::{get_default_color, FontAtlas, FontColorCB, BLACK, GREEN, RED, WHITE};
 use crate::ui::ui::CONNECTION_STATUS;
 use crate::ui::{dx11_hooks, font_handler};
 use crate::utilities;
@@ -245,7 +245,7 @@ fn get_resources(swap_chain: &IDXGISwapChain) -> &RwLock<D3D11State> {
     state
 }
 
-pub(crate) unsafe fn resize_hook(
+pub(crate) unsafe extern "system" fn resize_hook(
     swap_chain: *mut IDXGISwapChain,
     buffer_count: u32,
     width: u32,
@@ -276,7 +276,7 @@ pub(crate) unsafe fn resize_hook(
     }
 }
 
-pub(crate) unsafe fn present_hook(
+pub(crate) unsafe extern "system" fn present_hook(
     orig_swap_chain: IDXGISwapChain,
     sync_interval: u32,
     flags: u32,
@@ -317,7 +317,7 @@ pub(crate) unsafe fn present_hook(
                         0.0,
                         screen_width,
                         screen_height,
-                        &WHITE,
+                        get_default_color(),
                     );
                     let status =
                         Status::from_repr(CONNECTION_STATUS.load(Ordering::SeqCst) as usize)
@@ -342,7 +342,7 @@ pub(crate) unsafe fn present_hook(
                         50.0,
                         screen_width,
                         screen_height,
-                        &WHITE,
+                        get_default_color(),
                     );
 
                     // TODO Maybe at some point I'd want to have the mod poke github on launch?
@@ -353,7 +353,7 @@ pub(crate) unsafe fn present_hook(
                         50.0,
                         screen_width,
                         screen_height,
-                        &WHITE,
+                        get_default_color(),
                     );
                 }
             }
