@@ -1,5 +1,6 @@
 use crate::ui::overlay::{present_hook, resize_hook};
 use crate::utilities::DMC3_ADDRESS;
+use std::error::Error;
 use std::ffi::c_void;
 use std::fmt::Debug;
 use std::ptr;
@@ -74,46 +75,53 @@ unsafe extern "system" fn hook_d3d11_create_device_and_swap_chain(
             ppimmediatecontext,
         )
     };
-    install_present_hook(ppswapchain);
-    log::debug!("Installed present hook");
-    install_resize_hook(ppswapchain);
-    log::debug!("Installed resize hook");
+    match install_vtable_hook(ppswapchain, 8, present_hook as PresentFn, &ORIGINAL_PRESENT) {
+        Ok(_) => {
+            log::debug!("Installed present hook");
+        }
+        Err(err) => {
+            log::error!("Failed to install present hook: {}", err);
+        }
+    }
+
+    match install_vtable_hook(
+        ppswapchain,
+        13,
+        resize_hook as ResizeBuffersFn,
+        &ORIGINAL_RESIZE_BUFFERS,
+    ) {
+        Ok(_) => {
+            log::debug!("Installed resize hook");
+        }
+        Err(err) => {
+            log::error!("Failed to install resize hook: {}", err);
+        }
+    }
+
     res
 }
 
-// TODO Consolidate these two and make them return Result's
-fn install_present_hook(ppswapchain: *mut *mut IDXGISwapChain) {
+fn install_vtable_hook<T>(
+    ppswapchain: *mut *mut IDXGISwapChain,
+    vtable_idx: usize,
+    hook: T,
+    original: &OnceLock<T>,
+) -> Result<(), Box<dyn Error>>
+where
+    T: Copy + 'static + Debug,
+{
     unsafe {
         if ppswapchain.is_null() {
-            return;
+            return Err("ppswapchain was null".into());
         }
         let swap_ptr = *ppswapchain;
         if swap_ptr.is_null() {
-            return;
+            return Err("swap_ptr was null".into());
         }
-        install(
-            *(swap_ptr as *const *const usize).add(8) as *mut PresentFn,
-            present_hook,
-            &ORIGINAL_PRESENT,
-        );
+        let vtable = *(swap_ptr as *const *const usize);
+        install(vtable.add(vtable_idx) as *mut T, hook, &original);
     }
-}
-
-fn install_resize_hook(ppswapchain: *mut *mut IDXGISwapChain) {
-    unsafe {
-        if ppswapchain.is_null() {
-            return;
-        }
-        let swap_ptr = *ppswapchain;
-        if swap_ptr.is_null() {
-            return;
-        }
-        install(
-            *(swap_ptr as *const *const usize).add(13) as *mut ResizeBuffersFn,
-            resize_hook,
-            &ORIGINAL_RESIZE_BUFFERS,
-        );
-    }
+    Ok(())
 }
 
 pub fn setup_overlay() {

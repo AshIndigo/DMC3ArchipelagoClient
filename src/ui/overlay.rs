@@ -1,5 +1,5 @@
 use crate::constants::Status;
-use crate::ui::font_handler::{get_default_color, FontAtlas, FontColorCB, BLACK, GREEN, RED, WHITE};
+use crate::ui::font_handler::{get_default_color, FontAtlas, FontColorCB, GREEN, RED, WHITE};
 use crate::ui::ui::CONNECTION_STATUS;
 use crate::ui::{dx11_hooks, font_handler};
 use crate::utilities;
