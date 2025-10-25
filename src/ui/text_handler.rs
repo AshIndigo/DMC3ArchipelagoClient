@@ -1,11 +1,10 @@
-use crate::create_hook;
+use crate::{create_hook, utilities};
 use crate::utilities::{replace_single_byte, DMC3_ADDRESS};
 use minhook::{MinHook, MH_STATUS};
 use std::ptr::write_unaligned;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{LazyLock, OnceLock};
 use std::{ptr};
-use windows::Win32::System::Memory::{VirtualProtect, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS};
 
 pub static CANCEL_TEXT: AtomicBool = AtomicBool::new(false);
 pub static LAST_OBTAINED_ID: AtomicU8 = AtomicU8::new(0);
@@ -85,30 +84,22 @@ pub static DISPLAY_ITEM_GET_SCREEN: OnceLock<unsafe extern "C" fn(ptr: usize)> =
 pub(crate) const DISPLAY_ITEM_GET_ADDR: usize = 0x2955a0;
 pub fn replace_displayed_item_id(item_get: usize) {
     if CANCEL_TEXT.load(Ordering::SeqCst) {
-        let base = *DMC3_ADDRESS;
-        let offset = base + 0x2957e3;
-        let mut old_protect = PAGE_PROTECTION_FLAGS::default();
-        const LENGTH: usize = 6;
-        unsafe {
-            VirtualProtect(
-                offset as *mut _,
-                LENGTH,
-                PAGE_EXECUTE_READWRITE,
-                &mut old_protect,
-            ).expect("Unable to replace displayed item id - Before");
-            write_unaligned(
-                offset as *mut [u8; LENGTH],
-                [0xBA, 60u8, 0x00, 0x00, 0x00, 0x90],
-            );
-            if let Some(original) = DISPLAY_ITEM_GET_SCREEN.get() {
-                original(item_get);
+        let offset =  (*DMC3_ADDRESS + 0x2957e3) as *mut [u8; 6];
+        utilities::modify_protected_memory(|| {
+            unsafe {
+                write_unaligned(
+                    offset,
+                    [0xBA, 60u8, 0x00, 0x00, 0x00, 0x90],
+                );
+                if let Some(original) = DISPLAY_ITEM_GET_SCREEN.get() {
+                    original(item_get);
+                }
+                write_unaligned(
+                    offset,
+                    [0x8B, 0x93, 0x44, 0x09, 0x00, 0x00],
+                );
             }
-            write_unaligned(
-                offset as *mut [u8; LENGTH],
-                [0x8B, 0x93, 0x44, 0x09, 0x00, 0x00],
-            );
-            VirtualProtect(offset as *mut _, LENGTH, old_protect, &mut old_protect).expect("Unable to replace displayed item id - After");
-        }
+        }, offset).unwrap();
     } else {
         unsafe {
             if let Some(original) = DISPLAY_ITEM_GET_SCREEN.get() {

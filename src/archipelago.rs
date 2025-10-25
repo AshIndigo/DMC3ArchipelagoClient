@@ -4,7 +4,7 @@ use crate::check_handler::Location;
 use crate::constants::{get_item_name, ItemCategory, Status, GAME_NAME, REMOTE_ID};
 use crate::data::generated_locations;
 use crate::game_manager::ARCHIPELAGO_DATA;
-use crate::mapping::{DeathlinkSetting, MAPPING};
+use crate::mapping::{DeathlinkSetting, Goal, Mapping, MAPPING};
 use crate::ui::font_handler::WHITE;
 use crate::ui::overlay::{MessageSegment, MessageType, OverlayMessage};
 use crate::ui::text_handler;
@@ -12,7 +12,10 @@ use crate::ui::ui::CONNECTION_STATUS;
 use crate::{bank, cache, constants, game_manager, hook, item_sync, location_handler, mapping};
 use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
-use archipelago_rs::protocol::{Bounce, Bounced, ClientMessage, ClientStatus, Connected, GetDataPackage, JSONColor, JSONMessagePart, PrintJSON, Retrieved, ServerMessage, StatusUpdate};
+use archipelago_rs::protocol::{
+    Bounce, Bounced, ClientMessage, ClientStatus, Connected, GetDataPackage, JSONColor,
+    JSONMessagePart, PrintJSON, Retrieved, ServerMessage, StatusUpdate,
+};
 use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -82,22 +85,26 @@ pub async fn get_archipelago_client(
                             "Local DataPackage checksums for {:?} did not match expected values, reacquiring",
                             checksum_error.games
                         );
-                        client.send(ClientMessage::GetDataPackage(GetDataPackage {
-                            games: Some(checksum_error.games)
-                        })).await?;
-                        match  client.recv().await? {
+                        client
+                            .send(ClientMessage::GetDataPackage(GetDataPackage {
+                                games: Some(checksum_error.games),
+                            }))
+                            .await?;
+                        match client.recv().await? {
                             Some(ServerMessage::DataPackage(pkg)) => {
-                                cache::update_cache(&pkg.data).unwrap_or_else(|err| log::error!("Failed to write cache: {}", err));
-                            },
+                                cache::update_cache(&pkg.data).unwrap_or_else(|err| {
+                                    log::error!("Failed to write cache: {}", err)
+                                });
+                            }
                             Some(received) => {
                                 return Err(ArchipelagoError::IllegalResponse {
                                     received,
                                     expected: "DataPackage",
-                                })
+                                });
                             }
                             None => return Err(ArchipelagoError::ConnectionClosed),
                         }
-                        return Ok(client)
+                        return Ok(client);
                     }
                     Err(err) => {
                         log::error!("Error checking DataPackage checksums: {:?}", err);
@@ -162,7 +169,9 @@ pub async fn connect_archipelago(
         }
     }
 
-    item_sync::send_offline_checks(&mut ap_client).await.unwrap();
+    item_sync::send_offline_checks(&mut ap_client)
+        .await
+        .unwrap();
 
     match CONNECTED.read().as_ref() {
         Ok(con) => {
@@ -513,20 +522,13 @@ async fn handle_item_receive(
 ) -> Result<(), Box<dyn Error>> {
     // See if there's an item!
     log::info!("Processing item: {}", received_item);
-    let Ok(mapping_data) = mapping::MAPPING.read() else {
+    let Ok(mapping_data) = MAPPING.read() else {
         return Err(Box::from(anyhow!("Unable to get mapping data")));
     };
     let Some(mapping_data) = mapping_data.as_ref() else {
         return Err(Box::from(anyhow!("No mapping data")));
     };
-    if received_item.mission == 20 {
-        client
-            .send(ClientMessage::StatusUpdate(StatusUpdate {
-                status: ClientStatus::ClientGoal,
-            }))
-            .await?;
-        return Ok(());
-    }
+
     if let Some(data_package) = DATA_PACKAGE.read().unwrap().as_ref() {
         if received_item.item_id <= 0x39 {
             crate::check_handler::take_away_received_item(received_item.item_id);
@@ -568,9 +570,46 @@ async fn handle_item_receive(
             }
             None => Err(anyhow::anyhow!("Location not found: {}", location_key))?,
         }
+        // Add to checked locations
+        CHECKED_LOCATIONS.write()?.push(location_key);
+        if has_reached_goal(&mapping_data) {
+            client
+                .send(ClientMessage::StatusUpdate(StatusUpdate {
+                    status: ClientStatus::ClientGoal,
+                }))
+                .await?;
+            return Ok(());
+        }
     }
 
     Ok(())
+}
+
+fn has_reached_goal(mapping: &&Mapping) -> bool {
+    if let Ok(chk) = CHECKED_LOCATIONS.read().as_ref() {
+        match mapping.goal {
+            Goal::Standard => {
+                return chk.contains(&"Mission #20 Complete");
+            }
+            Goal::All => {
+                for i in 1..20 {
+                    // If we are missing a mission complete check then we cannot goal
+                    if !chk.contains(&format!("Mission #{} Complete", i).as_str()) {
+                        return false;
+                    }
+                    // If we have them all, goal
+                    return true;
+                }
+            }
+            Goal::RandomOrder => {
+                if let Some(order) = &mapping.mission_order {
+                    return chk.contains(&format!("Mission #{} Complete", order[19]).as_str())
+                }
+                return false;
+            }
+        }
+    }
+    false
 }
 
 fn handle_print_json(print_json: PrintJSON, con_opt: &Option<Connected>) -> String {

@@ -1,4 +1,5 @@
 use crate::ui::overlay::{present_hook, resize_hook};
+use crate::utilities;
 use crate::utilities::DMC3_ADDRESS;
 use std::error::Error;
 use std::ffi::c_void;
@@ -11,9 +12,6 @@ use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE, D3D_FEATURE_LEVEL};
 use windows::Win32::Graphics::Direct3D11::D3D11_CREATE_DEVICE_FLAG;
 use windows::Win32::Graphics::Dxgi::{
     Common, IDXGISwapChain, DXGI_SWAP_CHAIN_DESC, DXGI_SWAP_CHAIN_FLAG,
-};
-use windows::Win32::System::Memory::{
-    VirtualProtect, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS,
 };
 
 type D3D11CreateDeviceAndSwapChain = unsafe extern "system" fn(
@@ -138,20 +136,15 @@ fn install<T>(dest: *mut T, hook: T, original: &OnceLock<T>)
 where
     T: Copy + 'static + Debug,
 {
-    unsafe {
-        let orig = ptr::read(dest);
-        let size = size_of::<T>();
-        let mut old_protect = PAGE_PROTECTION_FLAGS::default();
-        let addr = dest as *mut _;
-        if VirtualProtect(addr, size, PAGE_EXECUTE_READWRITE, &mut old_protect).is_err() {
-            log::error!("Install VirtualProtect (1) failed");
-        }
-        ptr::write(dest, hook.into());
-        if VirtualProtect(addr, size, old_protect, &mut old_protect).is_err() {
-            log::error!("Install VirtualProtect (2) failed");
-        }
-        if let Err(err) = original.set(orig) {
-            log::error!("Failed to install overlay related hook: {:?}", err);
-        }
+    let orig = unsafe { ptr::read(dest) };
+    utilities::modify_protected_memory(
+        || unsafe {
+            ptr::write(dest, hook.into());
+        },
+        dest,
+    )
+    .unwrap();
+    if let Err(err) = original.set(orig) {
+        log::error!("Failed to install overlay related hook: {:?}", err);
     }
 }

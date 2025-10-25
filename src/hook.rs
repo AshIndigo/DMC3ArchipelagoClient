@@ -3,11 +3,11 @@ use crate::constants::ItemEntry;
 use crate::constants::*;
 use crate::data::generated_locations;
 use crate::game_manager::{
-    get_difficulty, get_mission, get_room, set_item, set_loc_chk_flg, set_weapons_in_inv, Style,
-    ARCHIPELAGO_DATA,
+    get_difficulty, get_mission, get_room, set_item, set_loc_chk_flg, set_weapons_in_inv, with_session,
+    Style, ARCHIPELAGO_DATA,
 };
 use crate::location_handler::in_key_item_room;
-use crate::mapping::{Mapping, MAPPING};
+use crate::mapping::{Goal, Mapping, MAPPING};
 use crate::ui::text_handler;
 use crate::ui::text_handler::LAST_OBTAINED_ID;
 use crate::ui::ui::CONNECTION_STATUS;
@@ -23,9 +23,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, OnceLock};
 use std::{ptr, slice};
 use tokio::sync::Mutex;
-use windows::Win32::System::Memory::{
-    VirtualProtect, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS,
-};
 
 pub(crate) static CLIENT: LazyLock<Mutex<Option<ArchipelagoClient>>> =
     LazyLock::new(|| Mutex::new(None));
@@ -130,6 +127,12 @@ unsafe fn create_hooks() -> Result<(), MH_STATUS> {
             ORIGINAL_SET_NEW_SESSION_DATA,
             "Set session data for new game"
         );
+        create_hook!(
+            SELECT_MISSION_BUTTON,
+            rewrite_mission_order,
+            ORIGINAL_SELECT_MISSION_BUTTON,
+            "Edit which mission is loaded on selection"
+        );
         text_handler::setup_text_hooks()?;
         save_handler::setup_save_hooks()?;
         bank::setup_bank_hooks()?;
@@ -157,6 +160,7 @@ fn enable_hooks() {
         CUSTOMIZE_STYLE_MENU,
         GIVE_STYLE_XP,
         SET_NEW_SESSION_DATA,
+        SELECT_MISSION_BUTTON,
         // Bank
         bank::OPEN_INV_SCREEN_ADDR,
         bank::CLOSE_INV_SCREEN_ADDR,
@@ -196,6 +200,7 @@ pub fn disable_hooks() -> Result<(), MH_STATUS> {
         MinHook::disable_hook((base_address + ADD_SHOTGUN_OR_CERBERUS_ADDR) as *mut _)?;
         MinHook::disable_hook((base_address + CUSTOMIZE_STYLE_MENU) as *mut _)?;
         MinHook::disable_hook((base_address + SET_NEW_SESSION_DATA) as *mut _)?;
+        MinHook::disable_hook((base_address + SELECT_MISSION_BUTTON) as *mut _)?;
         text_handler::disable_text_hooks(base_address)?;
         check_handler::disable_check_hooks(base_address)?;
         bank::disable_bank_hooks(base_address)?;
@@ -288,28 +293,17 @@ pub fn edit_event_drop(param_1: usize, param_2: i32, param_3: usize) {
 // Set these from 02 to 01
 pub(crate) fn rewrite_mode_table() {
     let table_address = ITEM_MODE_TABLE + *DMC3_ADDRESS;
-    let mut old_protect = PAGE_PROTECTION_FLAGS::default();
-    let length = 16;
-    unsafe {
-        VirtualProtect(
-            table_address as *mut _,
-            length, // Length of table I need to modify
-            PAGE_EXECUTE_READWRITE,
-            &mut old_protect,
-        )
-        .expect("Unable to rewrite mode table - Before");
-
-        let table = slice::from_raw_parts_mut(table_address as *mut u8, length);
-        table.fill(0x01u8); // 0 = orbs, 1 = items, 2 = bad
-
-        VirtualProtect(
-            table_address as *mut _,
-            length,
-            old_protect,
-            &mut old_protect,
-        )
-        .expect("Unable to rewrite mode table - After");
-    }
+    utilities::modify_protected_memory(
+        || {
+            const LENGTH: usize = 16;
+            unsafe {
+                let table = slice::from_raw_parts_mut(table_address as *mut u8, LENGTH);
+                table.fill(0x01u8); // 0 = orbs, 1 = items, 2 = bad
+            }
+        },
+        table_address as *mut [u8; 16],
+    )
+    .unwrap();
 }
 
 pub const ADJUDICATOR_DATA_ADDR: usize = 0x24f970;
@@ -351,14 +345,16 @@ fn modify_adjudicator(
                 );
             }
             if let Some(mappings) = MAPPING.read().unwrap().as_ref() {
-                if let Some(data) = mappings.adjudicators.get(*location_name) {
-                    //log::debug!("New adjudicator data will be {:?}", data);
-                    unsafe {
-                        replace_single_byte(adjudicator_data + RANKING_OFFSET, data.ranking);
-                        replace_single_byte(
-                            adjudicator_data + WEAPON_OFFSET,
-                            get_weapon_id(&*data.weapon),
-                        );
+                if let Some(adjudicator_map) = &mappings.adjudicators {
+                    if let Some(data) = adjudicator_map.get(*location_name) {
+                        //log::debug!("New adjudicator data will be {:?}", data);
+                        unsafe {
+                            replace_single_byte(adjudicator_data + RANKING_OFFSET, data.ranking);
+                            replace_single_byte(
+                                adjudicator_data + WEAPON_OFFSET,
+                                get_weapon_id(&*data.weapon),
+                            );
+                        }
                     }
                 }
             }
@@ -424,7 +420,7 @@ fn item_spawns_hook(unknown: usize) {
                     // modify_secret_mission_item(mapping);
                     for _i in 0..item_count {
                         let item_ref: &u32 = &*(item_addr as *const u32);
-                        const EXTRA_OUTPUT: bool = true;
+                        const EXTRA_OUTPUT: bool = false;
                         if EXTRA_OUTPUT {
                             log::debug!("Item ID: {} ({:#X})", get_item_name(*item_ref), *item_ref);
                         }
@@ -729,21 +725,14 @@ pub fn modify_item_table(offset: usize, id: u8) {
         if offset == 0x0 {
             return; // Undecided/ignorable
         }
-        let mut old_protect = PAGE_PROTECTION_FLAGS::default();
-        VirtualProtect(
-            true_offset as *mut _,
-            4, // Length of table I need to modify
-            PAGE_EXECUTE_READWRITE,
-            &mut old_protect,
+        utilities::modify_protected_memory(
+            || {
+                let table = slice::from_raw_parts_mut(true_offset as *mut u8, 4);
+                table[3] = id;
+            },
+            true_offset as *mut [u8; 4],
         )
-        .expect("Unable to modify item table - Before");
-
-        let table = slice::from_raw_parts_mut(true_offset as *mut u8, 4);
-
-        table[3] = id;
-
-        VirtualProtect(true_offset as *mut _, 4, old_protect, &mut old_protect)
-            .expect("Unable to modify item table - After");
+        .unwrap();
         // log::trace!(
         //     "Modified Item Table: Address: 0x{:x}, ID: 0x{:x}, Offset: 0x{:x}",
         //     true_offset,
@@ -757,54 +746,38 @@ pub fn modify_item_table(offset: usize, id: u8) {
 pub(crate) fn restore_item_table() {
     generated_locations::ITEM_MISSION_MAP
         .iter()
-        .filter(|item| item.1.offset != 0x0) // item.1 is the entry
+        .filter(|(_name, entry)| entry.offset != 0x0)
         .for_each(|(_key, val)| {
-            unsafe {
-                let true_offset = val.offset + *DMC3_ADDRESS + 0x1A00usize;
-                let mut old_protect = PAGE_PROTECTION_FLAGS::default();
-                VirtualProtect(
-                    true_offset as *mut _,
-                    4, // Length of table I need to modify
-                    PAGE_EXECUTE_READWRITE,
-                    &mut old_protect,
-                )
-                .expect("Unable to restore item table - Before");
-
-                let table = slice::from_raw_parts_mut(true_offset as *mut u8, 4);
-
-                table[3] = val.item_id as u8;
-
-                VirtualProtect(true_offset as *mut _, 4, old_protect, &mut old_protect)
-                    .expect("Unable to restore item table - After");
-            }
+            let true_offset = val.offset + *DMC3_ADDRESS + 0x1A00usize;
+            utilities::modify_protected_memory(
+                || {
+                    const LENGTH: usize = 4;
+                    unsafe {
+                        let table = slice::from_raw_parts_mut(true_offset as *mut u8, LENGTH);
+                        table[3] = val.item_id as u8;
+                    }
+                },
+                true_offset as *mut [u8; 4],
+            )
+            .unwrap();
         })
 }
 
 /// Set the modified modes back to 1 from 2
 pub(crate) fn restore_mode_table() {
     let table_address = ITEM_MODE_TABLE + *DMC3_ADDRESS;
-    let mut old_protect = PAGE_PROTECTION_FLAGS::default();
-    let length = 16;
-    unsafe {
-        VirtualProtect(
-            table_address as *mut _,
-            length, // Length of table I need to modify
-            PAGE_EXECUTE_READWRITE,
-            &mut old_protect,
-        )
-        .expect("Unable to restore mode table - Before");
-
-        let table = slice::from_raw_parts_mut(table_address as *mut u8, length);
-        table.fill(0x02u8); // 0 = orbs, 1 = items, 2 = bad
-
-        VirtualProtect(
-            table_address as *mut _,
-            length,
-            old_protect,
-            &mut old_protect,
-        )
-        .expect("Unable to restore mode table - After");
-    }
+    const LENGTH: usize = 16;
+    utilities::modify_protected_memory(
+        || {
+            unsafe {
+                let table = slice::from_raw_parts_mut(table_address as *mut u8, LENGTH);
+                table.fill(0x02u8); // 0 = orbs, 1 = items, 2 = bad
+            }
+        },
+        table_address as *mut [u8; LENGTH],
+    )
+    .unwrap();
+    
 }
 
 pub const SKILL_SHOP_ADDR: usize = 0x288280;
@@ -947,4 +920,34 @@ pub fn set_rando_session_data(ptr: usize) {
         }
     })
     .unwrap();
+}
+
+pub const SELECT_MISSION_BUTTON: usize = 0x29a7b0;
+pub static ORIGINAL_SELECT_MISSION_BUTTON: OnceLock<unsafe extern "C" fn(ptr: usize)> =
+    OnceLock::new();
+
+pub fn rewrite_mission_order(ptr: usize) {
+    let val = read_data_from_address::<u8>(ptr + 0x08);
+    if let Some(orig) = ORIGINAL_SELECT_MISSION_BUTTON.get() {
+        unsafe {
+            orig(ptr);
+        }
+    }
+    if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
+        //log::debug!("Goal is {:?}", mapping.goal);
+        if mapping.goal == Goal::RandomOrder {
+            if val == 6 {
+                with_session(|s| {
+                    log::debug!("Original Mission was: {}", s.mission);
+                    log::debug!("Original O Mission was: {}", s.other_mission);
+                    if let Some(mission_order) = &mapping.mission_order {
+                        let mission_idx = s.mission as usize;
+                        s.mission = mission_order[mission_idx - 1] as u32;
+                        s.other_mission = mission_order[mission_idx - 1] as u32;
+                    }
+                })
+                .expect("Unable to edit session data");
+            }
+        }
+    }
 }

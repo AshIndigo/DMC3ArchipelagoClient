@@ -256,13 +256,6 @@ pub(crate) struct Location {
     pub coordinates: Coordinates,
 }
 
-// pub const M20: Location = Location {
-//     item_id: u32::MAX,
-//     room: -1,
-//     _mission: 20,
-//     coordinates: EMPTY_COORDINATES,
-// };
-
 impl Display for Location {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Ok(

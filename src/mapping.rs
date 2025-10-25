@@ -88,7 +88,30 @@ where
             1 => Ok(DeathlinkSetting::DeathLink),
             2 => Ok(DeathlinkSetting::HurtLink),
             _ => Err(serde::de::Error::custom(format!(
-                "Invalid gun number: {}",
+                "Invalid DL option: {}",
+                n
+            ))),
+        },
+        other => Err(serde::de::Error::custom(format!(
+            "Unexpected type: {:?}",
+            other
+        ))),
+    }
+}
+
+/// Parse which goal we are on
+fn parse_goal<'de, D>(deserializer: D) -> Result<Goal, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let val = Value::deserialize(deserializer)?;
+    match val {
+        Value::Number(n) => match n.as_i64().unwrap_or_default() {
+            0 => Ok(Goal::Standard),
+            1 => Ok(Goal::All),
+            2 => Ok(Goal::RandomOrder),
+            _ => Err(serde::de::Error::custom(format!(
+                "Invalid goal option: {}",
                 n
             ))),
         },
@@ -105,7 +128,8 @@ pub struct Mapping {
     pub seed: String,
     pub items: HashMap<String, LocationData>,
     pub starter_items: Vec<String>,
-    pub adjudicators: HashMap<String, AdjudicatorData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adjudicators: Option<HashMap<String, AdjudicatorData>>,
     #[serde(default = "default_melee")]
     #[serde(deserialize_with = "parse_melee_number")]
     pub start_melee: String,
@@ -119,14 +143,20 @@ pub struct Mapping {
     #[serde(deserialize_with = "parse_death_link")]
     pub death_link: DeathlinkSetting,
     #[serde(default = "default_goal")]
+    #[serde(deserialize_with = "parse_goal")]
     pub goal: Goal,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mission_order: Option<Vec<u8>>,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, PartialEq)]
 pub enum Goal {
-    Standard,    // Beat M20 in linear order M1-M20 (Default)
-    All,         // Beat all missions, all are unlocked at start
-    RandomOrder, // Beat all missions in a randomized linear order
+    /// Beat M20 in linear order M1-M20 (Default)
+    Standard,
+    /// Beat all missions, all are unlocked at start
+    All,
+    /// Beat all missions in a randomized linear order
+    RandomOrder,
 }
 
 #[derive(Deserialize, Serialize, Debug)]

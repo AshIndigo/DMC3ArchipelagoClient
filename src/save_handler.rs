@@ -1,9 +1,10 @@
-use crate::mapping::MAPPING;
+use crate::mapping::{get_own_slot_name, MAPPING};
 use crate::ui::ui;
 use crate::utilities::DMC3_ADDRESS;
 use crate::{create_hook, utilities};
 use minhook::MinHook;
 use minhook::MH_STATUS;
+use std::error::Error;
 use std::io::ErrorKind;
 use std::ptr::{write, write_unaligned};
 use std::sync::atomic::Ordering;
@@ -28,6 +29,19 @@ pub fn get_save_path() -> Result<String, io::Error> {
         Ok(format!("archipelago/dmc3_{}.sav", &mappings.seed))
     } else {
         Err(io::Error::new(ErrorKind::Other, "Mappings not available"))
+    }
+}
+
+pub fn get_new_save_path() -> Result<String, Box<dyn Error>> {
+    // Load up the mappings to get the seed
+    if let Some(mappings) = MAPPING.read().unwrap().as_ref() {
+        Ok(format!(
+            "archipelago/dmc3_{}_{}.sav",
+            &mappings.seed,
+            &get_own_slot_name()?
+        ))
+    } else {
+        Err("Mappings not available".into())
     }
 }
 
@@ -73,7 +87,7 @@ fn new_save_game(param_1: i32) {
             let len = len_ptr.read(); // AFAIK This is a constant value, but may as well get it from the game just to be safe
             let data = std::slice::from_raw_parts(save_file, len as usize).to_vec();
 
-            fs::write(get_save_path().expect("Unable to get save path"), data)
+            fs::write(get_new_save_path().expect("Unable to get save path"), data)
                 .expect("Unable to save game");
             utilities::replace_single_byte_with_base_addr(0x5EAE81, 0x0);
         }
@@ -104,13 +118,17 @@ fn new_load_game(param_1: i64, param_2: i64, save_data_ptr: *mut usize, length: 
                 1
             }
             Err(err) => {
-                match err.kind() {
-                    ErrorKind::NotFound => {}
-                    _ => {
-                        log::error!("Error getting save data: {}", err);
+                match err.downcast::<io::Error>() {
+                    Ok(err) => match err.kind() {
+                        ErrorKind::NotFound => {}
+                        _ => {
+                            log::error!("Error getting save data: {}", err);
+                        }
+                    },
+                    Err(failed) => {
+                        log::error!("Error getting save data: {}", failed);
                     }
                 }
-
                 -1
             }
         };
@@ -123,7 +141,21 @@ fn new_load_game(param_1: i64, param_2: i64, save_data_ptr: *mut usize, length: 
 }
 
 /// Get the save data to store in the SAVE_DATA global
-fn get_save_data() -> Result<(), io::Error> {
-    *SAVE_DATA.write().unwrap() = fs::read(get_save_path()?)?;
-    Ok(())
+fn get_save_data() -> Result<(), Box<dyn Error>> {
+    match fs::read(get_new_save_path()?) {
+        Ok(bytes) => {
+            *SAVE_DATA.write().unwrap() = bytes;
+            Ok(())
+        }
+        Err(err) => match err.kind() {
+            ErrorKind::NotFound => match fs::read(get_save_path()?) {
+                Ok(bytes) => {
+                    *SAVE_DATA.write().unwrap() = bytes;
+                    Ok(())
+                }
+                Err(err) => Err(Box::new(err)),
+            },
+            _ => Err(Box::new(err)),
+        },
+    }
 }
