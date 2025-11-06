@@ -7,11 +7,11 @@ use crate::hook::CLIENT;
 use crate::utilities::{is_crimson_loaded, is_ddmk_loaded};
 use archipelago_rs::protocol::ClientStatus;
 use std::sync::atomic::Ordering;
-use std::{thread};
+use std::thread;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Receiver;
 use ui::ui::CONNECTION_STATUS;
-use windows::core::{BOOL};
+use windows::core::BOOL;
 use windows::Win32::Foundation::*;
 
 mod archipelago;
@@ -84,13 +84,17 @@ fn main_setup() {
     exception_handler::install_exception_handler();
     if is_ddmk_loaded() {
         log::info!("DDMK is loaded!");
-        log::warn!("DDMK's Actor system most likely does not work with the DeathLink setting in the randomizer, \
-                please turn it off if you wish to use DeathLink");
+        log::warn!(
+            "DDMK's Actor system most likely does not work with the DeathLink setting in the randomizer, \
+                please turn it off if you wish to use DeathLink"
+        );
         compat::ddmk_hook::setup_ddmk_hook();
     } else if is_crimson_loaded() {
         log::info!("Crimson is loaded!");
-        log::warn!("Crimson's Crimson/Style switcher mode does not work with the DeathLink setting in the randomizer, \
-                please turn it off if you wish to use DeathLink");
+        log::warn!(
+            "Crimson's Crimson/Style switcher mode does not work with the DeathLink setting in the randomizer, \
+                please turn it off if you wish to use DeathLink"
+        );
         compat::crimson_hook::setup_crimson_hook();
     } else {
         log::info!("DDMK or Crimson are not loaded!");
@@ -103,8 +107,6 @@ fn main_setup() {
         })
         .expect("Failed to spawn arch thread");
 }
-
-
 
 pub fn setup_deathlink_channel() -> Receiver<DeathLinkData> {
     let (tx, rx) = mpsc::channel(64);
@@ -121,7 +123,7 @@ pub(crate) async fn spawn_archipelago_thread() {
     let mut rx_disconnect = archipelago::setup_disconnect_channel();
     let mut rx_bank_to_inv = setup_bank_message_channel();
     let mut rx_deathlink = setup_deathlink_channel();
-    if !(*config::CONFIG).connections.disable_auto_connect {
+    if !config::CONFIG.connections.disable_auto_connect {
         thread::spawn(|| {
             log::debug!("Starting auto connector");
             ui::ui::auto_connect();
@@ -143,7 +145,7 @@ pub(crate) async fn spawn_archipelago_thread() {
                 CONNECTION_STATUS.store(Status::Connected.into(), Ordering::SeqCst);
             }
             Err(err) => {
-                log::error!("Failed to connect to Archipelago: {}", err);
+                log::error!("Failed to connect to Archipelago: {err}");
                 client_lock.take(); // Clear the client
                 CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::SeqCst);
                 SLOT_NUMBER.store(-1, Ordering::SeqCst);
@@ -154,13 +156,12 @@ pub(crate) async fn spawn_archipelago_thread() {
 
         // Client is successfully connected
         if let Some(ref mut client) = client_lock.as_mut() {
-            if !setup {
-                if let Err(err) = archipelago::run_setup(client).await {
-                    log::error!("{}", err);
-                }
+            if !setup && let Err(err) = archipelago::run_setup(client).await {
+                log::error!("{err}");
             }
+
             if let Err(e) = client.status_update(ClientStatus::ClientReady).await {
-                log::error!("Status update failed: {}", e);
+                log::error!("Status update failed: {e}");
             }
             // This blocks until a reconnect or disconnect is triggered
             archipelago::handle_things(

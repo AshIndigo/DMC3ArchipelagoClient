@@ -100,7 +100,7 @@ pub fn create_rgba_font_atlas(
 ) -> Option<FontAtlas> {
     let mut glyph_bitmaps: Vec<(char, Vec<u8>, fontdue::Metrics)> = Vec::new();
     for &c in chars {
-        let (metrics, bitmap) = (&*FONT).rasterize(c, font_size);
+        let (metrics, bitmap) = (*FONT).rasterize(c, font_size);
         glyph_bitmaps.push((c, bitmap, metrics));
     }
 
@@ -165,7 +165,7 @@ pub fn create_rgba_font_atlas(
                         let dst_idx =
                             (((y_offset + y) * atlas_width + (x_offset + x)) * 4) as usize;
                         let value = bitmap[src_idx];
-                        atlas_data[dst_idx + 0] = 255;
+                        atlas_data[dst_idx] = 255;
                         atlas_data[dst_idx + 1] = 255;
                         atlas_data[dst_idx + 2] = 255;
                         atlas_data[dst_idx + 3] = value;
@@ -206,7 +206,6 @@ pub fn create_rgba_font_atlas(
         BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
         CPUAccessFlags: 0,
         MiscFlags: 0,
-        ..Default::default()
     };
 
     let init = D3D11_SUBRESOURCE_DATA {
@@ -309,7 +308,7 @@ pub fn glyph_vertices(quad: &GlyphQuad, screen_width: f32, screen_height: f32) -
 
 pub fn draw_string(
     state: &overlay::D3D11State,
-    text: &String,
+    text: &str,
     x: f32,
     y: f32,
     screen_width: f32,
@@ -401,7 +400,6 @@ pub fn draw_string(
                 CPUAccessFlags: D3D11_CPU_ACCESS_WRITE.0 as u32,
                 MiscFlags: 0,
                 StructureByteStride: 0,
-                ..Default::default()
             };
             let mut font_color_cb: Option<ID3D11Buffer> = None;
             if let Err(e) =
@@ -410,7 +408,7 @@ pub fn draw_string(
                     .unwrap()
                     .CreateBuffer(&desc, None, Some(&mut font_color_cb))
             {
-                log::error!("Error creating font color buffer: {:?}", e);
+                log::error!("Error creating font color buffer: {e:?}");
             }
             font_color_cb.unwrap()
         });
@@ -460,7 +458,7 @@ pub fn draw_string(
                 context.Unmap(vertex_buffer, 0);
                 context.Draw(vertices.len() as u32, 0);
             } else {
-                log::error!("Map vertex_buffer failed: {:?}", hr);
+                log::error!("Map vertex_buffer failed: {hr:?}");
             }
         }
     }

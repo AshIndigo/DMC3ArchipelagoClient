@@ -4,12 +4,11 @@ use crate::game_manager::{get_mission, Style};
 use crate::hook::CLIENT;
 use crate::mapping::MAPPING;
 use crate::ui::font_handler::{WHITE, YELLOW};
+use crate::ui::overlay;
 use crate::ui::overlay::{MessageSegment, OverlayMessage};
-use crate::ui::{overlay};
 use crate::{bank, constants, game_manager, mapping, skill_manager};
 use archipelago_rs::client::ArchipelagoClient;
 use archipelago_rs::protocol::ReceivedItems;
-use log;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::error::Error;
@@ -39,7 +38,7 @@ pub fn get_sync_data() -> &'static Mutex<SyncData> {
     SYNC_DATA.get_or_init(|| Mutex::new(SyncData::default()))
 }
 
-pub async fn write_sync_data_file() -> Result<(), Box<dyn Error>> {
+pub fn write_sync_data_file() -> Result<(), Box<dyn Error>> {
     let mut file = File::create(SYNC_FILE)?;
     log::debug!("Writing sync file");
     file.write_all(
@@ -82,7 +81,7 @@ pub(crate) async fn handle_received_items_packet(
             .lock()
             .unwrap()
             .room_sync_info
-            .get(&get_index(&client))
+            .get(&get_index(client))
             .unwrap_or(&RoomSyncInfo::default())
             .sync_index,
         Ordering::SeqCst,
@@ -165,11 +164,12 @@ pub(crate) async fn handle_received_items_packet(
                         0.0,
                         overlay::MessageType::Notification,
                     ));
-                    if item.item < 0x14 {
-                        if let Some(tx) = bank::TX_BANK_MESSAGE.get() {
-                            tx.send((item_name, 1)).await?;
-                        }
+                    if item.item < 0x14
+                        && let Some(tx) = bank::TX_BANK_MESSAGE.get()
+                    {
+                        tx.send((item_name, 1)).await?;
                     }
+
                     log::debug!("Supplying added HP/Magic if needed");
                     match item.item {
                         0x07 => {
@@ -178,12 +178,12 @@ pub(crate) async fn handle_received_items_packet(
                         }
                         0x08 => {
                             data.add_purple_orb();
-                            game_manager::give_magic(constants::ONE_ORB, &*data);
+                            game_manager::give_magic(constants::ONE_ORB, &data);
                         }
                         0x19 => {
                             // Awakened Rebellion
                             data.add_dt();
-                            game_manager::give_magic(constants::ONE_ORB * 3.0, &*data);
+                            game_manager::give_magic(constants::ONE_ORB * 3.0, &data);
                         }
                         0x53 => {
                             // Ebony & Ivory
@@ -237,13 +237,13 @@ pub(crate) async fn handle_received_items_packet(
                             }
                         }
                     }
-                    if item.item < 0x53 && item.item > 0x39 {
-                        if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
-                            if mapping.randomize_skills {
-                                skill_manager::add_skill(item.item as usize, &mut data);
-                                skill_manager::set_skills(&data); // Hacky...
-                            }
-                        }
+
+                    if (item.item < 0x53 && item.item > 0x39)
+                        && let Some(mapping) = MAPPING.read().unwrap().as_ref()
+                        && mapping.randomize_skills
+                    {
+                        skill_manager::add_skill(item.item as usize, &mut data);
+                        skill_manager::set_skills(&data); // Hacky...
                     }
                 }
             }
@@ -272,7 +272,7 @@ pub(crate) async fn handle_received_items_packet(
         }
     }
     log::debug!("Writing sync file");
-    write_sync_data_file().await?;
+    write_sync_data_file()?;
     Ok(())
 }
 
@@ -323,7 +323,7 @@ pub(crate) async fn add_offline_check(
             .room_sync_info
             .insert(get_index(client), RoomSyncInfo::default());
     }
-    write_sync_data_file().await?;
+    write_sync_data_file()?;
     Ok(())
 }
 
@@ -353,7 +353,7 @@ pub(crate) async fn send_offline_checks(
                     .unwrap()
                     .offline_checks
                     .clear();
-                write_sync_data_file().await?;
+                write_sync_data_file()?;
             }
             Err(err) => {
                 log::error!(

@@ -230,7 +230,7 @@ pub fn get_room() -> i32 {
 /// Get current difficulty
 pub fn get_difficulty() -> Difficulty {
     Difficulty::from_repr(
-        with_session_read(|s| if s.hoh { return 5 } else { s.difficulty }).unwrap() as usize,
+        with_session_read(|s| if s.hoh { 5 } else { s.difficulty }).unwrap() as usize,
     )
     .unwrap()
 }
@@ -296,7 +296,7 @@ pub(crate) fn set_item(item_name: &str, has_item: bool, set_flag: bool) {
     if let Some(inv_address) = get_inv_address() {
         unsafe {
             replace_single_byte(
-                inv_address + ITEM_OFFSET_MAP.get(item_name).unwrap().clone() as usize,
+                inv_address + *ITEM_OFFSET_MAP.get(item_name).unwrap() as usize,
                 has_item as u8,
             )
         };
@@ -465,7 +465,7 @@ pub(crate) fn set_gun_levels() {
             match ARCHIPELAGO_DATA.read() {
                 Ok(data) => {
                     for i in 0..(*GUN_NAMES).len() {
-                        gun_levels[get_weapon_id(&*GUN_NAMES[i]) as usize] += data.gun_levels[i];
+                        gun_levels[get_weapon_id(GUN_NAMES[i]) as usize] += data.gun_levels[i];
                     }
                 }
                 Err(err) => {

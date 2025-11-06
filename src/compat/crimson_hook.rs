@@ -43,5 +43,5 @@ fn init_weapon_unlock_hook() {
     });
 }
 
-fn dont_fix_weapons() {;
+fn dont_fix_weapons() {
 }

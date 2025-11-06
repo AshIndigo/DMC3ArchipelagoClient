@@ -46,8 +46,8 @@ pub(crate) static SHADERS: LazyLock<(ID3DBlob, ID3DBlob)> = LazyLock::new(|| {
             None,
             None,
             None,
-            PCSTR::from_raw("main\0".as_ptr()),
-            PCSTR::from_raw("vs_5_0\0".as_ptr()),
+            PCSTR::from_raw(c"main".as_ptr() as *const u8),
+            PCSTR::from_raw(c"vs_5_0".as_ptr() as *const u8),
             0,
             0,
             &mut vs_blob,
@@ -60,8 +60,8 @@ pub(crate) static SHADERS: LazyLock<(ID3DBlob, ID3DBlob)> = LazyLock::new(|| {
             None,
             None,
             None,
-            PCSTR::from_raw("main\0".as_ptr()),
-            PCSTR::from_raw("ps_5_0\0".as_ptr()),
+            PCSTR::from_raw(c"main".as_ptr() as *const u8),
+            PCSTR::from_raw(c"ps_5_0".as_ptr() as *const u8),
             0,
             0,
             &mut ps_blob,
@@ -138,7 +138,7 @@ fn get_rtv_atlas(
         const FONT_SIZE: f32 = 36.0;
         const ROW_WIDTH: u32 = 256;
         let chars: Vec<char> = (0u8..=127).map(|c| c as char).collect();
-        font_handler::create_rgba_font_atlas(&device, &*chars, FONT_SIZE, ROW_WIDTH).unwrap()
+        font_handler::create_rgba_font_atlas(device, &chars, FONT_SIZE, ROW_WIDTH).unwrap()
     };
 
     let rtv = {
@@ -181,7 +181,7 @@ fn get_resources(swap_chain: &IDXGISwapChain) -> &RwLock<D3D11State> {
         let input_layout = {
             const INPUT_ELEMENT_DESCS: [D3D11_INPUT_ELEMENT_DESC; 2] = [
                 D3D11_INPUT_ELEMENT_DESC {
-                    SemanticName: PCSTR::from_raw(b"POSITION\0".as_ptr() as *const _),
+                    SemanticName: PCSTR::from_raw(c"POSITION".as_ptr() as *const _),
                     SemanticIndex: 0,
                     Format: DXGI_FORMAT_R32G32B32_FLOAT,
                     InputSlot: 0,
@@ -190,7 +190,7 @@ fn get_resources(swap_chain: &IDXGISwapChain) -> &RwLock<D3D11State> {
                     InstanceDataStepRate: 0,
                 },
                 D3D11_INPUT_ELEMENT_DESC {
-                    SemanticName: PCSTR::from_raw(b"TEXCOORD\0".as_ptr() as *const _),
+                    SemanticName: PCSTR::from_raw(c"TEXCOORD".as_ptr() as *const _),
                     SemanticIndex: 0,
                     Format: DXGI_FORMAT_R32G32_FLOAT,
                     InputSlot: 0,
@@ -296,7 +296,7 @@ pub(crate) unsafe extern "system" fn present_hook(
             unsafe {
                 state
                     .context
-                    .OMSetRenderTargets(Some(&[state.rtv.clone()]), None);
+                    .OMSetRenderTargets(Some(std::slice::from_ref(&state.rtv)), None);
                 state.context.RSSetViewports(Some(&[D3D11_VIEWPORT {
                     TopLeftX: 0.0,
                     TopLeftY: 0.0,
@@ -309,10 +309,10 @@ pub(crate) unsafe extern "system" fn present_hook(
 
             if utilities::is_on_main_menu() {
                 if let Some(atlas) = &state.atlas {
-                    const STATUS: &str = &"Status: ";
+                    const STATUS: &str = "Status: ";
                     font_handler::draw_string(
                         &state,
-                        &STATUS.to_string(),
+                        STATUS,
                         0.0,
                         0.0,
                         screen_width,
@@ -334,10 +334,10 @@ pub(crate) unsafe extern "system" fn present_hook(
                             _ => RED,
                         },
                     );
-                    const VERSION: &str = &"Version: ";
+                    const VERSION: &str = "Version: ";
                     font_handler::draw_string(
                         &state,
-                        &VERSION.to_string(),
+                        VERSION,
                         0.0,
                         50.0,
                         screen_width,

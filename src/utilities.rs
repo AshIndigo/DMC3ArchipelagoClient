@@ -126,7 +126,7 @@ pub unsafe fn replace_single_byte(offset_orig: usize, new_value: u8) {
             }
         }
         Err(err) => {
-            log::error!("Failed to modify byte at offset: {:X}: {:?}", offset_orig, err);
+            log::error!("Failed to modify byte at offset: {offset_orig:X}: {err:?}");
         }
     }
 }

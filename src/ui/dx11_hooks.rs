@@ -139,7 +139,7 @@ where
     let orig = unsafe { ptr::read(dest) };
     utilities::modify_protected_memory(
         || unsafe {
-            ptr::write(dest, hook.into());
+            ptr::write(dest, hook);
         },
         dest,
     )

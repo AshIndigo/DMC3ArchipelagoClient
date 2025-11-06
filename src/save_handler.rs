@@ -28,7 +28,7 @@ pub fn get_save_path() -> Result<String, io::Error> {
     if let Some(mappings) = MAPPING.read().unwrap().as_ref() {
         Ok(format!("archipelago/dmc3_{}.sav", &mappings.seed))
     } else {
-        Err(io::Error::new(ErrorKind::Other, "Mappings not available"))
+        Err(io::Error::other("Mappings not available"))
     }
 }
 

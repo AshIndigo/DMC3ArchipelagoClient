@@ -156,48 +156,47 @@ fn is_valid_id(item_id: u32) -> bool {
 /// Hook into item picked up method (1aa6e0). Handles item pick up locations
 pub fn item_event(loc_chk_flg: usize, item_id: i16, unknown: i32) {
     unsafe {
-        if is_valid_id(item_id as u32) {
-            if unknown == -1 {
-                let mut loc = Location {
-                    item_id: item_id as u32,
-                    room: game_manager::get_room(),
-                    mission: get_mission(),
-                    coordinates: EMPTY_COORDINATES,
-                };
-                const EXTRA_OUTPUT: bool = true;
-                if EXTRA_OUTPUT && !EXTRA_EXTRA_OUTPUT {
-                    log::debug!(
-                        "Item Event - Item is: {} ({:#X}) - LOC_CHK_FLG: {:X} - Unknown: {:X}",
-                        constants::get_item_name(item_id as u32),
-                        item_id,
-                        loc_chk_flg,
-                        unknown,
+        if is_valid_id(item_id as u32) && unknown == -1 {
+            let mut loc = Location {
+                item_id: item_id as u32,
+                room: game_manager::get_room(),
+                mission: get_mission(),
+                coordinates: EMPTY_COORDINATES,
+            };
+            const EXTRA_OUTPUT: bool = true;
+            if EXTRA_OUTPUT && !EXTRA_EXTRA_OUTPUT {
+                log::debug!(
+                    "Item Event - Item is: {} ({:#X}) - LOC_CHK_FLG: {:X} - Unknown: {:X}",
+                    constants::get_item_name(item_id as u32),
+                    item_id,
+                    loc_chk_flg,
+                    unknown,
+                );
+            }
+            // We only want items given via events, looks like if unknown is -1 then it'll always be an event item
+            //log::debug!("Test: {:?}", location_handler::get_location_name_by_data(&loc))
+            let location_name = location_handler::get_location_name_by_data(&loc);
+            match location_name {
+                Ok(location_name) => {
+                    loc.item_id = generated_locations::ITEM_MISSION_MAP
+                        .get(location_name)
+                        .unwrap()
+                        .item_id;
+                    send_off_location_coords(
+                        loc,
+                        location_handler::get_mapped_item_id(location_name).unwrap(),
                     );
                 }
-                // We only want items given via events, looks like if unknown is -1 then it'll always be an event item
-                //log::debug!("Test: {:?}", location_handler::get_location_name_by_data(&loc))
-                let location_name = location_handler::get_location_name_by_data(&loc);
-                match location_name {
-                    Ok(location_name) => {
-                        loc.item_id = generated_locations::ITEM_MISSION_MAP
-                            .get(location_name)
-                            .unwrap()
-                            .item_id;
-                        send_off_location_coords(
-                            loc,
-                            location_handler::get_mapped_item_id(location_name).unwrap(),
-                        );
-                    }
-                    Err(err) => {
-                        log::error!("Couldn't find location (Event): {}", err);
-                        with_session_read(|s| {
-                            log::debug!("Session Info: Mission: {} - Room: {}", s.mission, s.room);
-                        })
-                        .unwrap();
-                    }
+                Err(err) => {
+                    log::error!("Couldn't find location (Event): {}", err);
+                    with_session_read(|s| {
+                        log::debug!("Session Info: Mission: {} - Room: {}", s.mission, s.room);
+                    })
+                    .unwrap();
                 }
             }
         }
+
         const EXTRA_EXTRA_OUTPUT: bool = false;
         if EXTRA_EXTRA_OUTPUT {
             log::debug!(

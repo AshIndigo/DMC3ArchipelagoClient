@@ -56,9 +56,9 @@ pub static GET_MESSAGE_START: OnceLock<
 > = OnceLock::new();
 
 const UNUSED_INDEX: i32 = 11060; // Unused index, we like it
-pub fn display_message_via_index(message: String) {
+pub fn display_message_via_index(message: &str) {
     unsafe {
-        replace_unused_with_text(message);
+        replace_unused_with_text(String::from(message));
         DISPLAY_MESSAGE_VIA_INDEX.get_or_init(|| {
             std::mem::transmute(*DMC3_ADDRESS + 0x2f08b0) // Offset to function
         })(*TEXT_DISPLAYED, UNUSED_INDEX);
@@ -71,8 +71,8 @@ pub fn replace_unused_with_text(message: String) {
         let message_begin: usize = GET_MESSAGE_START.get_or_init(|| {
             std::mem::transmute(base + 0x2F1180) // Offset to function
         })(base + 0xCB9340, UNUSED_INDEX);
-        let message = message.replace("\n", "<BR>");
-        let msg = format!("<PS 85 305><SZ 24><IT 0>{}<NE>\x00", message);
+        let message = message.replace('\n', "<BR>");
+        let msg = format!("<PS 85 305><SZ 24><IT 0>{message}<NE>\x00");
         let bytes = msg.as_bytes();
         if message_begin != 0 {
             ptr::copy_nonoverlapping(bytes.as_ptr(), message_begin as *mut u8, bytes.len());

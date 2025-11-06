@@ -331,13 +331,10 @@ fn modify_adjudicator(
                         read_data_from_address::<u8>(adjudicator_data + RANKING_OFFSET) as usize
                             - 1
                     )
-                    .expect(
-                        format!(
-                            "Unable to get rank from adjudicator: {}",
-                            read_data_from_address::<u8>(adjudicator_data + RANKING_OFFSET)
-                        )
-                        .as_str()
-                    )
+                    .unwrap_or_else(|| panic!(
+                        "Unable to get rank from adjudicator: {}",
+                        read_data_from_address::<u8>(adjudicator_data + RANKING_OFFSET)
+                    ))
                 );
                 log::debug!(
                     "Melee: {}",
@@ -352,7 +349,7 @@ fn modify_adjudicator(
                             replace_single_byte(adjudicator_data + RANKING_OFFSET, data.ranking);
                             replace_single_byte(
                                 adjudicator_data + WEAPON_OFFSET,
-                                get_weapon_id(&*data.weapon),
+                                get_weapon_id(&data.weapon),
                             );
                         }
                     }
@@ -375,10 +372,7 @@ fn modify_adjudicator(
         }
     }
     if let Some(original) = ORIGINAL_ADJUDICATOR_DATA.get() {
-        unsafe {
-            let res = original(param_1, param_2, param_3, adjudicator_data);
-            res
-        }
+        unsafe { original(param_1, param_2, param_3, adjudicator_data) }
     } else {
         panic!("Could not find original adjudicator method")
     }
@@ -429,7 +423,7 @@ fn item_spawns_hook(unknown: usize) {
                                 location_name,
                                 entry,
                                 room_num,
-                                &*mapping,
+                                mapping,
                                 item_ref,
                                 item_addr,
                             );
@@ -777,7 +771,6 @@ pub(crate) fn restore_mode_table() {
         table_address as *mut [u8; LENGTH],
     )
     .unwrap();
-    
 }
 
 pub const SKILL_SHOP_ADDR: usize = 0x288280;
@@ -889,18 +882,19 @@ pub fn set_rando_session_data(ptr: usize) {
         }
         if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
             // Set initial style if relevant
-            if mapping.randomize_styles {
-                if let Some(index) = ARCHIPELAGO_DATA
+
+            if mapping.randomize_styles
+                && let Some(index) = ARCHIPELAGO_DATA
                     .read()
                     .unwrap()
                     .get_style_unlocked()
                     .iter()
                     .position(|&x| x)
-                {
-                    let style = Style::from_repr(index).unwrap();
-                    s.style = style.get_internal_order() as u32;
-                }
+            {
+                let style = Style::from_repr(index).unwrap();
+                s.style = style.get_internal_order() as u32;
             }
+
             // Set starter weapons
             s.weapons[0] = get_weapon_id(mapping.start_melee.as_str());
             s.weapons[1] = 0xFF;
@@ -935,19 +929,17 @@ pub fn rewrite_mission_order(ptr: usize) {
     }
     if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
         //log::debug!("Goal is {:?}", mapping.goal);
-        if mapping.goal == Goal::RandomOrder {
-            if val == 6 {
-                with_session(|s| {
-                    log::debug!("Original Mission was: {}", s.mission);
-                    log::debug!("Original O Mission was: {}", s.other_mission);
-                    if let Some(mission_order) = &mapping.mission_order {
-                        let mission_idx = s.mission as usize;
-                        s.mission = mission_order[mission_idx - 1] as u32;
-                        s.other_mission = mission_order[mission_idx - 1] as u32;
-                    }
-                })
-                .expect("Unable to edit session data");
-            }
+        if mapping.goal == Goal::RandomOrder && val == 6 {
+            with_session(|s| {
+                log::debug!("Original Mission was: {}", s.mission);
+                log::debug!("Original O Mission was: {}", s.other_mission);
+                if let Some(mission_order) = &mapping.mission_order {
+                    let mission_idx = s.mission as usize;
+                    s.mission = mission_order[mission_idx - 1] as u32;
+                    s.other_mission = mission_order[mission_idx - 1] as u32;
+                }
+            })
+            .expect("Unable to edit session data");
         }
     }
 }

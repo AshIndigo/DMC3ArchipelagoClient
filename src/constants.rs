@@ -606,15 +606,14 @@ pub fn get_item_id(name: &str) -> Option<u32> {
     match ITEM_ID_MAP.get(name).copied() {
         None => match DATA_PACKAGE.read().unwrap().as_ref() {
             None => None,
-            Some(data_package) => {
-                data_package
-                    .dp
-                    .games
-                    .get(GAME_NAME)?
-                    .item_name_to_id
-                    .get(name)
-                    .copied().map(|id| id as u32)
-            }
+            Some(data_package) => data_package
+                .dp
+                .games
+                .get(GAME_NAME)?
+                .item_name_to_id
+                .get(name)
+                .copied()
+                .map(|id| id as u32),
         },
         Some(id) => Some(id),
     }
@@ -922,6 +921,7 @@ pub(crate) enum Difficulty {
     HeavenOrHell = 5,
 }
 
+//noinspection RsExternalLinter
 #[derive(Copy, Clone, strum_macros::Display, strum_macros::FromRepr)]
 pub(crate) enum Rank {
     D = 0,
@@ -930,6 +930,7 @@ pub(crate) enum Rank {
     A = 3,
     S = 4,
     SS = 5,
+    #[allow(clippy::upper_case_acronyms)]
     SSS = 6,
     ShouldNotBeHere = 7, // DO NOT WANT TO BE HERE
 }

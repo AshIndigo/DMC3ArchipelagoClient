@@ -70,7 +70,7 @@ unsafe fn tracking_window() {
             &ImVec2 { x: 0.0, y: 0.0 },
         );
         get_imgui_begin()(
-            "Tracker\0".as_ptr() as *const c_char,
+            c"Tracker".as_ptr() as *const c_char,
             flag as *mut bool,
             imgui_sys::ImGuiWindowFlags_AlwaysAutoResize as ImGuiWindowFlags,
         );
@@ -112,7 +112,7 @@ unsafe fn bank_window() {
             &ImVec2 { x: 0.0, y: 0.0 },
         );
         get_imgui_begin()(
-            "Bank\0".as_ptr() as *const c_char,
+            c"Bank".as_ptr() as *const c_char,
             flag as *mut bool,
             imgui_sys::ImGuiWindowFlags_AlwaysAutoResize as ImGuiWindowFlags,
         );
@@ -143,7 +143,7 @@ pub unsafe fn archipelago_window() {
             &ImVec2 { x: 0.0, y: 0.0 },
         );
         get_imgui_begin()(
-            "Archipelago\0".as_ptr() as *const c_char,
+            c"Archipelago".as_ptr() as *const c_char,
             flag as *mut bool,
             imgui_sys::ImGuiWindowFlags_AlwaysAutoResize as ImGuiWindowFlags,
         );
@@ -151,7 +151,7 @@ pub unsafe fn archipelago_window() {
         const DEBUG: bool = false;
         if DEBUG {
             if get_imgui_button()(
-                "Clear dummy flags\0".as_ptr() as *const c_char,
+                c"Clear dummy flags".as_ptr() as *const c_char,
                 &ImVec2 { x: 0.0, y: 0.0 },
             ) {
                 thread::spawn(move || {
@@ -159,7 +159,7 @@ pub unsafe fn archipelago_window() {
                 });
             }
             if get_imgui_button()(
-                "Kill Dante\0".as_ptr() as *const c_char,
+                c"Kill Dante".as_ptr() as *const c_char,
                 &ImVec2 { x: 0.0, y: 0.0 },
             ) {
                 thread::spawn(move || {
@@ -175,11 +175,11 @@ pub unsafe fn archipelago_window() {
             //     });
             // }
             if get_imgui_button()(
-                "Edit Message Index\0".as_ptr() as *const c_char,
+                c"Edit Message Index".as_ptr() as *const c_char,
                 &ImVec2 { x: 0.0, y: 0.0 },
             ) {
                 thread::spawn(move || {
-                    text_handler::display_message_via_index("Testing test".to_string());
+                    text_handler::display_message_via_index("Testing test");
                 });
             }
         }
@@ -188,7 +188,7 @@ pub unsafe fn archipelago_window() {
 }
 
 pub fn setup_ddmk_hook() {
-    if !(*config::CONFIG).mods.disable_ddmk_hooks {
+    if !config::CONFIG.mods.disable_ddmk_hooks {
         log::info!("Starting up DDMK hook");
         log::info!("Mary base ADDR: {:X}", *MARY_ADDRESS);
         init_render_func();
