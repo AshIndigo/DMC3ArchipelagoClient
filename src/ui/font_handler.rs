@@ -142,7 +142,7 @@ pub fn create_rgba_font_atlas(
         let row_height = row
             .iter()
             .map(|(_, bitmap, metrics)| {
-                let w = metrics.width.max(1) as usize;
+                let w = metrics.width.max(1);
                 if bitmap.is_empty() {
                     0
                 } else {

@@ -241,15 +241,15 @@ pub fn edit_event_drop(param_1: usize, param_2: i32, param_3: usize) {
                                 log::debug!("Event loc checked: {}", &event_table.location);
                                 match event.event_type {
                                     // If the location has already been checked use DUMMY_ID as a dummy item.
-                                    EventCode::GIVE => replace_single_byte(
+                                    EventCode::Give => replace_single_byte(
                                         event_table_addr + event.offset,
                                         *DUMMY_ID as u8,
                                     ),
-                                    EventCode::CHECK => replace_single_byte(
+                                    EventCode::Check => replace_single_byte(
                                         event_table_addr + event.offset,
                                         *DUMMY_ID as u8,
                                     ),
-                                    EventCode::END => replace_single_byte(
+                                    EventCode::End => replace_single_byte(
                                         event_table_addr + event.offset,
                                         *DUMMY_ID as u8,
                                     ),
@@ -258,15 +258,15 @@ pub fn edit_event_drop(param_1: usize, param_2: i32, param_3: usize) {
                                 log::debug!("Event loc not checked: {}", &event_table.location);
                                 match event.event_type {
                                     // Location has not been checked off!
-                                    EventCode::GIVE => {}
-                                    EventCode::CHECK => {
+                                    EventCode::Give => {}
+                                    EventCode::Check => {
                                         log::debug!("Replaced check at {:#X}", &event.offset);
                                         replace_single_byte(
                                             event_table_addr + event.offset,
                                             *DUMMY_ID as u8,
                                         )
                                     }
-                                    EventCode::END => {
+                                    EventCode::End => {
                                         log::debug!("Replaced end at {:#X}", &event.offset);
                                         replace_single_byte(
                                             event_table_addr + event.offset,
@@ -577,7 +577,7 @@ fn dummy_replace(location_key: &&str, item_addr: *mut i32) -> bool {
             for _event in event_table
                 .events
                 .iter()
-                .filter(|event| event.event_type == EventCode::END)
+                .filter(|event| event.event_type == EventCode::End)
             {
                 // Then if location in question is checked, replace the item with a dummy and return true
                 if let Ok(checked_locations) = CHECKED_LOCATIONS.read() {
@@ -603,7 +603,7 @@ fn set_relevant_key_items() {
     }
 
     if let Ok(data) = ARCHIPELAGO_DATA.read() {
-        game_manager::with_session(|s| {
+        with_session(|s| {
             match MISSION_ITEM_MAP.get(&(s.mission)) {
                 None => {} // No items for the mission
                 Some(item_list) => {
@@ -878,7 +878,7 @@ pub fn set_rando_session_data(ptr: usize) {
         }
     }
     log::debug!("Starting new game, setting appropriate data");
-    game_manager::with_session(|s| {
+    with_session(|s| {
         if s.char != Character::Dante as u8 {
             log::error!(
                 "Character is {} not Dante",

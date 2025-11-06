@@ -16,7 +16,7 @@ pub static CRIMSON_HASH_ISSUE: AtomicBool = AtomicBool::new(false);
 // Since Crimson is in active development, I shouldn't just hard code addresses. I could probably get away with exported functions
 
 pub fn setup_crimson_hook() {
-    if !(*config::CONFIG).mods.disable_crimson_hooks || !CRIMSON_HASH_ISSUE.load(Ordering::SeqCst) {
+    if !config::CONFIG.mods.disable_crimson_hooks || !CRIMSON_HASH_ISSUE.load(Ordering::SeqCst) {
         log::info!("Starting up Crimson 0.4 hook");
         log::info!("Crimson base ADDR: {:X}", *CRIMSON_ADDRESS);
         unsafe {
@@ -43,6 +43,5 @@ fn init_weapon_unlock_hook() {
     });
 }
 
-fn dont_fix_weapons() {
-    return;
+fn dont_fix_weapons() {;
 }

@@ -112,8 +112,8 @@ pub fn item_non_event(item_struct: usize) {
                 match location_name {
                     Ok(location_name) => {
                         send_off_location_coords(
-                            loc.clone(),
-                            location_handler::get_mapped_item_id(&location_name).unwrap(), //location_handler::get_item_at_location(&loc).unwrap(),
+                            loc,
+                            location_handler::get_mapped_item_id(location_name).unwrap(), //location_handler::get_item_at_location(&loc).unwrap(),
                         );
                     }
                     Err(err) => {
@@ -258,10 +258,7 @@ pub(crate) struct Location {
 
 impl Display for Location {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        Ok(
-            write!(f, "Room ID: {:#} Item ID: {:#x}", self.room, self.item_id)
-                .expect("Failed to print Location as String!"),
-        )
+        write!(f, "Room ID: {:#} Item ID: {:#x}", self.room, self.item_id)
     }
 }
 

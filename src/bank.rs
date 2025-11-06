@@ -78,7 +78,7 @@ pub(crate) async fn _reset_bank(
     for item in constants::get_items_by_category(ItemCategory::Consumable) {
         client
             .send(ClientMessage::Set(Set {
-                key: get_bank_key(&item.to_string()),
+                key: get_bank_key(item),
                 default: Value::from(0),
                 want_reply: true,
                 operations: vec![DataStorageOperation::Default],

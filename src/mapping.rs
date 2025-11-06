@@ -221,7 +221,7 @@ impl LocationData {
                 None => Err("Item ID is None, cannot get name".into()),
                 Some(item_id) => match cache.item_id_to_name.get(game_name) {
                     None => Err(format!("{} does not exist in cache", game_name).into()),
-                    Some(item_id_to_name) => match item_id_to_name.get(&(item_id as i64)) {
+                    Some(item_id_to_name) => match item_id_to_name.get(&(item_id)) {
                         None => Err(format!(
                             "{:?} does not exist in {}'s item cache",
                             item_id, game_name

@@ -607,17 +607,13 @@ pub fn get_item_id(name: &str) -> Option<u32> {
         None => match DATA_PACKAGE.read().unwrap().as_ref() {
             None => None,
             Some(data_package) => {
-                match data_package
+                data_package
                     .dp
                     .games
                     .get(GAME_NAME)?
                     .item_name_to_id
                     .get(name)
-                    .copied()
-                {
-                    None => None,
-                    Some(id) => Some(id as u32),
-                }
+                    .copied().map(|id| id as u32)
             }
         },
         Some(id) => Some(id),
@@ -641,23 +637,23 @@ pub static EVENT_TABLES: LazyLock<HashMap<u32, Vec<EventTable>>> = LazyLock::new
                     location: "Mission #3 - Shotgun",
                     events: vec![
                         Event {
-                            event_type: EventCode::CHECK,
+                            event_type: EventCode::Check,
                             offset: 0x450,
                         },
                         Event {
-                            event_type: EventCode::CHECK,
+                            event_type: EventCode::Check,
                             offset: 0x6A4,
                         },
                         Event {
-                            event_type: EventCode::GIVE,
+                            event_type: EventCode::Give,
                             offset: 0x6DC,
                         },
                         Event {
-                            event_type: EventCode::CHECK,
+                            event_type: EventCode::Check,
                             offset: 0x72C,
                         },
                         Event {
-                            event_type: EventCode::GIVE,
+                            event_type: EventCode::Give,
                             offset: 0x77C,
                         },
                     ],
@@ -667,11 +663,11 @@ pub static EVENT_TABLES: LazyLock<HashMap<u32, Vec<EventTable>>> = LazyLock::new
                     location: "Mission #3 - Cerberus",
                     events: vec![
                         Event {
-                            event_type: EventCode::CHECK,
+                            event_type: EventCode::Check,
                             offset: 0xEE4,
                         },
                         Event {
-                            event_type: EventCode::GIVE,
+                            event_type: EventCode::Give,
                             offset: 0xEFC,
                         },
                     ],
@@ -684,7 +680,7 @@ pub static EVENT_TABLES: LazyLock<HashMap<u32, Vec<EventTable>>> = LazyLock::new
                 _mission: 4,
                 location: "Mission #4 - Astronomical Board",
                 events: vec![Event {
-                    event_type: EventCode::END,
+                    event_type: EventCode::End,
                     offset: 0x8D4,
                 }],
             }],
@@ -696,11 +692,11 @@ pub static EVENT_TABLES: LazyLock<HashMap<u32, Vec<EventTable>>> = LazyLock::new
                 location: "Mission #5 - Agni and Rudra",
                 events: vec![
                     Event {
-                        event_type: EventCode::CHECK,
+                        event_type: EventCode::Check,
                         offset: 0x186C,
                     },
                     Event {
-                        event_type: EventCode::GIVE,
+                        event_type: EventCode::Give,
                         offset: 0x1884,
                     },
                 ],
@@ -713,11 +709,11 @@ pub static EVENT_TABLES: LazyLock<HashMap<u32, Vec<EventTable>>> = LazyLock::new
                 location: "Mission #6 - Artemis",
                 events: vec![
                     Event {
-                        event_type: EventCode::GIVE,
+                        event_type: EventCode::Give,
                         offset: 0x13D0,
                     },
                     Event {
-                        event_type: EventCode::CHECK,
+                        event_type: EventCode::Check,
                         offset: 0x13C0,
                     },
                 ],
@@ -731,11 +727,11 @@ pub static EVENT_TABLES: LazyLock<HashMap<u32, Vec<EventTable>>> = LazyLock::new
                     location: "Mission #9 - Nevan",
                     events: vec![
                         Event {
-                            event_type: EventCode::CHECK,
+                            event_type: EventCode::Check,
                             offset: 0xD4C,
                         },
                         Event {
-                            event_type: EventCode::GIVE,
+                            event_type: EventCode::Give,
                             offset: 0xD64,
                         },
                     ],
@@ -745,11 +741,11 @@ pub static EVENT_TABLES: LazyLock<HashMap<u32, Vec<EventTable>>> = LazyLock::new
                     location: "Mission #9 - Spiral",
                     events: vec![
                         Event {
-                            event_type: EventCode::CHECK,
+                            event_type: EventCode::Check,
                             offset: 0x624,
                         },
                         Event {
-                            event_type: EventCode::GIVE,
+                            event_type: EventCode::Give,
                             offset: 0x76C,
                         },
                     ],
@@ -764,11 +760,11 @@ pub static EVENT_TABLES: LazyLock<HashMap<u32, Vec<EventTable>>> = LazyLock::new
                     location: "Mission #12 - Quicksilver",
                     events: vec![
                         Event {
-                            event_type: EventCode::CHECK,
+                            event_type: EventCode::Check,
                             offset: 0x175C,
                         },
                         Event {
-                            event_type: EventCode::GIVE,
+                            event_type: EventCode::Give,
                             offset: 0x1774,
                         },
                     ],
@@ -777,7 +773,7 @@ pub static EVENT_TABLES: LazyLock<HashMap<u32, Vec<EventTable>>> = LazyLock::new
                     _mission: 12,
                     location: "Mission #12 - Haywire Neo Generator",
                     events: vec![Event {
-                        event_type: EventCode::GIVE,
+                        event_type: EventCode::Give,
                         offset: 0x130,
                     }],
                 },
@@ -790,11 +786,11 @@ pub static EVENT_TABLES: LazyLock<HashMap<u32, Vec<EventTable>>> = LazyLock::new
                 location: "Mission #14 - Beowulf",
                 events: vec![
                     Event {
-                        event_type: EventCode::CHECK,
+                        event_type: EventCode::Check,
                         offset: 0x94,
                     },
                     Event {
-                        event_type: EventCode::GIVE,
+                        event_type: EventCode::Give,
                         offset: 0x15C,
                     },
                 ],
@@ -807,11 +803,11 @@ pub static EVENT_TABLES: LazyLock<HashMap<u32, Vec<EventTable>>> = LazyLock::new
                 location: "Mission #16 - Kalina Ann",
                 events: vec![
                     Event {
-                        event_type: EventCode::CHECK,
+                        event_type: EventCode::Check,
                         offset: 0x1360,
                     },
                     Event {
-                        event_type: EventCode::GIVE,
+                        event_type: EventCode::Give,
                         offset: 0x1378,
                     },
                 ],
@@ -824,11 +820,11 @@ pub static EVENT_TABLES: LazyLock<HashMap<u32, Vec<EventTable>>> = LazyLock::new
                 location: "Mission #17 - Doppelganger",
                 events: vec![
                     Event {
-                        event_type: EventCode::CHECK,
+                        event_type: EventCode::Check,
                         offset: 0xA98,
                     },
                     Event {
-                        event_type: EventCode::GIVE,
+                        event_type: EventCode::Give,
                         offset: 0xAB0,
                     },
                 ],
@@ -840,11 +836,11 @@ pub static EVENT_TABLES: LazyLock<HashMap<u32, Vec<EventTable>>> = LazyLock::new
 #[derive(PartialEq)]
 pub enum EventCode {
     /// Give the provided item (5c 02)
-    GIVE,
+    Give,
     /// Check to see if the player has the specified item in inventory (14 01)
-    CHECK,
+    Check,
     /// End mission if player has item in inventory - (15 01) - Might be wrong/not fully accurate
-    END,
+    End,
 }
 
 pub struct Event {
@@ -990,7 +986,7 @@ impl Coordinates {
 
 impl PartialEq for Coordinates {
     fn eq(&self, other: &Self) -> bool {
-        self.x == other.x && self.y == self.y && self.z == other.z
+        self.x == other.x && self.y == other.y && self.z == other.z
     }
 }
 

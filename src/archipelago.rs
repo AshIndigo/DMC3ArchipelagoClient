@@ -50,8 +50,7 @@ pub struct ArchipelagoConnection {
 
 impl Display for ArchipelagoConnection {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        Ok(write!(f, "URL: {:#} Name: {:#}", self.url, self.name,)
-            .expect("Failed to print connection data"))
+        write!(f, "URL: {:#} Name: {:#}", self.url, self.name)
     }
 }
 
@@ -215,12 +214,12 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) -> Result<(), Box<dyn Error>>
     *sync_data = item_sync::read_save_data().unwrap_or_default();
     if sync_data
         .room_sync_info
-        .contains_key(&item_sync::get_index(&cl))
+        .contains_key(&item_sync::get_index(cl))
     {
         item_sync::CURRENT_INDEX.store(
             sync_data
                 .room_sync_info
-                .get(&item_sync::get_index(&cl))
+                .get(&item_sync::get_index(cl))
                 .unwrap()
                 .sync_index,
             Ordering::SeqCst,
@@ -235,7 +234,7 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) -> Result<(), Box<dyn Error>>
             log::info!("Successfully parsed mapping information");
             const DEBUG: bool = false;
             if DEBUG {
-                log::debug!("Mapping data: {:#?}", mapping::MAPPING.read().unwrap());
+                log::debug!("Mapping data: {:#?}", MAPPING.read().unwrap());
             }
         }
         Err(err) => {
@@ -381,7 +380,7 @@ async fn handle_client_messages(
             Some(ServerMessage::PrintJSON(json_msg)) => {
                 match CONNECTED.read().as_ref() {
                     Ok(fuck) => {
-                        handle_print_json(json_msg, &**fuck);
+                        handle_print_json(json_msg, fuck);
                         //&*(*fuck)
                     }
                     Err(err) => {
@@ -545,12 +544,12 @@ async fn handle_item_receive(
             .get(location_key)
         {
             Some(loc_id) => {
-                location_handler::edit_end_event(&location_key); // Needed so a mission will end properly after picking up its trigger.
+                location_handler::edit_end_event(location_key); // Needed so a mission will end properly after picking up its trigger.
                 text_handler::replace_unused_with_text(location_data.get_description()?);
                 text_handler::CANCEL_TEXT.store(true, Ordering::SeqCst);
-                if let Err(arch_err) = client.location_checks(vec![loc_id.clone()]).await {
+                if let Err(arch_err) = client.location_checks(vec![*loc_id]).await {
                     log::error!("Failed to check location: {}", arch_err);
-                    item_sync::add_offline_check(loc_id.clone(), client).await?;
+                    item_sync::add_offline_check(*loc_id, client).await?;
                 }
                 let name = location_data.get_item_name()?;
                 if let Ok(mut archipelago_data) = ARCHIPELAGO_DATA.write() {
@@ -587,9 +586,9 @@ async fn handle_item_receive(
 
 fn has_reached_goal(mapping: &&Mapping) -> bool {
     if let Ok(chk) = CHECKED_LOCATIONS.read().as_ref() {
-        match mapping.goal {
+        return match mapping.goal {
             Goal::Standard => {
-                return chk.contains(&"Mission #20 Complete");
+                chk.contains(&"Mission #20 Complete")
             }
             Goal::All => {
                 for i in 1..20 {
@@ -597,15 +596,15 @@ fn has_reached_goal(mapping: &&Mapping) -> bool {
                     if !chk.contains(&format!("Mission #{} Complete", i).as_str()) {
                         return false;
                     }
-                    // If we have them all, goal
-                    return true;
                 }
+                // If we have them all, goal
+                true
             }
             Goal::RandomOrder => {
                 if let Some(order) = &mapping.mission_order {
                     return chk.contains(&format!("Mission #{} Complete", order[19]).as_str())
                 }
-                return false;
+                false
             }
         }
     }
@@ -621,7 +620,7 @@ fn handle_print_json(print_json: PrintJSON, con_opt: &Option<Connected>) -> Stri
             item: _item,
         } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message, con_opt));
+                final_message.push_str(&handle_message_part(message, con_opt));
             }
         }
         PrintJSON::ItemCheat {
@@ -631,7 +630,7 @@ fn handle_print_json(print_json: PrintJSON, con_opt: &Option<Connected>) -> Stri
             team: _team,
         } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message, con_opt));
+                final_message.push_str(&handle_message_part(message, con_opt));
             }
         }
         PrintJSON::Hint {
@@ -641,7 +640,7 @@ fn handle_print_json(print_json: PrintJSON, con_opt: &Option<Connected>) -> Stri
             found: _found,
         } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message, con_opt));
+                final_message.push_str(&handle_message_part(message, con_opt));
             }
         }
         PrintJSON::Join {
@@ -651,7 +650,7 @@ fn handle_print_json(print_json: PrintJSON, con_opt: &Option<Connected>) -> Stri
             tags: _tags,
         } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message, con_opt));
+                final_message.push_str(&handle_message_part(message, con_opt));
             }
         }
         PrintJSON::Part {
@@ -660,7 +659,7 @@ fn handle_print_json(print_json: PrintJSON, con_opt: &Option<Connected>) -> Stri
             slot: _slot,
         } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message, con_opt));
+                final_message.push_str(&handle_message_part(message, con_opt));
             }
         }
         PrintJSON::Chat {
@@ -670,7 +669,7 @@ fn handle_print_json(print_json: PrintJSON, con_opt: &Option<Connected>) -> Stri
             message: _message,
         } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message, con_opt));
+                final_message.push_str(&handle_message_part(message, con_opt));
             }
         }
         PrintJSON::ServerChat {
@@ -678,12 +677,12 @@ fn handle_print_json(print_json: PrintJSON, con_opt: &Option<Connected>) -> Stri
             message: _message,
         } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message, con_opt));
+                final_message.push_str(&handle_message_part(message, con_opt));
             }
         }
         PrintJSON::Tutorial { data } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message, con_opt));
+                final_message.push_str(&handle_message_part(message, con_opt));
             }
         }
         PrintJSON::TagsChanged {
@@ -693,17 +692,17 @@ fn handle_print_json(print_json: PrintJSON, con_opt: &Option<Connected>) -> Stri
             tags: _tags,
         } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message, con_opt));
+                final_message.push_str(&handle_message_part(message, con_opt));
             }
         }
         PrintJSON::CommandResult { data } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message, con_opt));
+                final_message.push_str(&handle_message_part(message, con_opt));
             }
         }
         PrintJSON::AdminCommandResult { data } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message, con_opt));
+                final_message.push_str(&handle_message_part(message, con_opt));
             }
         }
         PrintJSON::Goal {
@@ -712,7 +711,7 @@ fn handle_print_json(print_json: PrintJSON, con_opt: &Option<Connected>) -> Stri
             slot: _slot,
         } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message, con_opt));
+                final_message.push_str(&handle_message_part(message, con_opt));
             }
         }
         PrintJSON::Release {
@@ -721,7 +720,7 @@ fn handle_print_json(print_json: PrintJSON, con_opt: &Option<Connected>) -> Stri
             slot: _slot,
         } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message, con_opt));
+                final_message.push_str(&handle_message_part(message, con_opt));
             }
         }
         PrintJSON::Collect {
@@ -730,7 +729,7 @@ fn handle_print_json(print_json: PrintJSON, con_opt: &Option<Connected>) -> Stri
             slot: _slot,
         } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message, con_opt));
+                final_message.push_str(&handle_message_part(message, con_opt));
             }
         }
         PrintJSON::Countdown {
@@ -738,12 +737,12 @@ fn handle_print_json(print_json: PrintJSON, con_opt: &Option<Connected>) -> Stri
             countdown: _countdown,
         } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message, con_opt));
+                final_message.push_str(&handle_message_part(message, con_opt));
             }
         }
         PrintJSON::Text { data } => {
             for message in data {
-                final_message.push_str(&*handle_message_part(message, con_opt));
+                final_message.push_str(&handle_message_part(message, con_opt));
             }
         }
     }

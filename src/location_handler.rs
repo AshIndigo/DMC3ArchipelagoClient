@@ -83,7 +83,7 @@ pub fn edit_end_event(location_key: &str) {
             for event_table in event_tables {
                 if event_table.location == location_key {
                     for event in event_table.events.iter() {
-                        if event.event_type == EventCode::END {
+                        if event.event_type == EventCode::End {
                             unsafe {
                                 log::debug!(
                                     "Replaced END event at {:#X} with red orb",
@@ -113,7 +113,7 @@ pub(crate) fn location_is_checked_and_end(location_key: &str) -> bool {
             for event_table in event_tables {
                 if event_table.location == location_key {
                     for event in event_table.events.iter() {
-                        if event.event_type == EventCode::END {
+                        if event.event_type == EventCode::End {
                             match CHECKED_LOCATIONS.read() {
                                 Ok(checked_locations) => {
                                     if checked_locations.contains(&location_key) {

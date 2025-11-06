@@ -66,30 +66,16 @@ pub(crate) fn get_base_address(module_name: &str) -> usize {
 
 /// Checks to see if DDMK is loaded
 pub fn is_ddmk_loaded() -> bool {
-    is_library_loaded("Mary.dll")
+    randomizer_utilities::is_library_loaded("Mary.dll")
 }
 
 /// Checks to see if Crimson is loaded
 pub fn is_crimson_loaded() -> bool {
-    is_library_loaded("Crimson.dll")
+    randomizer_utilities::is_library_loaded("Crimson.dll")
 }
 
 pub fn _is_addon_mod_loaded() -> bool {
     is_ddmk_loaded() || is_crimson_loaded()
-}
-
-pub fn is_library_loaded(name: &str) -> bool {
-    let wide_name: Vec<u16> = OsStr::new(name)
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
-    unsafe {
-        if let Ok(module_handle) = GetModuleHandleW(PCWSTR::from_raw(wide_name.as_ptr())) {
-            !module_handle.is_invalid()
-        } else {
-            false
-        }
-    }
 }
 
 pub unsafe fn replace_single_byte_with_base_addr(offset: usize, new_value: u8) {

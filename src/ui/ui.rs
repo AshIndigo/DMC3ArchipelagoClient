@@ -43,15 +43,15 @@ pub(crate) fn auto_connect() {
             send_connect_message(
                 format!(
                     "{}:{}",
-                    (*config::CONFIG).connections.address,
-                    (*config::CONFIG).connections.port
+                    config::CONFIG.connections.address,
+                    config::CONFIG.connections.port
                 ),
                 "".parse().unwrap(),
                 "".parse().unwrap(),
             );
         }
         std::thread::sleep(std::time::Duration::from_secs(
-            (*config::CONFIG).connections.reconnect_interval_seconds as u64,
+            config::CONFIG.connections.reconnect_interval_seconds as u64,
         ));
     }
 }
