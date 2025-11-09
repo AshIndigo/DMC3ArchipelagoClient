@@ -19,8 +19,6 @@ pub struct Connection {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Mods {
-    pub disable_ddmk: bool,          // Stop DDMK from loading
-    pub disable_crimson: bool,       // Stop Crimson from loading
     pub disable_ddmk_hooks: bool, // Stop DDMK hooks from being loaded, this does not stop hash verification though
     pub disable_crimson_hooks: bool, // Stop Crimson hooks from being loaded
 }
@@ -41,8 +39,6 @@ impl Default for Config {
                 reconnect_interval_seconds: 10,
             },
             mods: Mods {
-                disable_ddmk: false,
-                disable_crimson: false,
                 disable_ddmk_hooks: false,
                 disable_crimson_hooks: false,
             },

@@ -48,6 +48,18 @@ macro_rules! create_hook {
     }};
 }
 
+#[derive(Debug)]
+#[repr(C)]
+pub(crate) struct LoaderStatus {
+    pub crimson_hash_error: bool,
+    pub dmc3_hash_error: bool,
+}
+
+/*#[link(name = "dinput8")]
+unsafe extern "C" {
+    pub(crate) fn get_loader_status() -> &'static LoaderStatus;
+}
+*/
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
 pub extern "system" fn DllMain(
@@ -64,6 +76,8 @@ pub extern "system" fn DllMain(
         DLL_PROCESS_ATTACH => {
             ui::dx11_hooks::setup_overlay();
             randomizer_utilities::setup_logger("dmc3_rando");
+            //let loader_status = unsafe { get_loader_status() };
+            //log::debug!("loader_status: {loader_status:?}");
             thread::spawn(|| {
                 main_setup();
             });

@@ -27,7 +27,7 @@ pub fn text<T: AsRef<str>>(text: T) {
     unsafe {
         let start = s.as_ptr();
         let end = start.add(s.len());
-        std::mem::transmute::<usize, extern "C" fn(*const i8, *const i8)>(*MARY_ADDRESS + TEXT_ADDR)(
+        std::mem::transmute::<usize, ImGuiText>(*MARY_ADDRESS + TEXT_ADDR)(
             start as *const c_char,
             end as *const c_char,
         );

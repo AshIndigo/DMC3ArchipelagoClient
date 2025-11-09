@@ -1,4 +1,5 @@
 use crate::constants::Status;
+use crate::mapping::MAPPING;
 use crate::ui::font_handler::{get_default_color, FontAtlas, FontColorCB, GREEN, RED, WHITE};
 use crate::ui::ui::CONNECTION_STATUS;
 use crate::ui::{dx11_hooks, font_handler};
@@ -6,7 +7,7 @@ use crate::utilities;
 use std::collections::VecDeque;
 use std::slice::from_raw_parts;
 use std::sync::atomic::Ordering;
-use std::sync::{LazyLock, Mutex, OnceLock, RwLock};
+use std::sync::{LazyLock, Mutex, OnceLock, RwLock, RwLockReadGuard};
 use std::time::{Duration, Instant};
 use windows::core::PCSTR;
 use windows::Win32::Foundation::RECT;
@@ -115,7 +116,7 @@ impl OverlayMessage {
 }
 // TODO This doesn't matter right now, but it could be used later
 pub(crate) enum MessageType {
-    Default,  // Take the X and Y values as they are given
+    Default,      // Take the X and Y values as they are given
     Notification, // Disregard coordinates, automatically align to upper right (Used for newly received items+DL)
 }
 
@@ -307,7 +308,7 @@ pub(crate) unsafe extern "system" fn present_hook(
                 }]));
             }
 
-            if utilities::is_on_main_menu() {
+            if utilities::is_on_main_menu() || should_display_anyway() {
                 if let Some(atlas) = &state.atlas {
                     const STATUS: &str = "Status: ";
                     font_handler::draw_string(
@@ -334,27 +335,7 @@ pub(crate) unsafe extern "system" fn present_hook(
                             _ => RED,
                         },
                     );
-                    const VERSION: &str = "Version: ";
-                    font_handler::draw_string(
-                        &state,
-                        VERSION,
-                        0.0,
-                        50.0,
-                        screen_width,
-                        screen_height,
-                        get_default_color(),
-                    );
-
-                    // TODO Maybe at some point I'd want to have the mod poke github on launch?
-                    font_handler::draw_string(
-                        &state,
-                        &format!("{}", env!("CARGO_PKG_VERSION")),
-                        VERSION.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>(),
-                        50.0,
-                        screen_width,
-                        screen_height,
-                        get_default_color(),
-                    );
+                    draw_version_info(&state, screen_width, screen_height, atlas);
                 }
             }
 
@@ -381,6 +362,65 @@ pub(crate) unsafe extern "system" fn present_hook(
     }
 
     unsafe { dx11_hooks::ORIGINAL_PRESENT.get().unwrap()(orig_swap_chain, sync_interval, flags) }
+}
+
+fn draw_version_info(
+    state: &RwLockReadGuard<D3D11State>,
+    screen_width: f32,
+    screen_height: f32,
+    _atlas: &FontAtlas, // TODO Remove later
+) {
+    const MOD_VERSION: &str = "Mod Version:";
+    const AP_VERSION: &str = "AP Client Version:";
+    const ROOM_VERSION: &str = "Room Version:";
+    // TODO Maybe at some point I'd want to have the mod poke github on launch?
+    font_handler::draw_string(
+        &state,
+        &format!("{} {}", MOD_VERSION, env!("CARGO_PKG_VERSION")),
+        0.0,
+        //VERSION.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>(),
+        50.0,
+        screen_width,
+        screen_height,
+        get_default_color(),
+    );
+    if CONNECTION_STATUS.load(Ordering::SeqCst)
+        == <Status as Into<isize>>::into(Status::Connected.into())
+    {
+        if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
+            if let Some(cv) = &mapping.client_version {
+                font_handler::draw_string(
+                    &state,
+                    &format!("{} {}", AP_VERSION, cv),
+                    0.0,
+                    //VERSION.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>(),
+                    100.0,
+                    screen_width,
+                    screen_height,
+                    get_default_color(),
+                );
+            }
+            if let Some(gv) = &mapping.generated_version {
+                font_handler::draw_string(
+                    &state,
+                    &format!("{} {}", ROOM_VERSION, gv),
+                    0.0,
+                    //VERSION.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>(),
+                    150.0,
+                    screen_width,
+                    screen_height,
+                    get_default_color(),
+                );
+            }
+        }
+    }
+}
+
+fn should_display_anyway() -> bool {
+    // TODO Use this to display if we are connected, then disconnected
+    // Or if version mismatch?
+
+    true
 }
 
 fn draw_colored_message(

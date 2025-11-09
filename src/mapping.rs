@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use crate::constants::REMOTE_ID;
 use std::sync::atomic::Ordering;
 use std::sync::{LazyLock, RwLock};
+use archipelago_rs::protocol::NetworkVersion;
 
 pub static MAPPING: LazyLock<RwLock<Option<Mapping>>> = LazyLock::new(|| RwLock::new(None));
 
@@ -147,6 +148,10 @@ pub struct Mapping {
     pub goal: Goal,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mission_order: Option<Vec<u8>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generated_version: Option<NetworkVersion>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_version: Option<NetworkVersion>
 }
 
 #[derive(Deserialize, Serialize, Debug, PartialEq)]
