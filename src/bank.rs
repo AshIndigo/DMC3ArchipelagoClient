@@ -1,4 +1,3 @@
-use crate::archipelago::{SLOT_NUMBER, TEAM_NUMBER};
 use crate::constants::ItemCategory;
 use crate::utilities::replace_single_byte;
 use crate::utilities::{read_data_from_address, DMC3_ADDRESS};
@@ -12,6 +11,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{OnceLock, RwLock};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
+use randomizer_utilities::archipelago_utilities::{SLOT_NUMBER, TEAM_NUMBER};
 
 static BANK: OnceLock<RwLock<HashMap<&'static str, i32>>> = OnceLock::new();
 pub static TX_BANK_MESSAGE: OnceLock<Sender<(&'static str, i32)>> = OnceLock::new();

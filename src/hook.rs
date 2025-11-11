@@ -10,22 +10,18 @@ use crate::location_handler::in_key_item_room;
 use crate::mapping::{Goal, Mapping, MAPPING};
 use crate::ui::text_handler;
 use crate::ui::text_handler::LAST_OBTAINED_ID;
-use crate::ui::ui::CONNECTION_STATUS;
+use crate::connection_manager::CONNECTION_STATUS;
 use crate::utilities::{read_data_from_address, replace_single_byte, DMC3_ADDRESS};
 use crate::{
-    bank, check_handler, create_hook, game_manager, mapping, save_handler, skill_manager, utilities,
+    bank, check_handler, create_hook, game_manager, save_handler, skill_manager, utilities,
 };
-use archipelago_rs::client::ArchipelagoClient;
 use minhook::{MinHook, MH_STATUS};
+use randomizer_utilities::mapping_utilities;
 use std::arch::asm;
 use std::ptr::{read_unaligned, write};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{LazyLock, OnceLock};
+use std::sync::{OnceLock};
 use std::{ptr, slice};
-use tokio::sync::Mutex;
-
-pub(crate) static CLIENT: LazyLock<Mutex<Option<ArchipelagoClient>>> =
-    LazyLock::new(|| Mutex::new(None));
 
 static HOOKS_CREATED: AtomicBool = AtomicBool::new(false);
 
@@ -468,7 +464,7 @@ async fn send_deathlink() {
         .send(DeathLinkData {
             cause: format!(
                 "{} died in Mission #{} on {}", // TODO Maybe an "against {}" at some point?
-                mapping::get_own_slot_name().unwrap(),
+                mapping_utilities::get_own_slot_name().unwrap(),
                 get_mission(),
                 get_difficulty()
             ),

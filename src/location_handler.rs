@@ -55,7 +55,7 @@ pub fn get_mapped_item_id(location_name: &str) -> Result<u32, Box<dyn Error>> {
     let Some(mapping_data) = mapping_data.as_ref() else {
         return Err(Box::from("No mapping data"));
     };
-    let id = mapping_data.items.get(location_name).unwrap().get_in_game_id();
+    let id = mapping_data.items.get(location_name).unwrap().get_in_game_id::<constants::DMC3Config>();
     // To set the displayed graphic to the corresponding weapon
     if id > 0x39 {
         return Ok(match id {

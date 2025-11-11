@@ -1,38 +1,37 @@
 use crate::archipelago::{
-    connect_archipelago, DeathLinkData, SLOT_NUMBER, TEAM_NUMBER, TX_DEATHLINK,
+    connect_archipelago, DeathLinkData, TX_DEATHLINK,
 };
 use crate::bank::setup_bank_message_channel;
-use crate::constants::Status;
-use crate::hook::CLIENT;
 use crate::utilities::{is_crimson_loaded, is_ddmk_loaded};
 use archipelago_rs::protocol::ClientStatus;
 use std::sync::atomic::Ordering;
 use std::thread;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Receiver;
-use ui::ui::CONNECTION_STATUS;
+use connection_manager::CONNECTION_STATUS;
 use windows::core::BOOL;
 use windows::Win32::Foundation::*;
+use randomizer_utilities::archipelago_utilities::{CLIENT, SLOT_NUMBER, TEAM_NUMBER};
+use randomizer_utilities::exception_handler;
+use randomizer_utilities::ui_utilities::Status;
 
 mod archipelago;
 mod bank;
-mod cache;
 mod check_handler;
 mod constants;
 mod data;
 //mod experiments;
 mod compat;
 mod config;
-mod exception_handler;
 mod game_manager;
 mod hook;
-mod item_sync;
 mod location_handler;
 mod mapping;
 mod save_handler;
 mod skill_manager;
 mod ui;
 mod utilities;
+pub(crate) mod connection_manager;
 
 #[macro_export]
 /// Does not enable the hook, that needs to be done separately
@@ -140,7 +139,7 @@ pub(crate) async fn spawn_archipelago_thread() {
     if !config::CONFIG.connections.disable_auto_connect {
         thread::spawn(|| {
             log::debug!("Starting auto connector");
-            ui::ui::auto_connect();
+            connection_manager::auto_connect();
         });
     }
     loop {

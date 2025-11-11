@@ -1,7 +1,6 @@
-use crate::constants::Status;
 use crate::mapping::MAPPING;
 use crate::ui::font_handler::{get_default_color, FontAtlas, FontColorCB, GREEN, RED, WHITE};
-use crate::ui::ui::CONNECTION_STATUS;
+use crate::connection_manager::CONNECTION_STATUS;
 use crate::ui::{dx11_hooks, font_handler};
 use crate::utilities;
 use std::collections::VecDeque;
@@ -20,6 +19,7 @@ use windows::Win32::Graphics::Dxgi::Common::{
 };
 use windows::Win32::Graphics::Dxgi::*;
 use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
+use randomizer_utilities::ui_utilities::Status;
 
 pub(crate) struct D3D11State {
     device: ID3D11Device,

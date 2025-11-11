@@ -1,14 +1,22 @@
-use crate::cache::DATA_PACKAGE;
+use randomizer_utilities::cache::DATA_PACKAGE;
 use crate::skill_manager::ID_SKILL_MAP;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::sync::LazyLock;
+use randomizer_utilities::mapping_utilities::GameConfig;
 
 pub type BasicNothingFunc = unsafe extern "system" fn();
 
 pub(crate) const DUMMY_ID: LazyLock<u32> = LazyLock::new(|| *ITEM_ID_MAP.get("Dummy").unwrap());
 
 pub(crate) const REMOTE_ID: LazyLock<u32> = LazyLock::new(|| *ITEM_ID_MAP.get("Remote").unwrap());
+
+pub struct DMC3Config;
+
+impl GameConfig for DMC3Config {
+    const REMOTE_ID: u32 = 0x26;
+}
+
 
 // DMC3 Offsets+Functions - Offsets are from 2022 DDMK's version
 
@@ -854,46 +862,6 @@ pub(crate) struct EventTable {
 }
 
 pub const GAME_NAME: &str = "Devil May Cry 3";
-
-#[derive(Copy, Clone, strum_macros::Display, strum_macros::FromRepr)]
-pub(crate) enum Status {
-    Disconnected = 0,
-    Connected = 1,
-    InvalidSlot = 2,
-    InvalidGame = 3,
-    IncompatibleVersion = 4,
-    InvalidPassword = 5,
-    InvalidItemHandling = 6,
-}
-
-impl From<Status> for isize {
-    fn from(value: Status) -> Self {
-        match value {
-            Status::Disconnected => 0,
-            Status::Connected => 1,
-            Status::InvalidSlot => 2,
-            Status::InvalidGame => 3,
-            Status::IncompatibleVersion => 4,
-            Status::InvalidPassword => 5,
-            Status::InvalidItemHandling => 6,
-        }
-    }
-}
-
-impl From<isize> for Status {
-    fn from(value: isize) -> Self {
-        match value {
-            0 => Status::Disconnected,
-            1 => Status::Connected,
-            2 => Status::InvalidSlot,
-            3 => Status::InvalidGame,
-            4 => Status::IncompatibleVersion,
-            5 => Status::InvalidPassword,
-            6 => Status::InvalidItemHandling,
-            _ => Status::Disconnected,
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct ItemEntry {

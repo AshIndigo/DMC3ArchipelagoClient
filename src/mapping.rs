@@ -1,15 +1,14 @@
-use crate::archipelago::{CONNECTED, SLOT_NUMBER};
 use crate::data::generated_locations;
 use crate::hook::modify_item_table;
-use crate::{cache, constants, location_handler};
+use crate::{constants, location_handler};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
-use crate::constants::REMOTE_ID;
-use std::sync::atomic::Ordering;
 use std::sync::{LazyLock, RwLock};
 use archipelago_rs::protocol::NetworkVersion;
+use randomizer_utilities::archipelago_utilities::CONNECTED;
+use randomizer_utilities::mapping_utilities::LocationData;
 
 pub static MAPPING: LazyLock<RwLock<Option<Mapping>>> = LazyLock::new(|| RwLock::new(None));
 
@@ -177,79 +176,6 @@ pub struct AdjudicatorData {
     pub ranking: u8,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
-pub struct LocationData {
-    // Item name, used for descriptions
-    #[serde(default)]
-    item_id: Option<i64>,
-    // Slot ID for recipient
-    owner: i32,
-}
-
-impl LocationData {
-    fn is_item_remote(&self) -> bool {
-        self.owner != SLOT_NUMBER.load(Ordering::SeqCst)
-    }
-
-    pub fn get_in_game_id(&self) -> u32 {
-        // Used for setting values in DMC3
-        if self.is_item_remote() {
-            *REMOTE_ID
-        } else {
-            match self.item_id {
-                None => 0,
-                Some(id) => id as u32,
-            }
-        }
-    }
-
-    pub(crate) fn get_item_name(&self) -> Result<String, Box<dyn std::error::Error>> {
-        //let player_name = get_slot_name(self.owner)?;
-        if let Some(cache) = (*cache::DATA_PACKAGE).read()?.as_ref() {
-            let game_name = &{
-                match CONNECTED.read().as_ref() {
-                    Ok(con) => match &**con {
-                        None => return Err("Connected is None".into()),
-                        Some(connected) => match connected.slot_info.get(&self.owner) {
-                            None => {
-                                return Err(format!("Missing slot info for {}", self.owner).into());
-                            }
-                            Some(info) => info.game.clone(),
-                        },
-                    },
-                    Err(_err) => {
-                        return Err("PoisonError occurred when getting 'Connected'".into());
-                    }
-                }
-            };
-            match self.item_id {
-                None => Err("Item ID is None, cannot get name".into()),
-                Some(item_id) => match cache.item_id_to_name.get(game_name) {
-                    None => Err(format!("{} does not exist in cache", game_name).into()),
-                    Some(item_id_to_name) => match item_id_to_name.get(&(item_id)) {
-                        None => Err(format!(
-                            "{:?} does not exist in {}'s item cache",
-                            item_id, game_name
-                        )
-                        .into()),
-                        Some(name) => Ok(name.clone()),
-                    },
-                },
-            }
-        } else {
-            Err(Box::from("Data package is not here"))
-        }
-    }
-    // Format a description
-    pub fn get_description(&self) -> Result<String, Box<dyn std::error::Error>> {
-        Ok(format!(
-            "{}'s {}",
-            get_slot_name(self.owner)?,
-            self.get_item_name()?
-        ))
-    }
-}
-
 pub fn use_mappings() -> Result<(), Box<dyn std::error::Error>> {
     let guard = MAPPING.read()?; // Annoying
     let mapping = guard.as_ref().ok_or("No mappings found, cannot use")?;
@@ -288,26 +214,3 @@ pub(crate) fn parse_slot_data() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-pub fn get_own_slot_name() -> Result<String, Box<dyn std::error::Error>> {
-    get_slot_name(SLOT_NUMBER.load(Ordering::SeqCst))
-}
-
-pub(crate) fn get_slot_name(slot: i32) -> Result<String, Box<dyn std::error::Error>> {
-    let uslot = slot as usize;
-    match CONNECTED.read() {
-        Ok(conn_opt) => {
-            if let Some(connected) = conn_opt.as_ref() {
-                if slot == 0 {
-                    return Ok("Server".to_string());
-                }
-                if (slot < 0) || (uslot - 1 >= connected.players.len()) {
-                    return Err(format!("Slot index not valid: {}", slot).into());
-                }
-                Ok(connected.players[uslot - 1].name.clone())
-            } else {
-                Err("Not connected, cannot get name".into())
-            }
-        }
-        Err(err) => Err(err.into()),
-    }
-}

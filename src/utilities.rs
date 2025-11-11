@@ -1,14 +1,11 @@
 use std::error::Error;
-use std::ffi::OsStr;
-use std::os::windows::ffi::OsStrExt;
 use std::sync::LazyLock;
 use std::{ptr, slice};
-use windows::core::PCWSTR;
 use windows::Win32::Foundation::GetLastError;
-use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Memory::{
     VirtualProtect, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS,
 };
+use randomizer_utilities::get_base_address;
 
 /// The base address for DMC3
 pub static DMC3_ADDRESS: LazyLock<usize> = LazyLock::new(|| get_base_address("dmc3.exe"));
@@ -49,20 +46,6 @@ where
     unsafe { *(address as *const T) }
 }
 
-/// Generic method to get the base address for the specified module, returns 0 if it doesn't exist
-pub(crate) fn get_base_address(module_name: &str) -> usize {
-    let wide_name: Vec<u16> = OsStr::new(&module_name)
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
-    unsafe {
-        if let Ok(module_handle) = GetModuleHandleW(PCWSTR::from_raw(wide_name.as_ptr())) {
-            module_handle.0 as usize
-        } else {
-            0
-        }
-    }
-}
 
 /// Checks to see if DDMK is loaded
 pub fn is_ddmk_loaded() -> bool {

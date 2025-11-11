@@ -1,19 +1,21 @@
 use std::collections::HashSet;
 use crate::constants::{BasicNothingFunc, ItemCategory};
 use crate::compat::imgui_bindings::*;
-use crate::ui::ui::get_status_text;
 use crate::utilities::read_data_from_address;
-use crate::{bank, check_handler, config, constants, game_manager, utilities};
+use crate::{bank, check_handler, config, constants, game_manager};
 use imgui_sys::{ImGuiCond, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
 use minhook::MinHook;
 use std::os::raw::c_char;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, OnceLock};
 use std::thread;
+use randomizer_utilities::get_base_address;
+use randomizer_utilities::ui_utilities::get_status_text;
 use crate::ui::text_handler;
+use crate::connection_manager::CONNECTION_STATUS;
 
 pub static MARY_ADDRESS: LazyLock<usize> =
-    LazyLock::new(|| utilities::get_base_address("Mary.dll"));
+    LazyLock::new(|| get_base_address("Mary.dll"));
 static SETUP: AtomicBool = AtomicBool::new(false);
 
 pub const USE_2022_DDMK: bool = true;
@@ -147,7 +149,7 @@ pub unsafe fn archipelago_window() {
             flag as *mut bool,
             imgui_sys::ImGuiWindowFlags_AlwaysAutoResize as ImGuiWindowFlags,
         );
-        text(format!("Status: {}\0", get_status_text()));
+        text(format!("Status: {}\0", get_status_text(CONNECTION_STATUS.load(Ordering::SeqCst))));
         const DEBUG: bool = false;
         if DEBUG {
             if get_imgui_button()(

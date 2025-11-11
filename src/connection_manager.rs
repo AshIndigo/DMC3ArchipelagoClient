@@ -1,6 +1,3 @@
-use std::convert::Into;
-use crate::archipelago::ArchipelagoConnection;
-use crate::constants::Status;
 use crate::{archipelago, config};
 use std::sync::atomic::{AtomicIsize, Ordering};
 
@@ -8,33 +5,19 @@ use std::sync::atomic::{AtomicIsize, Ordering};
 pub(crate) static CONNECTION_STATUS: AtomicIsize = AtomicIsize::new(0);
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
-pub async fn send_connect_message(url: String, name: String, password: String) {
+pub async fn send_connect_message(url: String) {
     log::debug!("Connecting to Archipelago");
     match archipelago::TX_ARCH.get() {
         None => log::error!("Connect TX doesn't exist"),
         Some(tx) => {
-            tx.send(ArchipelagoConnection {
-                url,
-                name,
-                password,
-            })
+            tx.send(url)
             .await
             .expect("Failed to send data");
         }
     }
 }
 
-pub fn get_status_text() -> &'static str {
-    match CONNECTION_STATUS.load(Ordering::Relaxed).into() {
-        Status::Connected => "Connected",
-        Status::Disconnected => "Disconnected",
-        Status::InvalidSlot => "Invalid slot (Check name)",
-        Status::InvalidGame => "Invalid game (Wrong url/port or name?)",
-        Status::IncompatibleVersion => "Incompatible Version, post on GitHub or Discord",
-        Status::InvalidPassword => "Invalid password",
-        Status::InvalidItemHandling => "Invalid item handling, post on Github or Discord",
-    }
-}
+
 
 pub(crate) fn auto_connect() {
     loop {
@@ -45,9 +28,7 @@ pub(crate) fn auto_connect() {
                     "{}:{}",
                     config::CONFIG.connections.address,
                     config::CONFIG.connections.port
-                ),
-                "".parse().unwrap(),
-                "".parse().unwrap(),
+                )
             );
         }
         std::thread::sleep(std::time::Duration::from_secs(

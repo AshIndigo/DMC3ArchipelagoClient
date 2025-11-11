@@ -1,5 +1,4 @@
-use crate::mapping::{get_own_slot_name, MAPPING};
-use crate::ui::ui;
+use crate::mapping::MAPPING;
 use crate::utilities::DMC3_ADDRESS;
 use crate::{create_hook, utilities};
 use minhook::MinHook;
@@ -10,6 +9,8 @@ use std::ptr::{write, write_unaligned};
 use std::sync::atomic::Ordering;
 use std::sync::{OnceLock, RwLock};
 use std::{fs, io};
+use randomizer_utilities::mapping_utilities::get_own_slot_name;
+use crate::connection_manager::CONNECTION_STATUS;
 
 /// Pointer to where save file is in memory
 const SAVE_FILE_PTR: usize = 0x5EAE78;
@@ -106,7 +107,7 @@ fn new_save_game(param_1: i32) {
 fn new_load_game(param_1: i64, param_2: i64, save_data_ptr: *mut usize, length: i32) -> i32 {
     // Returns 1 (loaded successfully?) or -1 (failed for whatever reason)
     log::debug!("Loading save slot selection screen!");
-    if ui::CONNECTION_STATUS.load(Ordering::SeqCst) == 1 {
+    if CONNECTION_STATUS.load(Ordering::SeqCst) == 1 {
         return match get_save_data() {
             Ok(..) => {
                 unsafe {
