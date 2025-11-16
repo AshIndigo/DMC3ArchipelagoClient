@@ -5,7 +5,7 @@ use windows::Win32::Foundation::GetLastError;
 use windows::Win32::System::Memory::{
     VirtualProtect, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS,
 };
-use randomizer_utilities::get_base_address;
+pub(crate) use randomizer_utilities::{get_base_address, read_data_from_address};
 
 /// The base address for DMC3
 pub static DMC3_ADDRESS: LazyLock<usize> = LazyLock::new(|| get_base_address("dmc3.exe"));
@@ -38,14 +38,6 @@ pub fn get_event_address() -> Option<usize> {
     }
     Some(event_table_addr)
 }
-
-pub(crate) fn read_data_from_address<T>(address: usize) -> T
-where
-    T: Copy,
-{
-    unsafe { *(address as *const T) }
-}
-
 
 /// Checks to see if DDMK is loaded
 pub fn is_ddmk_loaded() -> bool {
