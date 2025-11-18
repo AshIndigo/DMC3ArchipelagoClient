@@ -1,4 +1,4 @@
-use crate::archipelago::{DeathLinkData, CHECKED_LOCATIONS, TX_DEATHLINK};
+use crate::archipelago::{TX_DEATHLINK};
 use crate::constants::ItemEntry;
 use crate::constants::*;
 use crate::data::generated_locations;
@@ -22,6 +22,7 @@ use std::ptr::{read_unaligned, write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{OnceLock};
 use std::{ptr, slice};
+use randomizer_utilities::archipelago_utilities::{DeathLinkData, CHECKED_LOCATIONS};
 
 static HOOKS_CREATED: AtomicBool = AtomicBool::new(false);
 

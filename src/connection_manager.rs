@@ -17,8 +17,6 @@ pub async fn send_connect_message(url: String) {
     }
 }
 
-
-
 pub(crate) fn auto_connect() {
     loop {
         if CONNECTION_STATUS.load(Ordering::SeqCst) != 1 {

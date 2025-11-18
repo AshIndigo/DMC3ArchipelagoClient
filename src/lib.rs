@@ -1,18 +1,17 @@
-use crate::archipelago::{connect_archipelago, DeathLinkData, TX_CONNECT, TX_DEATHLINK, TX_DISCONNECT};
-use crate::bank::{TX_BANK_MESSAGE};
+use crate::archipelago::{TX_CONNECT, TX_DEATHLINK, TX_DISCONNECT};
+use crate::bank::TX_BANK_MESSAGE;
 use crate::utilities::{is_crimson_loaded, is_ddmk_loaded};
 use archipelago_rs::protocol::ClientStatus;
 use std::sync::atomic::Ordering;
 use std::thread;
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::Receiver;
 use connection_manager::CONNECTION_STATUS;
 use windows::core::BOOL;
 use windows::Win32::Foundation::*;
-use randomizer_utilities::archipelago_utilities::{CLIENT, SLOT_NUMBER, TEAM_NUMBER};
+use randomizer_utilities::archipelago_utilities::{connect_local_archipelago_proxy, CLIENT, SLOT_NUMBER, TEAM_NUMBER};
 use randomizer_utilities::exception_handler;
 use randomizer_utilities::ui_utilities::Status;
 use crate::check_handler::TX_LOCATION;
+use crate::constants::DMC3Config;
 
 mod archipelago;
 mod bank;
@@ -120,12 +119,6 @@ fn main_setup() {
         .expect("Failed to spawn arch thread");
 }
 
-pub fn setup_deathlink_channel() -> Receiver<DeathLinkData> {
-    let (tx, rx) = mpsc::channel(64);
-    TX_DEATHLINK.set(tx).expect("TX already initialized");
-    rx
-}
-
 #[tokio::main]
 pub(crate) async fn spawn_archipelago_thread() {
     log::info!("Archipelago Thread started");
@@ -139,6 +132,7 @@ pub(crate) async fn spawn_archipelago_thread() {
         thread::spawn(|| {
             log::debug!("Starting auto connector");
             connection_manager::auto_connect();
+            // TODO I can probably just replace this and the bit below with the methods contents, I don't need another loop
         });
     }
     loop {
@@ -151,7 +145,7 @@ pub(crate) async fn spawn_archipelago_thread() {
         log::info!("Processing connection request");
         let mut client_lock = CLIENT.lock().await;
 
-        match connect_archipelago(item).await {
+        match connect_local_archipelago_proxy::<DMC3Config>(item).await {
             Ok(cl) => {
                 client_lock.replace(cl);
                 CONNECTION_STATUS.store(Status::Connected.into(), Ordering::SeqCst);

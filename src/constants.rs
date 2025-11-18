@@ -12,9 +12,11 @@ pub(crate) const DUMMY_ID: LazyLock<u32> = LazyLock::new(|| *ITEM_ID_MAP.get("Du
 pub(crate) const REMOTE_ID: LazyLock<u32> = LazyLock::new(|| *ITEM_ID_MAP.get("Remote").unwrap());
 
 pub struct DMC3Config;
+pub const GAME_NAME: &str = "Devil May Cry 3";
 
 impl GameConfig for DMC3Config {
     const REMOTE_ID: u32 = 0x26;
+    const GAME_NAME: &'static str = GAME_NAME;
 }
 
 
@@ -860,8 +862,6 @@ pub(crate) struct EventTable {
     pub location: &'static str,
     pub events: Vec<Event>,
 }
-
-pub const GAME_NAME: &str = "Devil May Cry 3";
 
 #[derive(Debug)]
 pub struct ItemEntry {

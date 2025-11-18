@@ -5,7 +5,7 @@ use crate::game_manager::get_mission;
 use crate::{constants, game_manager, mapping, utilities};
 use anyhow::anyhow;
 use std::error::Error;
-use crate::archipelago::CHECKED_LOCATIONS;
+use randomizer_utilities::archipelago_utilities::CHECKED_LOCATIONS;
 
 /// If we are in a room with a key item+appropriate mission, return Ok(location_key)
 pub fn in_key_item_room() -> Result<&'static str, Box<dyn Error>> {
