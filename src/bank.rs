@@ -9,18 +9,11 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::{OnceLock, RwLock};
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::{Sender};
 use randomizer_utilities::archipelago_utilities::{SLOT_NUMBER, TEAM_NUMBER};
 
 static BANK: OnceLock<RwLock<HashMap<&'static str, i32>>> = OnceLock::new();
 pub static TX_BANK_MESSAGE: OnceLock<Sender<(&'static str, i32)>> = OnceLock::new();
-
-pub fn setup_bank_message_channel() -> Receiver<(&'static str, i32)> {
-    let (tx, rx) = mpsc::channel(64);
-    TX_BANK_MESSAGE.set(tx).expect("TX already initialized");
-    rx
-}
 
 pub(crate) fn get_bank_key(item: &str) -> String {
     format!(

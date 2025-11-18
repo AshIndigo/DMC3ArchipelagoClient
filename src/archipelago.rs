@@ -21,7 +21,6 @@ use std::fs::remove_file;
 use std::sync::atomic::{Ordering};
 use std::sync::{LazyLock, OnceLock, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::sync;
 use tokio::sync::mpsc::{Receiver, Sender};
 use randomizer_utilities::{cache, item_sync, mapping_utilities};
 use randomizer_utilities::archipelago_utilities::{CONNECTED, SLOT_NUMBER, TEAM_NUMBER};
@@ -30,21 +29,9 @@ use randomizer_utilities::ui_utilities::Status;
 
 pub static CHECKED_LOCATIONS: LazyLock<RwLock<Vec<&'static str>>> =
     LazyLock::new(|| RwLock::new(vec![]));
-pub static TX_ARCH: OnceLock<Sender<String>> = OnceLock::new();
+pub static TX_CONNECT: OnceLock<Sender<String>> = OnceLock::new();
 pub static TX_DISCONNECT: OnceLock<Sender<bool>> = OnceLock::new();
 
-
-pub fn setup_connect_channel() -> Receiver<String> {
-    let (tx, rx) = sync::mpsc::channel(8);
-    TX_ARCH.set(tx).expect("TX already initialized");
-    rx
-}
-
-pub fn setup_disconnect_channel() -> Receiver<bool> {
-    let (tx, rx) = sync::mpsc::channel(8);
-    TX_DISCONNECT.set(tx).expect("TX already initialized");
-    rx
-}
 
 pub async fn get_archipelago_client(
     login_data: &String,

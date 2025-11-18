@@ -1,7 +1,5 @@
-use crate::archipelago::{
-    connect_archipelago, DeathLinkData, TX_DEATHLINK,
-};
-use crate::bank::setup_bank_message_channel;
+use crate::archipelago::{connect_archipelago, DeathLinkData, TX_CONNECT, TX_DEATHLINK, TX_DISCONNECT};
+use crate::bank::{TX_BANK_MESSAGE};
 use crate::utilities::{is_crimson_loaded, is_ddmk_loaded};
 use archipelago_rs::protocol::ClientStatus;
 use std::sync::atomic::Ordering;
@@ -14,6 +12,7 @@ use windows::Win32::Foundation::*;
 use randomizer_utilities::archipelago_utilities::{CLIENT, SLOT_NUMBER, TEAM_NUMBER};
 use randomizer_utilities::exception_handler;
 use randomizer_utilities::ui_utilities::Status;
+use crate::check_handler::TX_LOCATION;
 
 mod archipelago;
 mod bank;
@@ -131,11 +130,11 @@ pub fn setup_deathlink_channel() -> Receiver<DeathLinkData> {
 pub(crate) async fn spawn_archipelago_thread() {
     log::info!("Archipelago Thread started");
     let mut setup = false;
-    let mut rx_locations = check_handler::setup_items_channel();
-    let mut rx_connect = archipelago::setup_connect_channel();
-    let mut rx_disconnect = archipelago::setup_disconnect_channel();
-    let mut rx_bank_to_inv = setup_bank_message_channel();
-    let mut rx_deathlink = setup_deathlink_channel();
+    let mut rx_locations =  randomizer_utilities::setup_channel_pair(&TX_LOCATION, None);
+    let mut rx_connect = randomizer_utilities::setup_channel_pair(&TX_CONNECT, None);
+    let mut rx_disconnect = randomizer_utilities::setup_channel_pair(&TX_DISCONNECT, None);
+    let mut rx_bank_to_inv = randomizer_utilities::setup_channel_pair(&TX_BANK_MESSAGE, None);
+    let mut rx_deathlink = randomizer_utilities::setup_channel_pair(&TX_DEATHLINK, None);
     if !config::CONFIG.connections.disable_auto_connect {
         thread::spawn(|| {
             log::debug!("Starting auto connector");

@@ -8,8 +8,7 @@ use minhook::{MinHook, MH_STATUS};
 use std::fmt::{Display, Formatter};
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::OnceLock;
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::{Sender};
 
 pub const ITEM_HANDLE_PICKUP_ADDR: usize = 0x1b45a0;
 pub static ORIGINAL_HANDLE_PICKUP: OnceLock<unsafe extern "C" fn(item_struct: usize)> =
@@ -245,7 +244,7 @@ pub fn mission_complete_check(cuid_result: usize, ranking: i32) -> i32 {
     }
 }
 
-pub(crate) static LOCATION_CHECK_TX: OnceLock<Sender<Location>> = OnceLock::new();
+pub(crate) static TX_LOCATION: OnceLock<Sender<Location>> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Location {
@@ -269,12 +268,6 @@ impl PartialEq for Location {
     }
 }
 
-pub(crate) fn setup_items_channel() -> Receiver<Location> {
-    let (tx, rx) = mpsc::channel(32);
-    LOCATION_CHECK_TX.set(tx).expect("TX already initialized");
-    rx
-}
-
 pub(crate) fn clear_high_roller() {
     log::debug!("Resetting high roller card");
     set_item("Remote", false, true);
@@ -284,7 +277,7 @@ pub(crate) fn clear_high_roller() {
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
 async fn send_off_location_coords(loc: Location, to_display: u32) {
-    if let Some(tx) = LOCATION_CHECK_TX.get() {
+    if let Some(tx) = TX_LOCATION.get() {
         tx.send(loc).await.expect("Failed to send Location!");
         if to_display != u32::MAX {
             clear_high_roller();
