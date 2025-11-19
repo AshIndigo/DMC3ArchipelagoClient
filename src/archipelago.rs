@@ -16,7 +16,7 @@ use archipelago_rs::protocol::{Bounced, ClientMessage, ClientStatus, ReceivedIte
 use std::cmp::PartialEq;
 use std::error::Error;
 use std::sync::atomic::Ordering;
-use std::sync::{OnceLock, RwLock};
+use std::sync::{OnceLock};
 use std::time::Duration;
 use tokio::sync::mpsc::{Receiver, Sender};
 use randomizer_utilities::{archipelago_utilities, cache, item_sync, mapping_utilities};
