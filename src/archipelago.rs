@@ -1,6 +1,6 @@
 use crate::bank::{get_bank, get_bank_key};
-use randomizer_utilities::cache::{read_cache, DATA_PACKAGE};
 use crate::check_handler::Location;
+use crate::connection_manager::CONNECTION_STATUS;
 use crate::constants::{get_item_name, ItemCategory, GAME_NAME, MISSION_ITEM_MAP, REMOTE_ID};
 use crate::data::generated_locations;
 use crate::game_manager::{get_mission, Style, ARCHIPELAGO_DATA};
@@ -8,26 +8,29 @@ use crate::mapping::{DeathlinkSetting, Goal, Mapping, MAPPING};
 use crate::ui::font_handler::{WHITE, YELLOW};
 use crate::ui::overlay::{MessageSegment, MessageType, OverlayMessage};
 use crate::ui::{overlay, text_handler};
-use crate::connection_manager::CONNECTION_STATUS;
 use crate::{bank, constants, game_manager, hook, location_handler, mapping, skill_manager};
 use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
-use archipelago_rs::protocol::{Bounced, ClientMessage, ClientStatus, ReceivedItems, Retrieved, ServerMessage, StatusUpdate};
+use archipelago_rs::protocol::{
+    Bounced, ClientMessage, ClientStatus, ReceivedItems, Retrieved, ServerMessage, StatusUpdate,
+};
+use randomizer_utilities::archipelago_utilities::{
+    send_deathlink_message, DeathLinkData, CHECKED_LOCATIONS, CONNECTED, DEATH_LINK, SLOT_NUMBER,
+};
+use randomizer_utilities::cache::{read_cache, DATA_PACKAGE};
+use randomizer_utilities::item_sync::{get_index, RoomSyncInfo, CURRENT_INDEX};
+use randomizer_utilities::ui_utilities::Status;
+use randomizer_utilities::{archipelago_utilities, cache, item_sync, mapping_utilities};
+use serde_json::Value;
 use std::cmp::PartialEq;
 use std::error::Error;
 use std::sync::atomic::Ordering;
-use std::sync::{OnceLock};
+use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::sync::mpsc::{Receiver, Sender};
-use randomizer_utilities::{archipelago_utilities, cache, item_sync, mapping_utilities};
-use randomizer_utilities::archipelago_utilities::{send_deathlink_message, DeathLinkData, CHECKED_LOCATIONS, CONNECTED, DEATH_LINK, SLOT_NUMBER, TEAM_NUMBER};
-use randomizer_utilities::item_sync::{get_index, RoomSyncInfo, CURRENT_INDEX};
-use randomizer_utilities::ui_utilities::Status;
-
 
 pub static TX_CONNECT: OnceLock<Sender<String>> = OnceLock::new();
 pub static TX_DISCONNECT: OnceLock<Sender<bool>> = OnceLock::new();
-
 
 /// This is run when a there is a valid connection to a room.
 pub async fn run_setup(cl: &mut ArchipelagoClient) -> Result<(), Box<dyn Error>> {
@@ -49,17 +52,13 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) -> Result<(), Box<dyn Error>>
 
     let mut sync_data = item_sync::get_sync_data().lock()?;
     *sync_data = item_sync::read_save_data().unwrap_or_default();
-    let index = get_index(&cl.room_info().seed_name, SLOT_NUMBER.load(Ordering::SeqCst));
-    if sync_data
-        .room_sync_info
-        .contains_key(&index)
-    {
+    let index = get_index(
+        &cl.room_info().seed_name,
+        SLOT_NUMBER.load(Ordering::SeqCst),
+    );
+    if sync_data.room_sync_info.contains_key(&index) {
         CURRENT_INDEX.store(
-            sync_data
-                .room_sync_info
-                .get(&index)
-                .unwrap()
-                .sync_index,
+            sync_data.room_sync_info.get(&index).unwrap().sync_index,
             Ordering::SeqCst,
         );
     } else {
@@ -113,7 +112,6 @@ fn update_checked_locations() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-
 pub static TX_DEATHLINK: OnceLock<Sender<DeathLinkData>> = OnceLock::new();
 
 pub async fn handle_things(
@@ -161,7 +159,7 @@ pub async fn handle_things(
 
 async fn disconnect(client: &mut ArchipelagoClient) {
     log::info!("Disconnecting");
-    match client.disconnect(None).await {
+    /*    match client.disconnect(None).await {
         Ok(_) => {
             CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::Relaxed);
             TEAM_NUMBER.store(-1, Ordering::SeqCst);
@@ -171,7 +169,7 @@ async fn disconnect(client: &mut ArchipelagoClient) {
         Err(err) => {
             log::error!("Failed to disconnect: {}", err);
         }
-    }
+    }*/
     match hook::disable_hooks() {
         Ok(_) => {
             log::debug!("Disabled hooks");
@@ -186,7 +184,7 @@ async fn disconnect(client: &mut ArchipelagoClient) {
 }
 
 async fn handle_client_messages(
-    result: Result<Option<ServerMessage>, ArchipelagoError>,
+    result: Result<Option<ServerMessage<Value>>, ArchipelagoError>,
     client: &mut ArchipelagoClient,
 ) -> Result<(), Box<dyn Error>> {
     match result {
@@ -267,6 +265,10 @@ async fn handle_client_messages(
         Err(ArchipelagoError::NonTextWebsocketResult(msg)) => {
             log::error!("Non-text websocket result: {:?}", msg);
             Err(ArchipelagoError::NonTextWebsocketResult(msg).into())
+        }
+        Err(ArchipelagoError::FailedDeserialize { json, error }) => {
+            log::error!("Failed to deserialize message: {}", error);
+            Err(ArchipelagoError::FailedDeserialize { json, error }.into())
         }
     }
 }
@@ -363,7 +365,10 @@ async fn handle_item_receive(
                 text_handler::CANCEL_TEXT.store(true, Ordering::SeqCst);
                 if let Err(arch_err) = client.location_checks(vec![*loc_id]).await {
                     log::error!("Failed to check location: {}", arch_err);
-                    let index = get_index(&client.room_info().seed_name, SLOT_NUMBER.load(Ordering::SeqCst));
+                    let index = get_index(
+                        &client.room_info().seed_name,
+                        SLOT_NUMBER.load(Ordering::SeqCst),
+                    );
                     item_sync::add_offline_check(*loc_id, index).await?;
                 }
                 let name = location_data.get_item_name()?;
@@ -371,7 +376,9 @@ async fn handle_item_receive(
                     if location_data.get_in_game_id::<constants::DMC3Config>() > 0x14
                         && location_data.get_in_game_id::<constants::DMC3Config>() != *REMOTE_ID
                     {
-                        archipelago_data.add_item(get_item_name(location_data.get_in_game_id::<constants::DMC3Config>()));
+                        archipelago_data.add_item(get_item_name(
+                            location_data.get_in_game_id::<constants::DMC3Config>(),
+                        ));
                     }
                 }
 
@@ -402,9 +409,7 @@ async fn handle_item_receive(
 fn has_reached_goal(mapping: &&Mapping) -> bool {
     if let Ok(chk) = CHECKED_LOCATIONS.read().as_ref() {
         return match mapping.goal {
-            Goal::Standard => {
-                chk.contains(&"Mission #20 Complete")
-            }
+            Goal::Standard => chk.contains(&"Mission #20 Complete"),
             Goal::All => {
                 for i in 1..20 {
                     // If we are missing a mission complete check then we cannot goal
@@ -417,11 +422,11 @@ fn has_reached_goal(mapping: &&Mapping) -> bool {
             }
             Goal::RandomOrder => {
                 if let Some(order) = &mapping.mission_order {
-                    return chk.contains(&format!("Mission #{} Complete", order[19]).as_str())
+                    return chk.contains(&format!("Mission #{} Complete", order[19]).as_str());
                 }
                 false
             }
-        }
+        };
     }
     false
 }
@@ -431,15 +436,19 @@ pub(crate) async fn handle_received_items_packet(
     client: &mut ArchipelagoClient,
 ) -> Result<(), Box<dyn Error>> {
     // Handle Checklist items here
-    *item_sync::get_sync_data().lock().expect("Failed to get Sync Data") =
-        item_sync::read_save_data().unwrap_or_default();
+    *item_sync::get_sync_data()
+        .lock()
+        .expect("Failed to get Sync Data") = item_sync::read_save_data().unwrap_or_default();
 
     CURRENT_INDEX.store(
         item_sync::get_sync_data()
             .lock()
             .unwrap()
             .room_sync_info
-            .get(&get_index(&client.room_info().seed_name, SLOT_NUMBER.load(Ordering::SeqCst)))
+            .get(&get_index(
+                &client.room_info().seed_name,
+                SLOT_NUMBER.load(Ordering::SeqCst),
+            ))
             .unwrap_or(&RoomSyncInfo::default())
             .sync_index,
         Ordering::SeqCst,
@@ -510,7 +519,7 @@ pub(crate) async fn handle_received_items_packet(
                         MessageSegment::new("Received ".to_string(), WHITE),
                         MessageSegment::new(
                             item_name.to_string(),
-                            overlay::get_color_for_item(item.flags),
+                            overlay::get_color_for_item(&item.flags),
                         ),
                         MessageSegment::new(" from ".to_string(), WHITE),
                         MessageSegment::new(mapping_utilities::get_slot_name(item.player)?, YELLOW),
@@ -612,13 +621,13 @@ pub(crate) async fn handle_received_items_packet(
 
         CURRENT_INDEX.store(received_items_packet.index, Ordering::SeqCst);
         let mut sync_data = item_sync::get_sync_data().lock().unwrap();
-        let index = get_index(&client.room_info().seed_name, SLOT_NUMBER.load(Ordering::SeqCst));
+        let index = get_index(
+            &client.room_info().seed_name,
+            SLOT_NUMBER.load(Ordering::SeqCst),
+        );
         if sync_data.room_sync_info.contains_key(&index) {
-            sync_data
-                .room_sync_info
-                .get_mut(&index)
-                .unwrap()
-                .sync_index = received_items_packet.index;
+            sync_data.room_sync_info.get_mut(&index).unwrap().sync_index =
+                received_items_packet.index;
         } else {
             sync_data
                 .room_sync_info

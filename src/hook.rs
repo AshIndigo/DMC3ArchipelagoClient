@@ -1,28 +1,27 @@
-use crate::archipelago::{TX_DEATHLINK};
+use crate::archipelago::TX_DEATHLINK;
+use crate::connection_manager::CONNECTION_STATUS;
 use crate::constants::ItemEntry;
 use crate::constants::*;
 use crate::data::generated_locations;
 use crate::game_manager::{
-    get_difficulty, get_mission, get_room, set_item, set_loc_chk_flg, set_weapons_in_inv, with_session,
-    Style, ARCHIPELAGO_DATA,
+    get_difficulty, get_mission, get_room, set_item, set_loc_chk_flg, set_weapons_in_inv, with_session, Style, ARCHIPELAGO_DATA,
 };
 use crate::location_handler::in_key_item_room;
 use crate::mapping::{Goal, Mapping, MAPPING};
 use crate::ui::text_handler;
 use crate::ui::text_handler::LAST_OBTAINED_ID;
-use crate::connection_manager::CONNECTION_STATUS;
-use crate::utilities::{read_data_from_address, replace_single_byte, DMC3_ADDRESS};
+use crate::utilities::{read_data_from_address, DMC3_ADDRESS};
 use crate::{
     bank, check_handler, create_hook, game_manager, save_handler, skill_manager, utilities,
 };
 use minhook::{MinHook, MH_STATUS};
-use randomizer_utilities::mapping_utilities;
+use randomizer_utilities::archipelago_utilities::{DeathLinkData, CHECKED_LOCATIONS};
+use randomizer_utilities::{mapping_utilities, replace_single_byte};
 use std::arch::asm;
 use std::ptr::{read_unaligned, write};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{OnceLock};
+use std::sync::OnceLock;
 use std::{ptr, slice};
-use randomizer_utilities::archipelago_utilities::{DeathLinkData, CHECKED_LOCATIONS};
 
 static HOOKS_CREATED: AtomicBool = AtomicBool::new(false);
 
@@ -130,6 +129,12 @@ unsafe fn create_hooks() -> Result<(), MH_STATUS> {
             ORIGINAL_SELECT_MISSION_BUTTON,
             "Edit which mission is loaded on selection"
         );
+        create_hook!(
+            RESULT_SCREEN_BUTTON_ADDR,
+            set_actual_mission,
+            ORIGINAL_RESULT_SCREEN_BUTTON_ADDR,
+            "Change which mission is loaded when selecting next"
+        );
         text_handler::setup_text_hooks()?;
         save_handler::setup_save_hooks()?;
         bank::setup_bank_hooks()?;
@@ -158,6 +163,7 @@ fn enable_hooks() {
         GIVE_STYLE_XP,
         SET_NEW_SESSION_DATA,
         SELECT_MISSION_BUTTON,
+        RESULT_SCREEN_BUTTON_ADDR,
         // Bank
         bank::OPEN_INV_SCREEN_ADDR,
         bank::CLOSE_INV_SCREEN_ADDR,
@@ -198,6 +204,7 @@ pub fn disable_hooks() -> Result<(), MH_STATUS> {
         MinHook::disable_hook((base_address + CUSTOMIZE_STYLE_MENU) as *mut _)?;
         MinHook::disable_hook((base_address + SET_NEW_SESSION_DATA) as *mut _)?;
         MinHook::disable_hook((base_address + SELECT_MISSION_BUTTON) as *mut _)?;
+        MinHook::disable_hook((base_address + RESULT_SCREEN_BUTTON_ADDR) as *mut _)?;
         text_handler::disable_text_hooks(base_address)?;
         check_handler::disable_check_hooks(base_address)?;
         bank::disable_bank_hooks(base_address)?;
@@ -290,7 +297,7 @@ pub fn edit_event_drop(param_1: usize, param_2: i32, param_3: usize) {
 // Set these from 02 to 01
 pub(crate) fn rewrite_mode_table() {
     let table_address = ITEM_MODE_TABLE + *DMC3_ADDRESS;
-    utilities::modify_protected_memory(
+    randomizer_utilities::modify_protected_memory(
         || {
             const LENGTH: usize = 16;
             unsafe {
@@ -716,7 +723,7 @@ pub fn modify_item_table(offset: usize, id: u8) {
         if offset == 0x0 {
             return; // Undecided/ignorable
         }
-        utilities::modify_protected_memory(
+        randomizer_utilities::modify_protected_memory(
             || {
                 let table = slice::from_raw_parts_mut(true_offset as *mut u8, 4);
                 table[3] = id;
@@ -740,7 +747,7 @@ pub(crate) fn restore_item_table() {
         .filter(|(_name, entry)| entry.offset != 0x0)
         .for_each(|(_key, val)| {
             let true_offset = val.offset + *DMC3_ADDRESS + 0x1A00usize;
-            utilities::modify_protected_memory(
+            randomizer_utilities::modify_protected_memory(
                 || {
                     const LENGTH: usize = 4;
                     unsafe {
@@ -758,7 +765,7 @@ pub(crate) fn restore_item_table() {
 pub(crate) fn restore_mode_table() {
     let table_address = ITEM_MODE_TABLE + *DMC3_ADDRESS;
     const LENGTH: usize = 16;
-    utilities::modify_protected_memory(
+    randomizer_utilities::modify_protected_memory(
         || {
             unsafe {
                 let table = slice::from_raw_parts_mut(table_address as *mut u8, LENGTH);
@@ -908,6 +915,9 @@ pub fn set_rando_session_data(ptr: usize) {
             // This is also where I'd want to set what missions are available, but I haven't figured that out yet
             // 29A5E8
             // 0x45FECCA
+            if mapping.goal == Goal::RandomOrder {
+                s.mission = mapping.mission_order.as_ref().unwrap()[0] as u32;
+            }
         }
     })
     .unwrap();
@@ -939,4 +949,33 @@ pub fn rewrite_mission_order(ptr: usize) {
             .expect("Unable to edit session data");
         }
     }
+}
+
+pub const RESULT_SCREEN_BUTTON_ADDR: usize = 0x241fe0;
+pub static ORIGINAL_RESULT_SCREEN_BUTTON_ADDR: OnceLock<
+    unsafe extern "C" fn(usize, usize, usize, usize) -> i32,
+> = OnceLock::new();
+
+fn set_actual_mission(cscene_result: usize, param_1: usize, param_2: usize, param_3: usize) -> i32 {
+    let res = if let Some(orig) = ORIGINAL_RESULT_SCREEN_BUTTON_ADDR.get() {
+        unsafe { orig(cscene_result, param_1, param_2, param_3) }
+    } else {
+        panic!("Failed to find original method for result screen");
+    };
+    if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
+        if mapping.goal == Goal::RandomOrder {
+            match read_data_from_address::<i32>(cscene_result + 0x14) {
+                0x12 => {
+                    with_session(|s| {
+                        s.mission = (mapping.mission_order.as_ref().unwrap()
+                            [mapping.get_index_for_mission(s.mission)]
+                            + 1) as u32;
+                    })
+                    .unwrap();
+                }
+                _ => {}
+            }
+        }
+    }
+    res
 }

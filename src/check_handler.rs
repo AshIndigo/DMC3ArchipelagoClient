@@ -294,7 +294,7 @@ pub(crate) fn take_away_received_item(id: u32) {
             .unwrap_or_else(|| panic!("Item offset not found: {}", id));
         log::debug!("Stripping ID: {:#X} - Offset: {:#X}", id, offset);
         unsafe {
-            utilities::replace_single_byte(
+            randomizer_utilities::replace_single_byte(
                 current_inv_addr + offset as usize,
                 utilities::read_data_from_address::<u8>(current_inv_addr + offset as usize)
                     .saturating_sub(1),

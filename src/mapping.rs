@@ -153,6 +153,22 @@ pub struct Mapping {
     pub client_version: Option<NetworkVersion>
 }
 
+impl Mapping {
+    /// Takes a mission and returns its index in mission_order
+    pub(crate) fn get_index_for_mission(&self, mission: u32) -> usize {
+        if let Some(order) = &self.mission_order {
+            for i in 0..order.len() {
+                if order[i] as u32 == mission {
+                    return i;
+                }
+            }
+            (mission - 1) as usize
+        } else {
+            (mission - 1) as usize
+        }
+    }
+}
+
 #[derive(Deserialize, Serialize, Debug, PartialEq)]
 pub enum Goal {
     /// Beat M20 in linear order M1-M20 (Default)

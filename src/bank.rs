@@ -1,5 +1,5 @@
 use crate::constants::ItemCategory;
-use crate::utilities::replace_single_byte;
+use randomizer_utilities::replace_single_byte;
 use crate::utilities::{read_data_from_address, DMC3_ADDRESS};
 use crate::{constants, create_hook};
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};

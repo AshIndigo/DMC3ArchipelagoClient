@@ -428,10 +428,10 @@
     "yCoord": 41024,
     "zCoord": 2880043332
   },
-  "Mission #14 - Devil Star": {
+  "Mission #14 - Vital Star S #2": {
     "mission_number": 14,
     "room_number": 231,
-    "default_item": 18,
+    "default_item": 17,
     "secret": false,
     "offset": 6048856,
     "adjudicator": false,

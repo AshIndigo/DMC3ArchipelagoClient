@@ -6,10 +6,11 @@ use crate::constants::{
 use crate::hook::ORIGINAL_GIVE_STYLE_XP;
 use crate::mapping::MAPPING;
 use crate::utilities::{
-    get_inv_address, read_data_from_address, replace_single_byte, DMC3_ADDRESS,
+    get_inv_address, read_data_from_address, DMC3_ADDRESS,
 };
 use std::ptr::{read_unaligned, write_unaligned};
 use std::sync::{LazyLock, RwLock};
+use randomizer_utilities::replace_single_byte;
 use crate::utilities;
 
 pub(crate) const GAME_SESSION_DATA: usize = 0xC8F250;

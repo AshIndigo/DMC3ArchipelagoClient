@@ -1,5 +1,4 @@
 use crate::ui::overlay::{present_hook, resize_hook};
-use crate::utilities;
 use crate::utilities::DMC3_ADDRESS;
 use std::error::Error;
 use std::ffi::c_void;
@@ -137,7 +136,7 @@ where
     T: Copy + 'static + Debug,
 {
     let orig = unsafe { ptr::read(dest) };
-    utilities::modify_protected_memory(
+    randomizer_utilities::modify_protected_memory(
         || unsafe {
             ptr::write(dest, hook);
         },

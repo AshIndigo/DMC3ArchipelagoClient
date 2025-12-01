@@ -1,10 +1,11 @@
-use crate::{create_hook, utilities};
-use crate::utilities::{replace_single_byte, DMC3_ADDRESS};
+use crate::create_hook;
+use crate::utilities::DMC3_ADDRESS;
 use minhook::{MinHook, MH_STATUS};
 use std::ptr::write_unaligned;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{LazyLock, OnceLock};
-use std::{ptr};
+use std::ptr;
+use randomizer_utilities::replace_single_byte;
 
 pub static CANCEL_TEXT: AtomicBool = AtomicBool::new(false);
 pub static LAST_OBTAINED_ID: AtomicU8 = AtomicU8::new(0);
@@ -85,7 +86,7 @@ pub(crate) const DISPLAY_ITEM_GET_ADDR: usize = 0x2955a0;
 pub fn replace_displayed_item_id(item_get: usize) {
     if CANCEL_TEXT.load(Ordering::SeqCst) {
         let offset =  (*DMC3_ADDRESS + 0x2957e3) as *mut [u8; 6];
-        utilities::modify_protected_memory(|| {
+        randomizer_utilities::modify_protected_memory(|| {
             unsafe {
                 write_unaligned(
                     offset,

@@ -19,6 +19,7 @@ use windows::Win32::Graphics::Dxgi::Common::{
 };
 use windows::Win32::Graphics::Dxgi::*;
 use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
+use archipelago_rs::protocol::NetworkItemFlags;
 use randomizer_utilities::ui_utilities::Status;
 
 pub(crate) struct D3D11State {
@@ -420,7 +421,7 @@ fn should_display_anyway() -> bool {
     // TODO Use this to display if we are connected, then disconnected
     // Or if version mismatch?
 
-    true
+    false
 }
 
 fn draw_colored_message(
@@ -493,12 +494,12 @@ fn pop_buffer_message() {
     }
 }
 
-pub(crate) fn get_color_for_item(flags: i32) -> FontColorCB {
+pub(crate) fn get_color_for_item(flags: &NetworkItemFlags) -> FontColorCB {
     const CYAN: FontColorCB = FontColorCB::new(0.0, 0.933, 0.933, 1.0);
     const PLUM: FontColorCB = FontColorCB::new(0.686, 0.6, 0.937, 1.0);
     const STATE_BLUE: FontColorCB = FontColorCB::new(0.427, 0.545, 0.91, 1.0);
     const SALMON: FontColorCB = FontColorCB::new(0.98, 0.502, 0.447, 1.0);
-    match flags {
+    match flags.bits() {
         0b000 => CYAN,       // Cyan for regular/filler
         0b001 => PLUM,       // Plum for progression
         0b010 => STATE_BLUE, // 'Stateblue' for useful

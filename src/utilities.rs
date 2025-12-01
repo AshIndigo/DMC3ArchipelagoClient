@@ -1,10 +1,5 @@
-use std::error::Error;
 use std::sync::LazyLock;
-use std::{ptr, slice};
-use windows::Win32::Foundation::GetLastError;
-use windows::Win32::System::Memory::{
-    VirtualProtect, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS,
-};
+use std::{slice};
 pub(crate) use randomizer_utilities::{get_base_address, read_data_from_address};
 
 /// The base address for DMC3
@@ -54,55 +49,6 @@ pub fn _is_addon_mod_loaded() -> bool {
 }
 
 pub unsafe fn replace_single_byte_with_base_addr(offset: usize, new_value: u8) {
-    unsafe { replace_single_byte(offset + *DMC3_ADDRESS, new_value) }
-}
-
-pub fn modify_protected_memory<F, R, T>(f: F, offset: *mut T) -> Result<R, Box<dyn Error>>
-where
-    F: FnOnce() -> R,
-{
-    let length = size_of::<T>();
-    let mut old_protect = PAGE_PROTECTION_FLAGS::default();
-    unsafe {
-        if VirtualProtect(
-            offset as *mut _,
-            length,
-            PAGE_EXECUTE_READWRITE,
-            &mut old_protect,
-        )
-        .is_err()
-        {
-            return Err(format!("Failed to use VirtualProtect (1): {:?}", GetLastError()).into());
-        }
-        let res = f();
-        if VirtualProtect(offset as *mut _, length, old_protect, &mut old_protect).is_err() {
-            return Err(format!("Failed to use VirtualProtect (2): {:?}", GetLastError()).into());
-        }
-        Ok(res)
-    }
-}
-
-pub unsafe fn replace_single_byte(offset_orig: usize, new_value: u8) {
-    let offset = offset_orig as *mut u8;
-    match modify_protected_memory(
-        || unsafe {
-            ptr::write(offset, new_value);
-        },
-        offset,
-    ) {
-        Ok(()) => {
-            const LOG_BYTE_REPLACEMENTS: bool = false;
-            if LOG_BYTE_REPLACEMENTS {
-                log::debug!(
-                    "Modified byte at: Offset: {:X}, byte: {:X}",
-                    offset_orig,
-                    new_value
-                );
-            }
-        }
-        Err(err) => {
-            log::error!("Failed to modify byte at offset: {offset_orig:X}: {err:?}");
-        }
-    }
+    unsafe { randomizer_utilities::replace_single_byte(offset + *DMC3_ADDRESS, new_value) }
 }
 
