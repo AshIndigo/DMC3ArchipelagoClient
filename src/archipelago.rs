@@ -71,7 +71,7 @@ pub async fn run_setup(cl: &mut ArchipelagoClient) -> Result<(), Box<dyn Error>>
             log::info!("Successfully parsed mapping information");
             const DEBUG: bool = false;
             if DEBUG {
-                log::debug!("Mapping data: {:#?}", MAPPING.read().unwrap());
+                log::debug!("Mapping data: {:#?}", MAPPING.read()?);
             }
         }
         Err(err) => {
@@ -231,7 +231,7 @@ async fn handle_client_messages(
             Some(ServerMessage::Retrieved(retrieved)) => handle_retrieved(retrieved),
             Some(ServerMessage::SetReply(reply)) => {
                 log::debug!("SetReply: {:?}", reply);
-                let mut bank = get_bank().write().unwrap();
+                let mut bank = get_bank().write()?;
                 for item in constants::get_items_by_category(ItemCategory::Consumable).iter() {
                     if item.eq(&reply.key.split("_").collect::<Vec<_>>()[2]) {
                         bank.insert(item, reply.value.as_i64().unwrap() as i32);
@@ -344,7 +344,7 @@ async fn handle_item_receive(
         return Err(Box::from(anyhow!("No mapping data")));
     };
 
-    if let Some(data_package) = DATA_PACKAGE.read().unwrap().as_ref() {
+    if let Some(data_package) = DATA_PACKAGE.read()?.as_ref() {
         if received_item.item_id <= 0x39 {
             crate::check_handler::take_away_received_item(received_item.item_id);
         }
@@ -442,8 +442,7 @@ pub(crate) async fn handle_received_items_packet(
 
     CURRENT_INDEX.store(
         item_sync::get_sync_data()
-            .lock()
-            .unwrap()
+            .lock()?
             .room_sync_info
             .get(&get_index(
                 &client.room_info().seed_name,
@@ -606,7 +605,7 @@ pub(crate) async fn handle_received_items_packet(
                     }
 
                     if (item.item < 0x53 && item.item > 0x39)
-                        && let Some(mapping) = MAPPING.read().unwrap().as_ref()
+                        && let Some(mapping) = MAPPING.read()?.as_ref()
                         && mapping.randomize_skills
                     {
                         skill_manager::add_skill(item.item as usize, &mut data);
@@ -620,7 +619,7 @@ pub(crate) async fn handle_received_items_packet(
         }
 
         CURRENT_INDEX.store(received_items_packet.index, Ordering::SeqCst);
-        let mut sync_data = item_sync::get_sync_data().lock().unwrap();
+        let mut sync_data = item_sync::get_sync_data().lock()?;
         let index = get_index(
             &client.room_info().seed_name,
             SLOT_NUMBER.load(Ordering::SeqCst),

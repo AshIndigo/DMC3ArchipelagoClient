@@ -35,7 +35,7 @@ pub fn get_save_path() -> Result<String, io::Error> {
 
 pub fn get_new_save_path() -> Result<String, Box<dyn Error>> {
     // Load up the mappings to get the seed
-    if let Some(mappings) = MAPPING.read().unwrap().as_ref() {
+    if let Some(mappings) = MAPPING.read()?.as_ref() {
         Ok(format!(
             "archipelago/dmc3_{}_{}.sav",
             &mappings.seed,
@@ -145,13 +145,13 @@ fn new_load_game(param_1: i64, param_2: i64, save_data_ptr: *mut usize, length: 
 fn get_save_data() -> Result<(), Box<dyn Error>> {
     match fs::read(get_new_save_path()?) {
         Ok(bytes) => {
-            *SAVE_DATA.write().unwrap() = bytes;
+            *SAVE_DATA.write()? = bytes;
             Ok(())
         }
         Err(err) => match err.kind() {
             ErrorKind::NotFound => match fs::read(get_save_path()?) {
                 Ok(bytes) => {
-                    *SAVE_DATA.write().unwrap() = bytes;
+                    *SAVE_DATA.write()? = bytes;
                     Ok(())
                 }
                 Err(err) => Err(Box::new(err)),

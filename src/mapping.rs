@@ -169,7 +169,7 @@ impl Mapping {
     }
 }
 
-#[derive(Deserialize, Serialize, Debug, PartialEq)]
+#[derive(Deserialize, Serialize, Debug, PartialEq, strum_macros::Display)]
 pub enum Goal {
     /// Beat M20 in linear order M1-M20 (Default)
     Standard,

@@ -522,3 +522,27 @@ pub(crate) fn apply_style_levels(style: Style) {
         }
     }
 }
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct TotalRankings {
+    pub easy_ranking: [u8;20],
+    pub normal_ranking: [u8;20],
+    pub hard_ranking: [u8;20],
+    pub very_hard_ranking: [u8;20],
+    pub dmd_ranking: [u8;20],
+    pub hoh_ranking: [u8;20],
+}
+
+static RANKING_PTR: LazyLock<usize> = LazyLock::new(|| *DMC3_ADDRESS + 0xC8f8E5);
+
+pub fn with_rankings_read<F, R>(f: F) -> Result<R, SessionError>
+where
+    F: FnOnce(&TotalRankings) -> R,
+{
+    let addr = *RANKING_PTR;
+    unsafe {
+        let s = &*(addr as *const TotalRankings);
+        Ok(f(s))
+    }
+}

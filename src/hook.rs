@@ -4,7 +4,8 @@ use crate::constants::ItemEntry;
 use crate::constants::*;
 use crate::data::generated_locations;
 use crate::game_manager::{
-    get_difficulty, get_mission, get_room, set_item, set_loc_chk_flg, set_weapons_in_inv, with_session, Style, ARCHIPELAGO_DATA,
+    get_difficulty, get_mission, get_room, set_item, set_loc_chk_flg, set_weapons_in_inv, with_rankings_read,
+    with_session, Style, ARCHIPELAGO_DATA,
 };
 use crate::location_handler::in_key_item_room;
 use crate::mapping::{Goal, Mapping, MAPPING};
@@ -921,6 +922,12 @@ pub fn set_rando_session_data(ptr: usize) {
         }
     })
     .unwrap();
+    // Unlock all difficulties
+    // This is some kind of bitflag, but I'd need to see if I have old notes on what each bit could be
+    unsafe {
+        replace_single_byte(*DMC3_ADDRESS + 0x564594, 0xFF);
+        // 0x564595 does other things including unlocking vergil
+    }
 }
 
 pub const SELECT_MISSION_BUTTON: usize = 0x29a7b0;
@@ -928,6 +935,7 @@ pub static ORIGINAL_SELECT_MISSION_BUTTON: OnceLock<unsafe extern "C" fn(ptr: us
     OnceLock::new();
 
 pub fn rewrite_mission_order(ptr: usize) {
+    // Running the original method replaces this val with something else, 0 won't be seen again
     let val = read_data_from_address::<u8>(ptr + 0x08);
     if let Some(orig) = ORIGINAL_SELECT_MISSION_BUTTON.get() {
         unsafe {
@@ -935,19 +943,79 @@ pub fn rewrite_mission_order(ptr: usize) {
         }
     }
     if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
-        //log::debug!("Goal is {:?}", mapping.goal);
-        if mapping.goal == Goal::RandomOrder && val == 6 {
-            with_session(|s| {
-                log::debug!("Original Mission was: {}", s.mission);
-                log::debug!("Original O Mission was: {}", s.other_mission);
-                if let Some(mission_order) = &mapping.mission_order {
-                    let mission_idx = s.mission as usize;
-                    s.mission = mission_order[mission_idx - 1] as u32;
-                    s.other_mission = mission_order[mission_idx - 1] as u32;
+        match val {
+            0 => {
+                if mapping.goal != Goal::Standard {
+                    for difficulty in 0..4 {
+                        let max_mission = calculate_max_mission(
+                            mapping,
+                            Difficulty::from_repr(difficulty).unwrap(),
+                        );
+                        log::debug!(
+                            "Max mission for {} is {}",
+                            Difficulty::from_repr(difficulty).unwrap(),
+                            max_mission
+                        );
+                        unsafe {
+                            replace_single_byte(ptr + 0x6290 + difficulty, max_mission);
+                        }
+                    }
                 }
-            })
-            .expect("Unable to edit session data");
+            }
+            6 => {
+                if mapping.goal == Goal::RandomOrder {
+                    with_session(|s| {
+                        log::debug!("Original Mission was: {}", s.mission);
+                        log::debug!("Original O Mission was: {}", s.other_mission);
+                        if let Some(mission_order) = &mapping.mission_order {
+                            let mission_idx = s.mission as usize;
+                            s.mission = mission_order[mission_idx - 1] as u32;
+                            s.other_mission = mission_order[mission_idx - 1] as u32;
+                        }
+                    })
+                    .expect("Unable to edit session data");
+                }
+            }
+            1_u8..=5_u8 | 7_u8..=u8::MAX => {}
         }
+    }
+}
+
+fn calculate_max_mission(mapping: &Mapping, difficulty: Difficulty) -> u8 {
+    match mapping.goal {
+        Goal::RandomOrder => {
+            const NOT_COMPLETED: u8 = 0xFF;
+            with_rankings_read(|r| {
+                let rankings = match difficulty {
+                    Difficulty::Easy => r.easy_ranking,
+                    Difficulty::Normal => r.normal_ranking,
+                    Difficulty::Hard => r.hard_ranking,
+                    Difficulty::VeryHard => r.very_hard_ranking,
+                    Difficulty::DanteMustDie => r.dmd_ranking,
+                    Difficulty::HeavenOrHell => r.hoh_ranking, // TODO Need to check on HoH's calculation
+                };
+                let mut max_idx = 1;
+                // For each mission, see if it's completed
+                // If it is, then increment max_idx
+                mapping
+                    .mission_order
+                    .as_ref()
+                    .unwrap()
+                    .into_iter()
+                    .for_each(|val| {
+                        if rankings[(*val - 1) as usize] != NOT_COMPLETED {
+                            max_idx += 1;
+                        }
+                    });
+                return max_idx;
+            })
+            .unwrap()
+        }
+        Goal::Standard => {
+            log::error!("Unexpectedly reached standard goal");
+            1
+        }
+        Goal::All => 20,
     }
 }
 
