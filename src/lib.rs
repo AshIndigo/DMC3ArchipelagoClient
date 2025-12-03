@@ -125,9 +125,9 @@ pub(crate) async fn spawn_archipelago_thread() {
     let mut setup = false;
     let mut rx_locations =  randomizer_utilities::setup_channel_pair(&TX_LOCATION, None);
     let mut rx_connect = randomizer_utilities::setup_channel_pair(&TX_CONNECT, None);
-    let mut rx_disconnect = randomizer_utilities::setup_channel_pair(&TX_DISCONNECT, None);
     let mut rx_bank_to_inv = randomizer_utilities::setup_channel_pair(&TX_BANK_MESSAGE, None);
     let mut rx_deathlink = randomizer_utilities::setup_channel_pair(&TX_DEATHLINK, None);
+    let mut rx_disconnect = randomizer_utilities::setup_channel_pair(&TX_DISCONNECT, None);
     if !config::CONFIG.connections.disable_auto_connect {
         thread::spawn(|| {
             log::debug!("Starting auto connector");
@@ -176,7 +176,7 @@ pub(crate) async fn spawn_archipelago_thread() {
                 &mut rx_bank_to_inv,
                 &mut rx_connect,
                 &mut rx_deathlink,
-                &mut rx_disconnect,
+                &mut rx_disconnect
             )
             .await;
         }

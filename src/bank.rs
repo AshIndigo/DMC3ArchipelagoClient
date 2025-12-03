@@ -12,7 +12,7 @@ use std::sync::{OnceLock, RwLock};
 use tokio::sync::mpsc::{Sender};
 use randomizer_utilities::archipelago_utilities::{SLOT_NUMBER, TEAM_NUMBER};
 
-static BANK: OnceLock<RwLock<HashMap<&'static str, i32>>> = OnceLock::new();
+pub(crate) static BANK: OnceLock<RwLock<HashMap<&'static str, i32>>> = OnceLock::new();
 pub static TX_BANK_MESSAGE: OnceLock<Sender<(&'static str, i32)>> = OnceLock::new();
 
 pub(crate) fn get_bank_key(item: &str) -> String {
@@ -113,16 +113,6 @@ pub fn setup_bank_hooks() -> Result<(), MH_STATUS> {
             ORIGINAL_USE_ITEM,
             "Use item in Inv Screen"
         );
-    }
-    Ok(())
-}
-
-pub unsafe fn disable_bank_hooks(base_address: usize) -> Result<(), MH_STATUS> {
-    log::debug!("Disabling bank related hooks");
-    unsafe {
-        MinHook::disable_hook((base_address + OPEN_INV_SCREEN_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + CLOSE_INV_SCREEN_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + USE_ITEM_ADDR) as *mut _)?;
     }
     Ok(())
 }

@@ -49,21 +49,6 @@ pub fn setup_check_hooks() -> Result<(), MH_STATUS> {
     Ok(())
 }
 
-pub unsafe fn disable_check_hooks(base_address: usize) -> Result<(), MH_STATUS> {
-    log::debug!("Disabling check related hooks");
-    const ADDRESSES: [usize; 3] = [
-        ITEM_HANDLE_PICKUP_ADDR,
-        ITEM_PICKED_UP_ADDR,
-        RESULT_CALC_ADDR,
-    ];
-    unsafe {
-        for addr in ADDRESSES {
-            MinHook::disable_hook((base_address + addr) as *mut _)?;
-        }
-    }
-    Ok(())
-}
-
 /// Hook into item handle method (1b45a0). Handles non-event item pick up locations
 pub fn item_non_event(item_struct: usize) {
     unsafe {

@@ -37,17 +37,6 @@ pub unsafe fn setup_text_hooks() -> Result<(), MH_STATUS> {
     Ok(())
 }
 
-pub unsafe fn disable_text_hooks(base_address: usize) -> Result<(), MH_STATUS> {
-    log::debug!("Disabling text related hooks");
-    const ADDRESSES: [usize; 3] = [DISPLAY_ITEM_GET_ADDR, DISPLAY_ITEM_GET_DESTRUCTOR_ADDR, SETUP_ITEM_GET_SCREEN_ADDR];
-    unsafe {
-        for addr in ADDRESSES {
-            MinHook::disable_hook((base_address + addr) as *mut _)?;
-        }
-    }
-    Ok(())
-}
-
 pub static DISPLAY_MESSAGE_VIA_INDEX: OnceLock<
     unsafe extern "C" fn(text_enabled: usize, message_index: i32),
 > = OnceLock::new();

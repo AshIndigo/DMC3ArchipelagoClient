@@ -70,6 +70,7 @@ pub fn get_mapped_item_id(location_name: &str) -> Result<u32, Box<dyn Error>> {
             0x55 => *ITEM_ID_MAP.get("Artemis").unwrap(),
             0x56 => *ITEM_ID_MAP.get("Spiral").unwrap(),
             0x57 => *ITEM_ID_MAP.get("Kalina Ann").unwrap(),
+            // It would be neat to have custom pics for styles...
             _ => {log::error!("Unrecognized id {}, default to Remote", id); *ITEM_ID_MAP.get("Remote").unwrap()},
         });
     }

@@ -65,15 +65,6 @@ pub fn setup_save_hooks() -> Result<(), MH_STATUS> {
     Ok(())
 }
 
-pub unsafe fn disable_save_hooks(base_address: usize) -> Result<(), MH_STATUS> {
-    log::debug!("Disabling save related hooks");
-    unsafe {
-        MinHook::disable_hook((base_address + LOAD_GAME_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + SAVE_GAME_ADDR) as *mut _)?;
-    }
-    Ok(())
-}
-
 /// Reimplementation of DMC3's save game method, but will save to a custom file instead
 fn new_save_game(param_1: i32) {
     // param_1 has just been 0 so far

@@ -6,7 +6,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use std::sync::{LazyLock, RwLock};
-use archipelago_rs::protocol::NetworkVersion;
+use randomizer_utilities::APVersion;
 use randomizer_utilities::archipelago_utilities::CONNECTED;
 use randomizer_utilities::mapping_utilities::LocationData;
 
@@ -128,7 +128,6 @@ pub struct Mapping {
     pub seed: String,
     pub items: HashMap<String, LocationData>,
     pub starter_items: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub adjudicators: Option<HashMap<String, AdjudicatorData>>,
     #[serde(default = "default_melee")]
     #[serde(deserialize_with = "parse_melee_number")]
@@ -145,12 +144,9 @@ pub struct Mapping {
     #[serde(default = "default_goal")]
     #[serde(deserialize_with = "parse_goal")]
     pub goal: Goal,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub mission_order: Option<Vec<u8>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub generated_version: Option<NetworkVersion>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub client_version: Option<NetworkVersion>
+    pub generated_version: Option<APVersion>,
+    pub client_version: Option<APVersion>
 }
 
 impl Mapping {

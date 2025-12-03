@@ -3,7 +3,7 @@ use crate::check_handler::Location;
 use crate::connection_manager::CONNECTION_STATUS;
 use crate::constants::{get_item_name, ItemCategory, GAME_NAME, MISSION_ITEM_MAP, REMOTE_ID};
 use crate::data::generated_locations;
-use crate::game_manager::{get_mission, Style, ARCHIPELAGO_DATA};
+use crate::game_manager::{get_mission, ArchipelagoData, Style, ARCHIPELAGO_DATA};
 use crate::mapping::{DeathlinkSetting, Goal, Mapping, MAPPING};
 use crate::ui::font_handler::{WHITE, YELLOW};
 use crate::ui::overlay::{MessageSegment, MessageType, OverlayMessage};
@@ -14,9 +14,7 @@ use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
 use archipelago_rs::protocol::{
     Bounced, ClientMessage, ClientStatus, ReceivedItems, Retrieved, ServerMessage, StatusUpdate,
 };
-use randomizer_utilities::archipelago_utilities::{
-    send_deathlink_message, DeathLinkData, CHECKED_LOCATIONS, CONNECTED, DEATH_LINK, SLOT_NUMBER,
-};
+use randomizer_utilities::archipelago_utilities::{send_deathlink_message, DeathLinkData, CHECKED_LOCATIONS, CONNECTED, DEATH_LINK, SLOT_NUMBER, TEAM_NUMBER};
 use randomizer_utilities::cache::{read_cache, DATA_PACKAGE};
 use randomizer_utilities::item_sync::{get_index, RoomSyncInfo, CURRENT_INDEX};
 use randomizer_utilities::ui_utilities::Status;
@@ -144,7 +142,7 @@ pub async fn handle_things(
                 break; // Exit to trigger reconnect in spawn_arch_thread
             }
             Some(_disconnect_request) = disconnect_request.recv() => {
-                disconnect(client).await;
+                disconnect().await;
                 break;
             }
             message = client.recv() => {
@@ -157,19 +155,11 @@ pub async fn handle_things(
     }
 }
 
-async fn disconnect(client: &mut ArchipelagoClient) {
-    log::info!("Disconnecting");
-    /*    match client.disconnect(None).await {
-        Ok(_) => {
-            CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::Relaxed);
-            TEAM_NUMBER.store(-1, Ordering::SeqCst);
-            SLOT_NUMBER.store(-1, Ordering::SeqCst);
-            log::info!("Disconnected from Archipelago room");
-        }
-        Err(err) => {
-            log::error!("Failed to disconnect: {}", err);
-        }
-    }*/
+async fn disconnect() { // TODO I want this to actually be useful. Need to make sure its called when I disconnect on the proxy
+    log::info!("Disconnecting and restoring game");
+    CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::Relaxed);
+    TEAM_NUMBER.store(-1, Ordering::SeqCst);
+    SLOT_NUMBER.store(-1, Ordering::SeqCst);
     match hook::disable_hooks() {
         Ok(_) => {
             log::debug!("Disabled hooks");
@@ -178,6 +168,9 @@ async fn disconnect(client: &mut ArchipelagoClient) {
             log::error!("Failed to disable hooks: {:?}", e);
         }
     }
+    MAPPING.write().unwrap().take(); // Clear mappings
+    *ARCHIPELAGO_DATA.write().unwrap() = ArchipelagoData::default(); // Reset Data (Probably not needed
+    // Do I need to something for the bank here?
     hook::restore_item_table();
     hook::restore_mode_table();
     log::info!("Game restored to default state");
@@ -254,8 +247,7 @@ async fn handle_client_messages(
             Err(ArchipelagoError::IllegalResponse { received, expected }.into())
         }
         Err(ArchipelagoError::ConnectionClosed) => {
-            CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::Relaxed);
-            log::info!("Connection closed");
+            disconnect().await;
             Err(ArchipelagoError::ConnectionClosed.into())
         }
         Err(ArchipelagoError::FailedSerialize(err)) => {
@@ -319,14 +311,14 @@ async fn handle_bounced(
 fn handle_retrieved(retrieved: Retrieved) -> Result<(), Box<dyn Error>> {
     let mut bank = get_bank().write()?;
     bank.iter_mut().for_each(|(item_name, count)| {
-        log::debug!("Reading {}", item_name);
+        //log::debug!("Reading {}", item_name);
         match retrieved.keys.get(get_bank_key(item_name)) {
             None => {
-                log::error!("{} not found", item_name);
+                log::error!("Bank key: {} not found", item_name);
             }
             Some(cnt) => *count = cnt.as_i64().unwrap_or_default() as i32,
         }
-        log::debug!("Set count {}", item_name);
+        //log::debug!("Set count {}", item_name);
     });
     Ok(())
 }
@@ -458,7 +450,7 @@ pub(crate) async fn handle_received_items_packet(
         bank::read_values(client).await?;
         match ARCHIPELAGO_DATA.write() {
             Ok(mut data) => {
-                *data = game_manager::ArchipelagoData::default();
+                *data = ArchipelagoData::default();
                 skill_manager::reset_expertise();
                 for item in &received_items_packet.items {
                     match item.item {

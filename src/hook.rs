@@ -21,7 +21,7 @@ use randomizer_utilities::{mapping_utilities, replace_single_byte};
 use std::arch::asm;
 use std::ptr::{read_unaligned, write};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::OnceLock;
+use std::sync::{LazyLock, OnceLock};
 use std::{ptr, slice};
 
 static HOOKS_CREATED: AtomicBool = AtomicBool::new(false);
@@ -143,8 +143,8 @@ unsafe fn create_hooks() -> Result<(), MH_STATUS> {
     Ok(())
 }
 
-fn enable_hooks() {
-    let addresses: Vec<usize> = vec![
+static HOOK_ADDRESSES: LazyLock<Vec<usize>> = LazyLock::new(|| {
+    const ADDRESSES: [usize; 26] = [
         // Check handling
         check_handler::ITEM_HANDLE_PICKUP_ADDR,
         check_handler::ITEM_PICKED_UP_ADDR,
@@ -177,7 +177,11 @@ fn enable_hooks() {
         text_handler::DISPLAY_ITEM_GET_DESTRUCTOR_ADDR,
         text_handler::SETUP_ITEM_GET_SCREEN_ADDR,
     ];
-    addresses.iter().for_each(|addr| unsafe {
+    ADDRESSES.to_vec()
+});
+
+fn enable_hooks() {
+    HOOK_ADDRESSES.iter().for_each(|addr| unsafe {
         match MinHook::enable_hook((*DMC3_ADDRESS + addr) as *mut _) {
             Ok(_) => {}
             Err(err) => {
@@ -190,26 +194,14 @@ fn enable_hooks() {
 /// Disable hooks, used for disconnecting
 pub fn disable_hooks() -> Result<(), MH_STATUS> {
     let base_address = *DMC3_ADDRESS;
-    unsafe {
-        MinHook::disable_hook((base_address + ITEM_SPAWNS_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + EDIT_EVENT_HOOK_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + LOAD_NEW_ROOM_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + SETUP_PLAYER_DATA_ADDR) as *mut _)?;
-        save_handler::disable_save_hooks(base_address)?;
-        MinHook::disable_hook((base_address + EQUIPMENT_SCREEN_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + DAMAGE_CALC_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + ADJUDICATOR_DATA_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + SKILL_SHOP_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + GUN_SHOP_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + ADD_SHOTGUN_OR_CERBERUS_ADDR) as *mut _)?;
-        MinHook::disable_hook((base_address + CUSTOMIZE_STYLE_MENU) as *mut _)?;
-        MinHook::disable_hook((base_address + SET_NEW_SESSION_DATA) as *mut _)?;
-        MinHook::disable_hook((base_address + SELECT_MISSION_BUTTON) as *mut _)?;
-        MinHook::disable_hook((base_address + RESULT_SCREEN_BUTTON_ADDR) as *mut _)?;
-        text_handler::disable_text_hooks(base_address)?;
-        check_handler::disable_check_hooks(base_address)?;
-        bank::disable_bank_hooks(base_address)?;
-    }
+    HOOK_ADDRESSES.iter().for_each(|addr| unsafe {
+        match MinHook::disable_hook((base_address + *addr) as *mut _) {
+            Ok(_) => {}
+            Err(err) => {
+                log::error!("Failed to disable {:#X} hook: {:?}", addr, err);
+            }
+        }
+    });
     Ok(())
 }
 
@@ -544,25 +536,25 @@ unsafe fn check_and_replace_item(
     item_ref: &u32,
     item_addr: *mut i32,
 ) {
-    unsafe {
-        // Skipping if location file has room as 0, that means its either event or not done
-        if entry.room_number == 0 {
-            return;
-        }
-        //log::debug!("Room number X: {} Room number memory: {}, Item ID X: {:#X}, Item ID Memory: {:#X}", entry.room_number, room_num, entry.item_id, *item_ref);
-        if entry.room_number == room_num && entry.item_id == *item_ref && !entry.adjudicator {
-            log::debug!("Seeing if item needs to be dummy");
-            if !dummy_replace(location_name, item_addr) {
-                log::info!(
-                    "Replaced item in room {} ({}) with {} {:#X}",
-                    entry.room_number,
-                    location_name,
-                    get_item_name(*item_ref),
-                    *item_addr
-                );
-            }
+    //unsafe {
+    // Skipping if location file has room as 0, that means its either event or not done
+    if entry.room_number == 0 {
+        return;
+    }
+    //log::debug!("Room number X: {} Room number memory: {}, Item ID X: {:#X}, Item ID Memory: {:#X}", entry.room_number, room_num, entry.item_id, *item_ref);
+    if entry.room_number == room_num && entry.item_id == *item_ref && !entry.adjudicator {
+        log::debug!("Seeing if item needs to be dummy");
+        if !dummy_replace(location_name, item_addr) {
+            // log::info!(
+            //     "Replaced item in room {} ({}) with {} {:#X}",
+            //     entry.room_number,
+            //     location_name,
+            //     get_item_name(*item_ref),
+            //     *item_addr
+            // );
         }
     }
+    //}
 }
 
 /// Replaces an item with a dummy one in order to not immediately proc end events upon entering the location's room
@@ -916,9 +908,9 @@ pub fn set_rando_session_data(ptr: usize) {
             // This is also where I'd want to set what missions are available, but I haven't figured that out yet
             // 29A5E8
             // 0x45FECCA
-            if mapping.goal == Goal::RandomOrder {
-                s.mission = mapping.mission_order.as_ref().unwrap()[0] as u32;
-            }
+            // if mapping.goal == Goal::RandomOrder {
+            //     s.mission = mapping.mission_order.as_ref().unwrap()[0] as u32;
+            // }
         }
     })
     .unwrap();
@@ -946,7 +938,7 @@ pub fn rewrite_mission_order(ptr: usize) {
         match val {
             0 => {
                 if mapping.goal != Goal::Standard {
-                    for difficulty in 0..4 {
+                    for difficulty in 0..6 {
                         let max_mission = calculate_max_mission(
                             mapping,
                             Difficulty::from_repr(difficulty).unwrap(),
@@ -1025,6 +1017,8 @@ pub static ORIGINAL_RESULT_SCREEN_BUTTON_ADDR: OnceLock<
 > = OnceLock::new();
 
 fn set_actual_mission(cscene_result: usize, param_1: usize, param_2: usize, param_3: usize) -> i32 {
+    let val = read_data_from_address::<i32>(cscene_result + 0x14);
+    let current_mission = get_mission();
     let res = if let Some(orig) = ORIGINAL_RESULT_SCREEN_BUTTON_ADDR.get() {
         unsafe { orig(cscene_result, param_1, param_2, param_3) }
     } else {
@@ -1032,12 +1026,10 @@ fn set_actual_mission(cscene_result: usize, param_1: usize, param_2: usize, para
     };
     if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
         if mapping.goal == Goal::RandomOrder {
-            match read_data_from_address::<i32>(cscene_result + 0x14) {
+            match val {
                 0x12 => {
                     with_session(|s| {
-                        s.mission = (mapping.mission_order.as_ref().unwrap()
-                            [mapping.get_index_for_mission(s.mission)]
-                            + 1) as u32;
+                        s.mission = mapping.mission_order.as_ref().unwrap()[ mapping.get_index_for_mission(current_mission) + 1] as u32;
                     })
                     .unwrap();
                 }
