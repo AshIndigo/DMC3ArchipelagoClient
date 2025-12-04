@@ -905,12 +905,8 @@ pub fn set_rando_session_data(ptr: usize) {
             /* Should see if I can change unlocked files? Or unlock them all.
             Game seemed to just auto unlock them though when the weapon is used
             Overall, not too important */
-            // This is also where I'd want to set what missions are available, but I haven't figured that out yet
             // 29A5E8
             // 0x45FECCA
-            // if mapping.goal == Goal::RandomOrder {
-            //     s.mission = mapping.mission_order.as_ref().unwrap()[0] as u32;
-            // }
         }
     })
     .unwrap();
@@ -938,6 +934,16 @@ pub fn rewrite_mission_order(ptr: usize) {
         match val {
             0 => {
                 if mapping.goal != Goal::Standard {
+                    with_session(|s| {
+                        // Sets the mission selected on the select screen to be the correct one
+                        unsafe {
+                            replace_single_byte(
+                                ptr + 0x628A + s.difficulty as usize,
+                                1 + mapping.get_index_for_mission(s.mission) as u8,
+                            );
+                        }
+                    })
+                    .unwrap();
                     for difficulty in 0..6 {
                         let max_mission = calculate_max_mission(
                             mapping,
@@ -1029,7 +1035,9 @@ fn set_actual_mission(cscene_result: usize, param_1: usize, param_2: usize, para
             match val {
                 0x12 => {
                     with_session(|s| {
-                        s.mission = mapping.mission_order.as_ref().unwrap()[ mapping.get_index_for_mission(current_mission) + 1] as u32;
+                        s.mission = mapping.mission_order.as_ref().unwrap()
+                            [mapping.get_index_for_mission(current_mission) + 1]
+                            as u32;
                     })
                     .unwrap();
                 }
