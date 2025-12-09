@@ -23,6 +23,7 @@ use std::ptr::{read_unaligned, write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, OnceLock};
 use std::{ptr, slice};
+use bitflags::bitflags;
 
 static HOOKS_CREATED: AtomicBool = AtomicBool::new(false);
 
@@ -687,8 +688,10 @@ pub fn set_player_data(param_1: usize) -> bool {
     game_manager::set_session_weapons();
     game_manager::set_max_hp_and_magic();
     if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
-        if mapping.randomize_skills {
+        if mapping.randomize_gun_levels {
             game_manager::set_gun_levels();
+        }
+        if mapping.randomize_skills {
             skill_manager::set_skills(&ARCHIPELAGO_DATA.read().unwrap());
         }
         if mapping.randomize_styles {
@@ -776,8 +779,12 @@ pub static ORIGINAL_SKILL_SHOP: OnceLock<unsafe extern "C" fn(custom_skill: usiz
 
 // TODO I would like to make this show a custom message denied message, but for now, just do nothing
 pub fn deny_skill_purchasing(custom_skill: usize) {
-    if read_data_from_address::<u8>(custom_skill + 0x08) == 0x05 {
-        unsafe { replace_single_byte(custom_skill + 0x08, 0x01) }
+    if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
+        if mapping.randomize_skills {
+            if read_data_from_address::<u8>(custom_skill + 0x08) == 0x05 {
+                unsafe { replace_single_byte(custom_skill + 0x08, 0x01) }
+            }
+        }
     }
     if let Some(orig) = ORIGINAL_SKILL_SHOP.get() {
         unsafe {
@@ -789,8 +796,12 @@ pub fn deny_skill_purchasing(custom_skill: usize) {
 pub const GUN_SHOP_ADDR: usize = 0x283d60;
 pub static ORIGINAL_GUN_SHOP: OnceLock<unsafe extern "C" fn(custom_gun: usize)> = OnceLock::new();
 pub fn deny_gun_upgrade(custom_gun: usize) {
-    if read_data_from_address::<u8>(custom_gun + 0x08) == 0x03 {
-        unsafe { replace_single_byte(custom_gun + 0x08, 0x01) }
+    if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
+        if mapping.randomize_gun_levels {
+            if read_data_from_address::<u8>(custom_gun + 0x08) == 0x03 {
+                unsafe { replace_single_byte(custom_gun + 0x08, 0x01) }
+            }
+        }
     }
     if let Some(orig) = ORIGINAL_GUN_SHOP.get() {
         unsafe {
@@ -861,6 +872,35 @@ pub const SET_NEW_SESSION_DATA: usize = 0x212760; //0x242cc0; // Use current add
 pub static ORIGINAL_SET_NEW_SESSION_DATA: OnceLock<unsafe extern "C" fn(ptr: usize) -> f32> =
     OnceLock::new();
 
+bitflags! {
+    #[derive(Debug)]
+    struct DifficultyUnlockFlags: u8 {
+        const Easy = 0b00000001;
+        const Normal = 0b00000000; // Always unlocked, does not have a flag as far as I know
+        const Hard = 0b00000010;
+        const VeryHard = 0b00000100;
+        const DanteMustDie = 0b00001000;
+        const HeavenOrHell = 0b00010000;
+    }
+}
+
+impl DifficultyUnlockFlags {
+    fn create_final_flag(difficulties: &Vec<Difficulty>) -> DifficultyUnlockFlags {
+        let mut res = DifficultyUnlockFlags::empty();
+        for difficulty in difficulties {
+            res = res.union(match difficulty {
+                Difficulty::Easy => DifficultyUnlockFlags::Easy,
+                Difficulty::Normal => DifficultyUnlockFlags::Normal,
+                Difficulty::Hard => DifficultyUnlockFlags::Hard,
+                Difficulty::VeryHard => DifficultyUnlockFlags::VeryHard,
+                Difficulty::DanteMustDie => DifficultyUnlockFlags::DanteMustDie,
+                Difficulty::HeavenOrHell => DifficultyUnlockFlags::HeavenOrHell
+            });
+        }
+        res
+    }
+}
+
 pub fn set_rando_session_data(ptr: usize) {
     if let Some(orig) = ORIGINAL_SET_NEW_SESSION_DATA.get() {
         unsafe {
@@ -878,8 +918,14 @@ pub fn set_rando_session_data(ptr: usize) {
             return;
         }
         if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
+            // Unlock all difficulties
+            // This is some kind of bitflag, but I'd need to see if I have old notes on what each bit could be
+            unsafe {
+                let final_flag =  DifficultyUnlockFlags::create_final_flag(&mapping.initially_unlocked_difficulties);
+                replace_single_byte(*DMC3_ADDRESS + 0x564594, final_flag.bits());
+                // 0x564595 does other things including unlocking vergil
+            }
             // Set initial style if relevant
-
             if mapping.randomize_styles
                 && let Some(index) = ARCHIPELAGO_DATA
                     .read()
@@ -907,15 +953,12 @@ pub fn set_rando_session_data(ptr: usize) {
             Overall, not too important */
             // 29A5E8
             // 0x45FECCA
+            // if mapping.goal == Goal::RandomOrder {
+            //     s.mission = mapping.mission_order.as_ref().unwrap()[0] as u32;
+            // }
         }
     })
     .unwrap();
-    // Unlock all difficulties
-    // This is some kind of bitflag, but I'd need to see if I have old notes on what each bit could be
-    unsafe {
-        replace_single_byte(*DMC3_ADDRESS + 0x564594, 0xFF);
-        // 0x564595 does other things including unlocking vergil
-    }
 }
 
 pub const SELECT_MISSION_BUTTON: usize = 0x29a7b0;
@@ -990,7 +1033,7 @@ fn calculate_max_mission(mapping: &Mapping, difficulty: Difficulty) -> u8 {
                     Difficulty::Hard => r.hard_ranking,
                     Difficulty::VeryHard => r.very_hard_ranking,
                     Difficulty::DanteMustDie => r.dmd_ranking,
-                    Difficulty::HeavenOrHell => r.hoh_ranking, // TODO Need to check on HoH's calculation
+                    Difficulty::HeavenOrHell => r.hoh_ranking,
                 };
                 let mut max_idx = 1;
                 // For each mission, see if it's completed

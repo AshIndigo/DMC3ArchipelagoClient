@@ -1,4 +1,4 @@
-use crate::check_handler::Location;
+use crate::check_handler::{Location, MISSION_COMPLETE, SS_RANK};
 use crate::constants::{EventCode, ItemCategory, DUMMY_ID, EVENT_TABLES, ITEM_ID_MAP, REMOTE_ID};
 use crate::data::generated_locations;
 use crate::game_manager::get_mission;
@@ -25,9 +25,15 @@ pub fn in_key_item_room() -> Result<&'static str, Box<dyn Error>> {
 }
 
 pub fn get_location_name_by_data(location_data: &Location) -> Result<&'static str, Box<dyn Error>> {
-    if location_data.room == -1 {
+    if location_data.room == MISSION_COMPLETE {
         let mission_loc: Vec<_> = generated_locations::ITEM_MISSION_MAP.iter().filter(|(key, _item_entry)| {
             *(*key) == format!("Mission #{} Complete", location_data.mission).as_str()
+        }).collect();
+        return Ok(mission_loc[0].0)
+    }
+    if location_data.room == SS_RANK {
+        let mission_loc: Vec<_> = generated_locations::ITEM_MISSION_MAP.iter().filter(|(key, _item_entry)| {
+            *(*key) == format!("Mission #{} SS Rank", location_data.mission).as_str()
         }).collect();
         return Ok(mission_loc[0].0)
     }

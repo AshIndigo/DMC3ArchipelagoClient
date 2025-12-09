@@ -10,11 +10,14 @@ use crate::ui::overlay::{MessageSegment, MessageType, OverlayMessage};
 use crate::ui::{overlay, text_handler};
 use crate::{bank, constants, game_manager, hook, location_handler, mapping, skill_manager};
 use anyhow::anyhow;
-use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
+use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError, DeathLinkOptions};
 use archipelago_rs::protocol::{
-    Bounced, ClientMessage, ClientStatus, ReceivedItems, Retrieved, ServerMessage, StatusUpdate,
+    BounceData, Bounced, ClientMessage, ClientStatus, ReceivedItems, Retrieved,
+    ServerMessage, StatusUpdate,
 };
-use randomizer_utilities::archipelago_utilities::{send_deathlink_message, DeathLinkData, CHECKED_LOCATIONS, CONNECTED, DEATH_LINK, SLOT_NUMBER, TEAM_NUMBER};
+use randomizer_utilities::archipelago_utilities::{
+    DeathLinkData, CHECKED_LOCATIONS, CONNECTED, DEATH_LINK, SLOT_NUMBER, TEAM_NUMBER,
+};
 use randomizer_utilities::cache::{read_cache, DATA_PACKAGE};
 use randomizer_utilities::item_sync::{get_index, RoomSyncInfo, CURRENT_INDEX};
 use randomizer_utilities::ui_utilities::Status;
@@ -133,7 +136,10 @@ pub async fn handle_things(
                 }
             }
             Some(message) = deathlink_rx.recv() => {
-                if let Err(err) = send_deathlink_message(client, message).await {
+                // if let Err(err) = send_deathlink_message(client, message).await {
+                //     log::error!("Failed to send deathlink: {}", err);
+                // }
+                    if let Err(err) = client.death_link(DeathLinkOptions::new()).await {
                     log::error!("Failed to send deathlink: {}", err);
                 }
             }
@@ -155,7 +161,8 @@ pub async fn handle_things(
     }
 }
 
-async fn disconnect() { // TODO I want this to actually be useful. Need to make sure its called when I disconnect on the proxy
+async fn disconnect() {
+    // TODO I want this to actually be useful. Need to make sure its called when I disconnect on the proxy
     log::info!("Disconnecting and restoring game");
     CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::Relaxed);
     TEAM_NUMBER.store(-1, Ordering::SeqCst);
@@ -216,7 +223,7 @@ async fn handle_client_messages(
                 Ok(())
             }
             Some(ServerMessage::DataPackage(_)) => Ok(()), // Ignore
-            Some(ServerMessage::Bounced(bounced_msg)) => handle_bounced(bounced_msg, client).await,
+            Some(ServerMessage::Bounced(bounced_msg)) => handle_bounced(bounced_msg).await,
             Some(ServerMessage::InvalidPacket(invalid_packet)) => {
                 log::error!("Invalid packet: {:?}", invalid_packet);
                 Ok(())
@@ -266,45 +273,35 @@ async fn handle_client_messages(
 }
 
 async fn handle_bounced(
-    bounced: Bounced,
-    _client: &mut ArchipelagoClient,
+    bounced: Bounced
 ) -> Result<(), Box<dyn Error>> {
-    if bounced.tags.is_some() {
-        if bounced.tags.unwrap().contains(&DEATH_LINK.to_string()) {
-            log::debug!("DeathLink detected");
-
-            // TODO Only display this if in game?
-            if bounced.data.is_some() {
+    if bounced.tags.contains(&DEATH_LINK.to_string()) {
+        log::debug!("DeathLink detected");
+        // TODO Only display this if in game?
+        match bounced.data {
+            BounceData::DeathLink(dl) => {
                 overlay::add_message(OverlayMessage::new(
-                    vec![MessageSegment::new(
-                        bounced
-                            .data
-                            .unwrap()
-                            .get("cause")
-                            .unwrap()
-                            .as_str()
-                            .unwrap()
-                            .to_string(),
-                        WHITE,
-                    )],
+                    vec![MessageSegment::new(dl.cause.unwrap_or_default(), WHITE)],
                     Duration::from_secs(3),
                     // TODO May want to adjust position, currently added to the 'notification list' so it's in the upper right queue
                     0.0,
                     0.0,
                     MessageType::Notification,
                 ));
-            }
-            match MAPPING.read()?.as_ref().unwrap().death_link {
-                DeathlinkSetting::DeathLink => {
-                    game_manager::kill_dante();
+                match MAPPING.read()?.as_ref().unwrap().death_link {
+                    DeathlinkSetting::DeathLink => {
+                        game_manager::kill_dante();
+                    }
+                    DeathlinkSetting::HurtLink => {
+                        game_manager::hurt_dante();
+                    }
+                    DeathlinkSetting::Off => {}
                 }
-                DeathlinkSetting::HurtLink => {
-                    game_manager::hurt_dante();
-                }
-                DeathlinkSetting::Off => {}
             }
+            BounceData::Generic(_) => {}
         }
     }
+
     Ok(())
 }
 

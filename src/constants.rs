@@ -3,6 +3,7 @@ use crate::skill_manager::ID_SKILL_MAP;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::sync::LazyLock;
+use serde::{Deserialize, Serialize};
 use randomizer_utilities::mapping_utilities::GameConfig;
 
 pub type BasicNothingFunc = unsafe extern "system" fn();
@@ -874,24 +875,28 @@ pub struct ItemEntry {
     pub coordinates: Coordinates,
 }
 
-#[derive(Copy, Clone, strum_macros::Display, strum_macros::FromRepr)]
-#[allow(dead_code)]
+
+#[derive(Copy, Clone, Debug, Default, Deserialize, Serialize, PartialEq, PartialOrd, strum_macros::Display, strum_macros::FromRepr)]
 pub(crate) enum Difficulty {
+    #[default]
     Easy = 0,
     Normal = 1,
     Hard = 2,
     #[strum(to_string = "Very Hard")]
     VeryHard = 3,
     #[strum(to_string = "Dante Must Die")]
+    #[serde(rename = "Dante Must Die")]
+    // Need to deserialize this properly...
     DanteMustDie = 4,
     // Swap to boolean check for oneHitKill?
     #[strum(to_string = "Heaven or Hell")]
+    #[serde(rename = "Heaven or Hell")]
     HeavenOrHell = 5,
 }
 
-//noinspection RsExternalLinter
-#[derive(Copy, Clone, strum_macros::Display, strum_macros::FromRepr)]
+#[derive(Copy, Clone, Debug, Default, Deserialize, Serialize, PartialEq, PartialOrd, strum_macros::Display, strum_macros::FromRepr)]
 pub(crate) enum Rank {
+    #[default]
     D = 0,
     C = 1,
     B = 2,
@@ -900,7 +905,7 @@ pub(crate) enum Rank {
     SS = 5,
     #[allow(clippy::upper_case_acronyms)]
     SSS = 6,
-    ShouldNotBeHere = 7, // DO NOT WANT TO BE HERE
+    //ShouldNotBeHere = 7, // DO NOT WANT TO BE HERE
 }
 
 pub static GUN_NAMES: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
@@ -940,7 +945,7 @@ pub fn get_weapon_id(weapon: &str) -> u8 {
 
 pub const EMPTY_COORDINATES: Coordinates = Coordinates { x: 0, y: 0, z: 0 };
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Coordinates {
     pub(crate) x: u32,
     pub(crate) y: u32,
@@ -953,11 +958,12 @@ impl Coordinates {
     }
 }
 
-impl PartialEq for Coordinates {
-    fn eq(&self, other: &Self) -> bool {
-        self.x == other.x && self.y == other.y && self.z == other.z
-    }
-}
+// TODO Remove
+// impl PartialEq for Coordinates {
+//     fn eq(&self, other: &Self) -> bool {
+//         self.x == other.x && self.y == other.y && self.z == other.z
+//     }
+// }
 
 #[derive(Copy, Clone, strum_macros::Display, strum_macros::FromRepr)]
 pub(crate) enum Character {

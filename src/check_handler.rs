@@ -1,14 +1,16 @@
 use crate::constants::{Coordinates, Difficulty, Rank, EMPTY_COORDINATES};
 use crate::data::generated_locations;
 use crate::game_manager::{get_mission, set_item, with_session_read};
+use crate::mapping::MAPPING;
 use crate::ui::text_handler;
 use crate::utilities::{get_inv_address, DMC3_ADDRESS};
 use crate::{constants, create_hook, game_manager, location_handler, utilities};
 use minhook::{MinHook, MH_STATUS};
+use std::cmp::PartialEq;
 use std::fmt::{Display, Formatter};
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::OnceLock;
-use tokio::sync::mpsc::{Sender};
+use tokio::sync::mpsc::Sender;
 
 pub const ITEM_HANDLE_PICKUP_ADDR: usize = 0x1b45a0;
 pub static ORIGINAL_HANDLE_PICKUP: OnceLock<unsafe extern "C" fn(item_struct: usize)> =
@@ -199,38 +201,62 @@ pub fn item_event(loc_chk_flg: usize, item_id: i16, unknown: i32) {
 
 /// To check off a mission as being completed
 pub fn mission_complete_check(cuid_result: usize, ranking: i32) -> i32 {
-    with_session_read(|s| {
-        log::info!(
-            "Mission {} Finished on Difficulty {} Rank {} ({})",
-            s.mission,
-            if s.hoh {
-                Difficulty::HeavenOrHell
-            } else {
-                Difficulty::from_repr(s.difficulty as usize).unwrap()
-            },
-            Rank::from_repr(ranking as usize).unwrap(), // If rank is 5 then SSS
-            ranking
-        );
-        send_off_location_coords(
-            Location {
-                item_id: u32::MAX,
-                room: -1,
-                mission: s.mission,
-                coordinates: EMPTY_COORDINATES,
-            },
-            u32::MAX,
-        );
-    })
-    .expect("Session Data was not available?");
-    if let Some(original) = ORIGINAL_RESULT_CALC.get() {
+    let final_ranking = if let Some(original) = ORIGINAL_RESULT_CALC.get() {
         unsafe { original(cuid_result, ranking) }
     } else {
         panic!("Result Calc doesn't exist??");
-    }
+    };
+    with_session_read(|s| {
+        let rank = Rank::from_repr(final_ranking as usize).unwrap();
+        let difficulty = if s.hoh {
+            Difficulty::HeavenOrHell
+        } else {
+            Difficulty::from_repr(s.difficulty as usize).unwrap()
+        };
+        log::info!(
+            "Mission {} Finished on Difficulty {} Rank {} ({})",
+            s.mission,
+            difficulty,
+            rank, // If rank is 5 then SSS
+            final_ranking
+        );
+        if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
+            // For SS Rank specific checks
+            if rank == Rank::SS {
+                if !mapping.check_ss_difficulty || (mapping.check_ss_difficulty && difficulty >= mapping.mission_clear_difficulty) {
+                    send_off_location_coords(
+                        Location {
+                            item_id: u32::MAX,
+                            room: SS_RANK,
+                            mission: s.mission,
+                            coordinates: EMPTY_COORDINATES,
+                        },
+                        u32::MAX,
+                    );
+                }
+            }
+            // Minimum rank and difficulty
+            if rank >= mapping.mission_clear_rank && difficulty >= mapping.mission_clear_difficulty {
+                send_off_location_coords(
+                    Location {
+                        item_id: u32::MAX,
+                        room: MISSION_COMPLETE,
+                        mission: s.mission,
+                        coordinates: EMPTY_COORDINATES,
+                    },
+                    u32::MAX,
+                );
+            }
+        }
+    })
+    .expect("Session Data was not available?");
+    final_ranking
 }
 
 pub(crate) static TX_LOCATION: OnceLock<Sender<Location>> = OnceLock::new();
 
+pub const MISSION_COMPLETE: i32 = -1;
+pub const SS_RANK: i32 = -2;
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Location {
     pub(crate) item_id: u32,

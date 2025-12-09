@@ -5,10 +5,11 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
-use std::sync::{LazyLock, RwLock};
-use randomizer_utilities::APVersion;
+use crate::constants::{Difficulty, Rank};
 use randomizer_utilities::archipelago_utilities::CONNECTED;
 use randomizer_utilities::mapping_utilities::LocationData;
+use randomizer_utilities::APVersion;
+use std::sync::{LazyLock, RwLock};
 
 pub static MAPPING: LazyLock<RwLock<Option<Mapping>>> = LazyLock::new(|| RwLock::new(None));
 
@@ -22,6 +23,10 @@ fn default_melee() -> String {
 
 fn default_goal() -> Goal {
     Goal::Standard
+}
+
+fn default_difficulty_list() -> Vec<Difficulty> {
+    vec![Difficulty::Easy, Difficulty::Normal]
 }
 
 /// Converts the option number from the slot data into a more usable gun name
@@ -122,6 +127,48 @@ where
     }
 }
 
+/// Parse rank value
+fn parse_rank<'de, D>(deserializer: D) -> Result<Rank, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let val = Value::deserialize(deserializer)?;
+    match val {
+        Value::Number(n) => match Rank::from_repr(n.as_i64().unwrap_or_default() as usize) {
+            None => Err(serde::de::Error::custom(format!(
+                "Invalid rank option: {}",
+                n
+            ))),
+            Some(n) => Ok(n),
+        },
+        other => Err(serde::de::Error::custom(format!(
+            "Unexpected type: {:?}",
+            other
+        ))),
+    }
+}
+
+/// Parse difficulty value
+fn parse_difficulty<'de, D>(deserializer: D) -> Result<Difficulty, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let val = Value::deserialize(deserializer)?;
+    match val {
+        Value::Number(n) => match Difficulty::from_repr(n.as_i64().unwrap_or_default() as usize) {
+            None => Err(serde::de::Error::custom(format!(
+                "Invalid difficulty option: {}",
+                n
+            ))),
+            Some(n) => Ok(n),
+        },
+        other => Err(serde::de::Error::custom(format!(
+            "Unexpected type: {:?}",
+            other
+        ))),
+    }
+}
+
 #[derive(Deserialize, Serialize, Debug)]
 pub struct Mapping {
     // For mapping JSON
@@ -136,9 +183,11 @@ pub struct Mapping {
     #[serde(deserialize_with = "parse_gun_number")]
     pub start_gun: String,
     pub randomize_skills: bool,
+    pub randomize_gun_levels: bool,
     pub randomize_styles: bool,
     pub purple_orb_mode: bool,
     pub devil_trigger_mode: bool,
+    pub check_ss_difficulty: bool,
     #[serde(deserialize_with = "parse_death_link")]
     pub death_link: DeathlinkSetting,
     #[serde(default = "default_goal")]
@@ -146,7 +195,15 @@ pub struct Mapping {
     pub goal: Goal,
     pub mission_order: Option<Vec<u8>>,
     pub generated_version: Option<APVersion>,
-    pub client_version: Option<APVersion>
+    pub client_version: Option<APVersion>,
+    #[serde(default)]
+    #[serde(deserialize_with = "parse_rank")]
+    pub mission_clear_rank: Rank,
+    #[serde(default)]
+    #[serde(deserialize_with = "parse_difficulty")]
+    pub mission_clear_difficulty: Difficulty,
+    #[serde(default = "default_difficulty_list")]
+    pub initially_unlocked_difficulties: Vec<Difficulty>
 }
 
 impl Mapping {
@@ -225,4 +282,3 @@ pub(crate) fn parse_slot_data() -> Result<(), Box<dyn std::error::Error>> {
         Err(err) => Err(err.into()),
     }
 }
-
