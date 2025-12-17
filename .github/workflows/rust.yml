@@ -27,7 +27,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          # Key is based off of main cargo.lock hash
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/../Cargo.lock') }}
     # Build DMC3's release
     - name: Build
       run: cargo build -p DMC3ArchipelagoClient --release
