@@ -46,7 +46,7 @@ jobs:
       run: |
         Copy-Item -Path target/release/dinput8.dll -Destination dinput8.dll 
         Copy-Item -Path target/release/dmc3_randomizer.dll -Destination dmc3_randomizer.dll 
-        Copy-Item -Path src/data/steam_appid.txt -Destination steam_appid.txt
+        Copy-Item -Path src/DMCHDloader/data/steam_appid.txt -Destination steam_appid.txt
     # Zip files
     - name: Upload a Build Artifact
       uses: actions/upload-artifact@v4.6.2
