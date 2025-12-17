@@ -1,8 +1,5 @@
 use std::collections::HashSet;
-use crate::constants::{
-    get_items_by_category, get_weapon_id, Difficulty, ItemCategory, BASE_HP, GUN_NAMES, ITEM_ID_MAP, ITEM_OFFSET_MAP,
-    MAX_HP, MAX_MAGIC, MELEE_NAMES, ONE_ORB,
-};
+use crate::constants::{get_items_by_category, get_weapon_id, Difficulty, ItemCategory, BASE_HP, GUN_NAMES, ITEM_MAP, ITEM_OFFSET_MAP, MAX_HP, MAX_MAGIC, MELEE_NAMES, ONE_ORB};
 use crate::hook::ORIGINAL_GIVE_STYLE_XP;
 use crate::mapping::MAPPING;
 use crate::utilities::{
@@ -311,7 +308,7 @@ pub(crate) fn set_item(item_name: &str, has_item: bool, set_flag: bool) {
 const LOCATION_FLAGS: usize = 0xc90e28;
 pub fn set_loc_chk_flg(item_name: &str, set_flag: bool) {
     let ptr: usize = read_data_from_address(*DMC3_ADDRESS + LOCATION_FLAGS);
-    let item_id: i32 = *ITEM_ID_MAP.get(item_name).unwrap() as i32;
+    let item_id: i32 = *ITEM_MAP.get_by_left(item_name).unwrap() as i32;
     let loc_chk_flags = read_data_from_address::<usize>(ptr + 0x30);
 
     let item_flag: usize = (item_id + (item_id >> 0x1F & 0x7) >> 3) as usize;
@@ -332,7 +329,7 @@ pub fn set_loc_chk_flg(item_name: &str, set_flag: bool) {
 
 pub fn has_item_by_flags(item_name: &str) -> bool {
     let ptr: usize = read_data_from_address(*DMC3_ADDRESS + LOCATION_FLAGS);
-    let item_id: i32 = *ITEM_ID_MAP.get(item_name).unwrap() as i32;
+    let item_id: i32 = *ITEM_MAP.get_by_left(item_name).unwrap() as i32;
     let loc_chk_flags = read_data_from_address::<usize>(ptr + 0x30);
     let item_flag: usize = (item_id + (item_id >> 0x1F & 0x7) >> 3) as usize;
     let mask: u8 = 1 << (item_id & 7);
@@ -534,7 +531,7 @@ pub struct TotalRankings {
     pub hoh_ranking: [u8;20],
 }
 
-static RANKING_PTR: LazyLock<usize> = LazyLock::new(|| *DMC3_ADDRESS + 0xC8f8E5);
+static RANKING_PTR: LazyLock<usize> = LazyLock::new(|| *DMC3_ADDRESS + 0xC8F8E5);
 
 pub fn with_rankings_read<F, R>(f: F) -> Result<R, SessionError>
 where

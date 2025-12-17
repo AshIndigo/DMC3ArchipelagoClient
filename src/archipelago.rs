@@ -26,9 +26,10 @@ use serde_json::Value;
 use std::cmp::PartialEq;
 use std::error::Error;
 use std::sync::atomic::Ordering;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tokio::sync::mpsc::{Receiver, Sender};
+use randomizer_utilities::mapping_utilities::get_own_slot_name;
 
 pub static TX_CONNECT: OnceLock<Sender<String>> = OnceLock::new();
 pub static TX_DISCONNECT: OnceLock<Sender<bool>> = OnceLock::new();
@@ -95,13 +96,12 @@ fn update_checked_locations() -> Result<(), Box<dyn Error>> {
     let mut checked_locations = CHECKED_LOCATIONS.write()?;
     let con_lock = CONNECTED.read()?;
     let con = con_lock.as_ref().ok_or("Connected was None")?;
-    let loc_map = dpw
-        .location_id_to_name
+    let loc_map = dpw.games
         .get(GAME_NAME)
         .ok_or(format!("No location_id_to_name entry for {}", GAME_NAME))?;
 
     for val in &con.checked_locations {
-        if let Some(loc_name) = loc_map.get(val) {
+        if let Some(loc_name) = loc_map.location_name_to_id.get_by_right(val) {
             if let Some((key, _)) =
                 generated_locations::ITEM_MISSION_MAP.get_key_value(loc_name.as_str())
             {
@@ -139,7 +139,7 @@ pub async fn handle_things(
                 // if let Err(err) = send_deathlink_message(client, message).await {
                 //     log::error!("Failed to send deathlink: {}", err);
                 // }
-                    if let Err(err) = client.death_link(DeathLinkOptions::new()).await {
+                    if let Err(err) = client.death_link(get_own_slot_name().unwrap_or_default(), DeathLinkOptions::new().cause(message.cause)).await {
                     log::error!("Failed to send deathlink: {}", err);
                 }
             }
@@ -190,7 +190,7 @@ async fn handle_client_messages(
     match result {
         Ok(opt_msg) => match opt_msg {
             None => Ok(()),
-            Some(ServerMessage::PrintJSON(json_msg)) => {
+            Some(ServerMessage::RichPrint(json_msg)) => {
                 match CONNECTED.read().as_ref() {
                     Ok(fuck) => {
                         archipelago_utilities::handle_print_json(json_msg, fuck);
@@ -341,12 +341,11 @@ async fn handle_item_receive(
         let location_data = mapping_data.items.get(location_key).unwrap();
         // Then see if the item picked up matches the specified in the map
         match data_package
-            .dp
             .games
             .get(GAME_NAME)
             .unwrap()
             .location_name_to_id
-            .get(location_key)
+            .get_by_left(&Arc::new(location_key.to_string()))
         {
             Some(loc_id) => {
                 location_handler::edit_end_event(location_key); // Needed so a mission will end properly after picking up its trigger.
@@ -609,18 +608,23 @@ pub(crate) async fn handle_received_items_packet(
 
         CURRENT_INDEX.store(received_items_packet.index, Ordering::SeqCst);
         let mut sync_data = item_sync::get_sync_data().lock()?;
+        // TODO I wanna maybe move this to the save slot instead
         let index = get_index(
             &client.room_info().seed_name,
             SLOT_NUMBER.load(Ordering::SeqCst),
         );
-        if sync_data.room_sync_info.contains_key(&index) {
-            sync_data.room_sync_info.get_mut(&index).unwrap().sync_index =
-                received_items_packet.index;
-        } else {
-            sync_data
-                .room_sync_info
-                .insert(index, RoomSyncInfo::default());
-        }
+        // TODO Look at this tomorrow
+        let val = sync_data.room_sync_info.entry(index).or_insert(RoomSyncInfo::default());
+        val.sync_index = received_items_packet.index;
+        //---
+        // if sync_data.room_sync_info.contains_key(&index) {
+        //     sync_data.room_sync_info.get_mut(&index).unwrap().sync_index =
+        //         received_items_packet.index;
+        // } else {
+        //     sync_data
+        //         .room_sync_info
+        //         .insert(index, RoomSyncInfo::default());
+        // }
     }
     if let Ok(mut archipelago_data) = ARCHIPELAGO_DATA.write() {
         for item in &received_items_packet.items {

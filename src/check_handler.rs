@@ -301,7 +301,7 @@ async fn send_off_location_coords(loc: Location, to_display: u32) {
 pub(crate) fn take_away_received_item(id: u32) {
     if let Some(current_inv_addr) = get_inv_address() {
         let offset = *constants::ITEM_OFFSET_MAP
-            .get(constants::ID_ITEM_MAP.get(&id).unwrap())
+            .get(constants::ITEM_MAP.get_by_right(&id).unwrap())
             .unwrap_or_else(|| panic!("Item offset not found: {}", id));
         log::debug!("Stripping ID: {:#X} - Offset: {:#X}", id, offset);
         unsafe {

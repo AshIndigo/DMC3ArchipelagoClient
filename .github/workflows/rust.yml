@@ -15,7 +15,10 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
+      with:
+        repository: AshIndigo/APRandomizers
+        submodules: 'true'
     - name: Cache
       uses: actions/cache@v4
       with:
@@ -25,7 +28,7 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
     - name: Build
-      run: cargo build --release
+      run: cargo build -p DMC3ArchipelagoClient --release
     - name: Get Cargo.toml version
       id: cargo_version
       run: |

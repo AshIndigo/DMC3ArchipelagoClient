@@ -1,5 +1,5 @@
 use crate::check_handler::{Location, MISSION_COMPLETE, SS_RANK};
-use crate::constants::{EventCode, ItemCategory, DUMMY_ID, EVENT_TABLES, ITEM_ID_MAP, REMOTE_ID};
+use crate::constants::{EventCode, ItemCategory, DUMMY_ID, EVENT_TABLES, ITEM_MAP, REMOTE_ID};
 use crate::data::generated_locations;
 use crate::game_manager::get_mission;
 use crate::{constants, game_manager, mapping, utilities};
@@ -65,19 +65,19 @@ pub fn get_mapped_item_id(location_name: &str) -> Result<u32, Box<dyn Error>> {
     // To set the displayed graphic to the corresponding weapon
     if id > 0x39 {
         return Ok(match id {
-            (0x40..0x44) => *ITEM_ID_MAP.get("Rebellion").unwrap(),
-            0x44 => *ITEM_ID_MAP.get("Cerberus").unwrap(),
-            0x45 => *ITEM_ID_MAP.get("Cerberus").unwrap(),
-            (0x46..0x4A) => *ITEM_ID_MAP.get("Agni and Rudra").unwrap(),
-            (0x4A..0x4F) => *ITEM_ID_MAP.get("Nevan").unwrap(),
-            (0x4F..0x53) => *ITEM_ID_MAP.get("Beowulf").unwrap(),
-            0x53 => *ITEM_ID_MAP.get("Ebony & Ivory").unwrap(),
-            0x54 => *ITEM_ID_MAP.get("Shotgun").unwrap(),
-            0x55 => *ITEM_ID_MAP.get("Artemis").unwrap(),
-            0x56 => *ITEM_ID_MAP.get("Spiral").unwrap(),
-            0x57 => *ITEM_ID_MAP.get("Kalina Ann").unwrap(),
+            (0x40..0x44) => *ITEM_MAP.get_by_left("Rebellion").unwrap(),
+            0x44 => *ITEM_MAP.get_by_left("Cerberus").unwrap(),
+            0x45 => *ITEM_MAP.get_by_left("Cerberus").unwrap(),
+            (0x46..0x4A) => *ITEM_MAP.get_by_left("Agni and Rudra").unwrap(),
+            (0x4A..0x4F) => *ITEM_MAP.get_by_left("Nevan").unwrap(),
+            (0x4F..0x53) => *ITEM_MAP.get_by_left("Beowulf").unwrap(),
+            0x53 => *ITEM_MAP.get_by_left("Ebony & Ivory").unwrap(),
+            0x54 => *ITEM_MAP.get_by_left("Shotgun").unwrap(),
+            0x55 => *ITEM_MAP.get_by_left("Artemis").unwrap(),
+            0x56 => *ITEM_MAP.get_by_left("Spiral").unwrap(),
+            0x57 => *ITEM_MAP.get_by_left("Kalina Ann").unwrap(),
             // It would be neat to have custom pics for styles...
-            _ => {log::error!("Unrecognized id {}, default to Remote", id); *ITEM_ID_MAP.get("Remote").unwrap()},
+            _ => {log::error!("Unrecognized id {}, default to Remote", id); *REMOTE_ID},
         });
     }
     Ok(id)

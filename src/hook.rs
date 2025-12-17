@@ -1042,13 +1042,13 @@ fn calculate_max_mission(mapping: &Mapping, difficulty: Difficulty) -> u8 {
                     .mission_order
                     .as_ref()
                     .unwrap()
-                    .into_iter()
+                    .iter()
                     .for_each(|val| {
                         if rankings[(*val - 1) as usize] != NOT_COMPLETED {
                             max_idx += 1;
                         }
                     });
-                return max_idx;
+                max_idx
             })
             .unwrap()
         }

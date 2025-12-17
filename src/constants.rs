@@ -2,15 +2,16 @@ use randomizer_utilities::cache::DATA_PACKAGE;
 use crate::skill_manager::ID_SKILL_MAP;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
+use bimap::BiMap;
 use serde::{Deserialize, Serialize};
 use randomizer_utilities::mapping_utilities::GameConfig;
 
 pub type BasicNothingFunc = unsafe extern "system" fn();
 
-pub(crate) const DUMMY_ID: LazyLock<u32> = LazyLock::new(|| *ITEM_ID_MAP.get("Dummy").unwrap());
+pub(crate) static DUMMY_ID: LazyLock<u32> = LazyLock::new(|| *ITEM_MAP.get_by_left("Dummy").unwrap());
 
-pub(crate) const REMOTE_ID: LazyLock<u32> = LazyLock::new(|| *ITEM_ID_MAP.get("Remote").unwrap());
+pub(crate) static REMOTE_ID: LazyLock<u32> = LazyLock::new(|| *ITEM_MAP.get_by_left("Remote").unwrap());
 
 pub struct DMC3Config;
 pub const GAME_NAME: &str = "Devil May Cry 3";
@@ -590,15 +591,13 @@ pub static MISSION_ITEM_MAP: LazyLock<HashMap<u32, Vec<&'static str>>> = LazyLoc
     map
 });
 
-pub static ITEM_ID_MAP: LazyLock<HashMap<&'static str, u32>> =
-    LazyLock::new(|| ALL_ITEMS.iter().map(|item| (item.name, item.id)).collect());
-
-pub(crate) static ID_ITEM_MAP: LazyLock<HashMap<u32, &'static str>> =
-    LazyLock::new(|| ALL_ITEMS.iter().map(|item| (item.id, item.name)).collect());
+pub static ITEM_MAP: LazyLock<BiMap<&'static str, u32>> = LazyLock::new(|| {
+    ALL_ITEMS.iter().map(|item| (item.name, item.id)).collect()
+});
 
 pub fn get_item_name(item_id: u32) -> &'static str {
     if item_id <= 0x39 {
-        ID_ITEM_MAP.get(&item_id).copied().unwrap_or_else(|| {
+        ITEM_MAP.get_by_right(&item_id).copied().unwrap_or_else(|| {
             log::error!("No item found with id {:#X}", item_id);
             "Unknown"
         })
@@ -614,15 +613,14 @@ pub fn get_item_name(item_id: u32) -> &'static str {
 }
 
 pub fn get_item_id(name: &str) -> Option<u32> {
-    match ITEM_ID_MAP.get(name).copied() {
+    match ITEM_MAP.get_by_left(name).copied() {
         None => match DATA_PACKAGE.read().unwrap().as_ref() {
             None => None,
             Some(data_package) => data_package
-                .dp
                 .games
                 .get(GAME_NAME)?
                 .item_name_to_id
-                .get(name)
+                .get_by_left(&Arc::new(name.to_string()))
                 .copied()
                 .map(|id| id as u32),
         },
@@ -883,6 +881,7 @@ pub(crate) enum Difficulty {
     Normal = 1,
     Hard = 2,
     #[strum(to_string = "Very Hard")]
+    #[serde(rename = "Very Hard")]
     VeryHard = 3,
     #[strum(to_string = "Dante Must Die")]
     #[serde(rename = "Dante Must Die")]
