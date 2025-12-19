@@ -38,8 +38,9 @@ macro_rules! create_hook {
         let target = (*DMC3_ADDRESS + $offset) as *mut _;
         let detour_ptr = ($detour as *const ()) as *mut std::ffi::c_void;
         let original = MinHook::create_hook(target, detour_ptr)?;
+        // This upsets clippy, but oh well
         $storage
-            .set(std::mem::transmute(original))
+            .set(std::mem::transmute::<*mut std::ffi::c_void, _>(original))
             .expect(concat!($name, " hook already set"));
         //log::debug!("{name} hook created", name = $name);
     }};

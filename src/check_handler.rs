@@ -222,21 +222,24 @@ pub fn mission_complete_check(cuid_result: usize, ranking: i32) -> i32 {
         );
         if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
             // For SS Rank specific checks
-            if rank == Rank::SS {
-                if !mapping.check_ss_difficulty || (mapping.check_ss_difficulty && difficulty >= mapping.mission_clear_difficulty) {
-                    send_off_location_coords(
-                        Location {
-                            item_id: u32::MAX,
-                            room: SS_RANK,
-                            mission: s.mission,
-                            coordinates: EMPTY_COORDINATES,
-                        },
-                        u32::MAX,
-                    );
-                }
+
+            if rank == Rank::SS && !mapping.check_ss_difficulty
+                || (mapping.check_ss_difficulty && difficulty >= mapping.mission_clear_difficulty)
+            {
+                send_off_location_coords(
+                    Location {
+                        item_id: u32::MAX,
+                        room: SS_RANK,
+                        mission: s.mission,
+                        coordinates: EMPTY_COORDINATES,
+                    },
+                    u32::MAX,
+                );
             }
+
             // Minimum rank and difficulty
-            if rank >= mapping.mission_clear_rank && difficulty >= mapping.mission_clear_difficulty {
+            if rank >= mapping.mission_clear_rank && difficulty >= mapping.mission_clear_difficulty
+            {
                 send_off_location_coords(
                     Location {
                         item_id: u32::MAX,

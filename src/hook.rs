@@ -15,6 +15,7 @@ use crate::utilities::{read_data_from_address, DMC3_ADDRESS};
 use crate::{
     bank, check_handler, create_hook, game_manager, save_handler, skill_manager, utilities,
 };
+use bitflags::bitflags;
 use minhook::{MinHook, MH_STATUS};
 use randomizer_utilities::archipelago_utilities::{DeathLinkData, CHECKED_LOCATIONS};
 use randomizer_utilities::{mapping_utilities, replace_single_byte};
@@ -23,7 +24,6 @@ use std::ptr::{read_unaligned, write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, OnceLock};
 use std::{ptr, slice};
-use bitflags::bitflags;
 
 static HOOKS_CREATED: AtomicBool = AtomicBool::new(false);
 
@@ -339,20 +339,21 @@ fn modify_adjudicator(
                     read_data_from_address::<u8>(adjudicator_data + WEAPON_OFFSET)
                 );
             }
-            if let Some(mappings) = MAPPING.read().unwrap().as_ref() {
-                if let Some(adjudicator_map) = &mappings.adjudicators {
-                    if let Some(data) = adjudicator_map.get(*location_name) {
-                        //log::debug!("New adjudicator data will be {:?}", data);
-                        unsafe {
-                            replace_single_byte(adjudicator_data + RANKING_OFFSET, data.ranking);
-                            replace_single_byte(
-                                adjudicator_data + WEAPON_OFFSET,
-                                get_weapon_id(&data.weapon),
-                            );
-                        }
-                    }
+
+            if let Some(mappings) = MAPPING.read().unwrap().as_ref()
+                && let Some(adjudicator_map) = &mappings.adjudicators
+                && let Some(data) = adjudicator_map.get(*location_name)
+            {
+                //log::debug!("New adjudicator data will be {:?}", data);
+                unsafe {
+                    replace_single_byte(adjudicator_data + RANKING_OFFSET, data.ranking);
+                    replace_single_byte(
+                        adjudicator_data + WEAPON_OFFSET,
+                        get_weapon_id(&data.weapon),
+                    );
                 }
             }
+
             if LOG_ADJU_DATA {
                 log::debug!(
                     "New Rank Needed: {}",
@@ -619,22 +620,23 @@ fn set_relevant_key_items() {
             }
             // Special case for Ignis Fatuus
             // Needed so the Ignis Fatuus location can be reached even when the actual key item is acquired
-            if get_room() == 302 {
-                if let Some(event_table_addr) = utilities::get_event_address() {
-                    if CHECKED_LOCATIONS
-                        .read()
-                        .unwrap()
-                        .contains(&"Mission #8 - Ignis Fatuus")
-                    {
-                        // If we have the location checked, continue normal routing
-                        unsafe {
-                            write((event_table_addr + 0x748) as _, 311);
-                        }
-                    } else {
-                        // If location not checked, alter event to get to it
-                        unsafe {
-                            write((event_table_addr + 0x748) as _, 303);
-                        }
+
+            if get_room() == 302
+                && let Some(event_table_addr) = utilities::get_event_address()
+            {
+                if CHECKED_LOCATIONS
+                    .read()
+                    .unwrap()
+                    .contains(&"Mission #8 - Ignis Fatuus")
+                {
+                    // If we have the location checked, continue normal routing
+                    unsafe {
+                        write((event_table_addr + 0x748) as _, 311);
+                    }
+                } else {
+                    // If location not checked, alter event to get to it
+                    unsafe {
+                        write((event_table_addr + 0x748) as _, 303);
                     }
                 }
             }
@@ -779,13 +781,13 @@ pub static ORIGINAL_SKILL_SHOP: OnceLock<unsafe extern "C" fn(custom_skill: usiz
 
 // TODO I would like to make this show a custom message denied message, but for now, just do nothing
 pub fn deny_skill_purchasing(custom_skill: usize) {
-    if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
-        if mapping.randomize_skills {
-            if read_data_from_address::<u8>(custom_skill + 0x08) == 0x05 {
-                unsafe { replace_single_byte(custom_skill + 0x08, 0x01) }
-            }
-        }
+    if let Some(mapping) = MAPPING.read().unwrap().as_ref()
+        && mapping.randomize_skills
+        && read_data_from_address::<u8>(custom_skill + 0x08) == 0x05
+    {
+        unsafe { replace_single_byte(custom_skill + 0x08, 0x01) }
     }
+
     if let Some(orig) = ORIGINAL_SKILL_SHOP.get() {
         unsafe {
             orig(custom_skill);
@@ -796,13 +798,13 @@ pub fn deny_skill_purchasing(custom_skill: usize) {
 pub const GUN_SHOP_ADDR: usize = 0x283d60;
 pub static ORIGINAL_GUN_SHOP: OnceLock<unsafe extern "C" fn(custom_gun: usize)> = OnceLock::new();
 pub fn deny_gun_upgrade(custom_gun: usize) {
-    if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
-        if mapping.randomize_gun_levels {
-            if read_data_from_address::<u8>(custom_gun + 0x08) == 0x03 {
-                unsafe { replace_single_byte(custom_gun + 0x08, 0x01) }
-            }
-        }
+    if let Some(mapping) = MAPPING.read().unwrap().as_ref()
+        && mapping.randomize_gun_levels
+        && read_data_from_address::<u8>(custom_gun + 0x08) == 0x03
+    {
+        unsafe { replace_single_byte(custom_gun + 0x08, 0x01) }
     }
+
     if let Some(orig) = ORIGINAL_GUN_SHOP.get() {
         unsafe {
             orig(custom_gun);
@@ -824,21 +826,21 @@ pub static ORIGINAL_STYLE_MENU: OnceLock<unsafe extern "C" fn(custom_gun: usize)
     OnceLock::new();
 // Control what styles are actually unlocked
 pub fn modify_available_styles(data_ptr: usize) -> bool {
-    if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
-        if mapping.randomize_styles {
-            unsafe {
-                // Only original 4, quicksilver and doppelganger are controlled by their respective items
-                // Trick, Sword, Gun, Royal
-                match ARCHIPELAGO_DATA.read() {
-                    Ok(data) => {
-                        write(
-                            (data_ptr + 0x98C6) as *mut [bool; 4],
-                            data.get_style_unlocked(),
-                        );
-                    }
-                    Err(err) => {
-                        log::error!("Failed to get ArchipelagoData: {}", err)
-                    }
+    if let Some(mapping) = MAPPING.read().unwrap().as_ref()
+        && mapping.randomize_styles
+    {
+        unsafe {
+            // Only original 4, quicksilver and doppelganger are controlled by their respective items
+            // Trick, Sword, Gun, Royal
+            match ARCHIPELAGO_DATA.read() {
+                Ok(data) => {
+                    write(
+                        (data_ptr + 0x98C6) as *mut [bool; 4],
+                        data.get_style_unlocked(),
+                    );
+                }
+                Err(err) => {
+                    log::error!("Failed to get ArchipelagoData: {}", err)
                 }
             }
         }
@@ -894,7 +896,7 @@ impl DifficultyUnlockFlags {
                 Difficulty::Hard => DifficultyUnlockFlags::Hard,
                 Difficulty::VeryHard => DifficultyUnlockFlags::VeryHard,
                 Difficulty::DanteMustDie => DifficultyUnlockFlags::DanteMustDie,
-                Difficulty::HeavenOrHell => DifficultyUnlockFlags::HeavenOrHell
+                Difficulty::HeavenOrHell => DifficultyUnlockFlags::HeavenOrHell,
             });
         }
         res
@@ -921,7 +923,9 @@ pub fn set_rando_session_data(ptr: usize) {
             // Unlock all difficulties
             // This is some kind of bitflag, but I'd need to see if I have old notes on what each bit could be
             unsafe {
-                let final_flag =  DifficultyUnlockFlags::create_final_flag(&mapping.initially_unlocked_difficulties);
+                let final_flag = DifficultyUnlockFlags::create_final_flag(
+                    &mapping.initially_unlocked_difficulties,
+                );
                 replace_single_byte(*DMC3_ADDRESS + 0x564594, final_flag.bits());
                 // 0x564595 does other things including unlocking vergil
             }
@@ -1073,19 +1077,19 @@ fn set_actual_mission(cscene_result: usize, param_1: usize, param_2: usize, para
     } else {
         panic!("Failed to find original method for result screen");
     };
-    if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
-        if mapping.goal == Goal::RandomOrder {
-            match val {
-                0x12 => {
-                    with_session(|s| {
-                        s.mission = mapping.mission_order.as_ref().unwrap()
-                            [mapping.get_index_for_mission(current_mission) + 1]
-                            as u32;
-                    })
-                    .unwrap();
-                }
-                _ => {}
+    if let Some(mapping) = MAPPING.read().unwrap().as_ref()
+        && mapping.goal == Goal::RandomOrder
+    {
+        match val {
+            0x12 => {
+                with_session(|s| {
+                    s.mission = mapping.mission_order.as_ref().unwrap()
+                        [mapping.get_index_for_mission(current_mission) + 1]
+                        as u32;
+                })
+                .unwrap();
             }
+            _ => {}
         }
     }
     res

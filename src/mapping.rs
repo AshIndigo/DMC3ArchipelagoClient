@@ -203,15 +203,15 @@ pub struct Mapping {
     #[serde(deserialize_with = "parse_difficulty")]
     pub mission_clear_difficulty: Difficulty,
     #[serde(default = "default_difficulty_list")]
-    pub initially_unlocked_difficulties: Vec<Difficulty>
+    pub initially_unlocked_difficulties: Vec<Difficulty>,
 }
 
 impl Mapping {
     /// Takes a mission and returns its index in mission_order
     pub(crate) fn get_index_for_mission(&self, mission: u32) -> usize {
         if let Some(order) = &self.mission_order {
-            for i in 0..order.len() {
-                if order[i] as u32 == mission {
+            for (i, mis_id) in order.iter().enumerate() {
+                if *mis_id as u32 == mission {
                     return i;
                 }
             }
@@ -271,9 +271,26 @@ pub(crate) fn parse_slot_data() -> Result<(), Box<dyn std::error::Error>> {
     match CONNECTED.read() {
         Ok(conn_opt) => {
             if let Some(connected) = conn_opt.as_ref() {
-                MAPPING.write()?.replace(serde_path_to_error::deserialize(
-                    connected.slot_data.clone(),
-                )?);
+                let mapping: Mapping =
+                    serde_path_to_error::deserialize(connected.slot_data.clone())?;
+                log::debug!("Mod version: {}", env!("CARGO_PKG_VERSION"));
+                log::debug!(
+                    "Client version: {}",
+                    if let Some(cv) = mapping.client_version {
+                        cv.to_string()
+                    } else {
+                        "Unknown".to_string()
+                    }
+                );
+                log::debug!(
+                    "Generated version: {}",
+                    if let Some(gv) = mapping.generated_version {
+                        gv.to_string()
+                    } else {
+                        "Unknown".to_string()
+                    }
+                );
+                MAPPING.write()?.replace(mapping);
                 Ok(())
             } else {
                 Err("No mapping found, cannot parse".into())

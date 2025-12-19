@@ -9,17 +9,17 @@ use crate::ui::font_handler::{WHITE, YELLOW};
 use crate::ui::overlay::{MessageSegment, MessageType, OverlayMessage};
 use crate::ui::{overlay, text_handler};
 use crate::{bank, constants, game_manager, hook, location_handler, mapping, skill_manager};
-use anyhow::anyhow;
 use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError, DeathLinkOptions};
 use archipelago_rs::protocol::{
-    BounceData, Bounced, ClientMessage, ClientStatus, ReceivedItems, Retrieved,
-    ServerMessage, StatusUpdate,
+    BounceData, Bounced, ClientMessage, ClientStatus, ReceivedItems, Retrieved, ServerMessage,
+    StatusUpdate,
 };
 use randomizer_utilities::archipelago_utilities::{
     DeathLinkData, CHECKED_LOCATIONS, CONNECTED, DEATH_LINK, SLOT_NUMBER, TEAM_NUMBER,
 };
 use randomizer_utilities::cache::{read_cache, DATA_PACKAGE};
 use randomizer_utilities::item_sync::{get_index, RoomSyncInfo, CURRENT_INDEX};
+use randomizer_utilities::mapping_utilities::get_own_slot_name;
 use randomizer_utilities::ui_utilities::Status;
 use randomizer_utilities::{archipelago_utilities, cache, item_sync, mapping_utilities};
 use serde_json::Value;
@@ -29,7 +29,6 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tokio::sync::mpsc::{Receiver, Sender};
-use randomizer_utilities::mapping_utilities::get_own_slot_name;
 
 pub static TX_CONNECT: OnceLock<Sender<String>> = OnceLock::new();
 pub static TX_DISCONNECT: OnceLock<Sender<bool>> = OnceLock::new();
@@ -96,17 +95,17 @@ fn update_checked_locations() -> Result<(), Box<dyn Error>> {
     let mut checked_locations = CHECKED_LOCATIONS.write()?;
     let con_lock = CONNECTED.read()?;
     let con = con_lock.as_ref().ok_or("Connected was None")?;
-    let loc_map = dpw.games
+    let loc_map = dpw
+        .games
         .get(GAME_NAME)
         .ok_or(format!("No location_id_to_name entry for {}", GAME_NAME))?;
 
     for val in &con.checked_locations {
-        if let Some(loc_name) = loc_map.location_name_to_id.get_by_right(val) {
-            if let Some((key, _)) =
+        if let Some(loc_name) = loc_map.location_name_to_id.get_by_right(val)
+            && let Some((key, _)) =
                 generated_locations::ITEM_MISSION_MAP.get_key_value(loc_name.as_str())
-            {
-                checked_locations.push(key);
-            }
+        {
+            checked_locations.push(key);
         }
     }
 
@@ -272,9 +271,7 @@ async fn handle_client_messages(
     }
 }
 
-async fn handle_bounced(
-    bounced: Bounced
-) -> Result<(), Box<dyn Error>> {
+async fn handle_bounced(bounced: Bounced) -> Result<(), Box<dyn Error>> {
     if bounced.tags.contains(&DEATH_LINK.to_string()) {
         log::debug!("DeathLink detected");
         // TODO Only display this if in game?
@@ -326,14 +323,7 @@ async fn handle_item_receive(
 ) -> Result<(), Box<dyn Error>> {
     // See if there's an item!
     log::info!("Processing item: {}", received_item);
-    let Ok(mapping_data) = MAPPING.read() else {
-        return Err(Box::from(anyhow!("Unable to get mapping data")));
-    };
-    let Some(mapping_data) = mapping_data.as_ref() else {
-        return Err(Box::from(anyhow!("No mapping data")));
-    };
-
-    if let Some(data_package) = DATA_PACKAGE.read()?.as_ref() {
+    if let Some(mapping_data) = MAPPING.read()?.as_ref() && let Some(data_package) = DATA_PACKAGE.read()?.as_ref() {
         if received_item.item_id <= 0x39 {
             crate::check_handler::take_away_received_item(received_item.item_id);
         }
@@ -360,14 +350,13 @@ async fn handle_item_receive(
                     item_sync::add_offline_check(*loc_id, index).await?;
                 }
                 let name = location_data.get_item_name()?;
-                if let Ok(mut archipelago_data) = ARCHIPELAGO_DATA.write() {
-                    if location_data.get_in_game_id::<constants::DMC3Config>() > 0x14
-                        && location_data.get_in_game_id::<constants::DMC3Config>() != *REMOTE_ID
-                    {
-                        archipelago_data.add_item(get_item_name(
-                            location_data.get_in_game_id::<constants::DMC3Config>(),
-                        ));
-                    }
+                if let Ok(mut archipelago_data) = ARCHIPELAGO_DATA.write()
+                    && location_data.get_in_game_id::<constants::DMC3Config>() > 0x14
+                    && location_data.get_in_game_id::<constants::DMC3Config>() != *REMOTE_ID
+                {
+                    archipelago_data.add_item(get_item_name(
+                        location_data.get_in_game_id::<constants::DMC3Config>(),
+                    ));
                 }
 
                 log::info!(
@@ -614,7 +603,10 @@ pub(crate) async fn handle_received_items_packet(
             SLOT_NUMBER.load(Ordering::SeqCst),
         );
         // TODO Look at this tomorrow
-        let val = sync_data.room_sync_info.entry(index).or_insert(RoomSyncInfo::default());
+        let val = sync_data
+            .room_sync_info
+            .entry(index)
+            .or_insert(RoomSyncInfo::default());
         val.sync_index = received_items_packet.index;
         //---
         // if sync_data.room_sync_info.contains_key(&index) {

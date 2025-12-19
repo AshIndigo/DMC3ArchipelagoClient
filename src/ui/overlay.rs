@@ -1,8 +1,10 @@
+use crate::connection_manager::CONNECTION_STATUS;
 use crate::mapping::MAPPING;
 use crate::ui::font_handler::{get_default_color, FontAtlas, FontColorCB, GREEN, RED, WHITE};
-use crate::connection_manager::CONNECTION_STATUS;
 use crate::ui::{dx11_hooks, font_handler};
 use crate::utilities;
+use archipelago_rs::protocol::NetworkItemFlags;
+use randomizer_utilities::ui_utilities::Status;
 use std::collections::VecDeque;
 use std::slice::from_raw_parts;
 use std::sync::atomic::Ordering;
@@ -19,8 +21,6 @@ use windows::Win32::Graphics::Dxgi::Common::{
 };
 use windows::Win32::Graphics::Dxgi::*;
 use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
-use archipelago_rs::protocol::NetworkItemFlags;
-use randomizer_utilities::ui_utilities::Status;
 
 pub(crate) struct D3D11State {
     device: ID3D11Device,
@@ -309,35 +309,34 @@ pub(crate) unsafe extern "system" fn present_hook(
                 }]));
             }
 
-            if utilities::is_on_main_menu() || should_display_anyway() {
-                if let Some(atlas) = &state.atlas {
-                    const STATUS: &str = "Status: ";
-                    font_handler::draw_string(
-                        &state,
-                        STATUS,
-                        0.0,
-                        0.0,
-                        screen_width,
-                        screen_height,
-                        get_default_color(),
-                    );
-                    let status =
-                        Status::from_repr(CONNECTION_STATUS.load(Ordering::SeqCst) as usize)
-                            .unwrap();
-                    font_handler::draw_string(
-                        &state,
-                        &format!("{}", status),
-                        STATUS.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>(),
-                        0.0,
-                        screen_width,
-                        screen_height,
-                        &match status {
-                            Status::Connected => GREEN,
-                            _ => RED,
-                        },
-                    );
-                    draw_version_info(&state, screen_width, screen_height, atlas);
-                }
+            if (utilities::is_on_main_menu() || should_display_anyway())
+                && let Some(atlas) = &state.atlas
+            {
+                const STATUS: &str = "Status: ";
+                font_handler::draw_string(
+                    &state,
+                    STATUS,
+                    0.0,
+                    0.0,
+                    screen_width,
+                    screen_height,
+                    get_default_color(),
+                );
+                let status =
+                    Status::from_repr(CONNECTION_STATUS.load(Ordering::SeqCst) as usize).unwrap();
+                font_handler::draw_string(
+                    &state,
+                    &format!("{}", status),
+                    STATUS.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>(),
+                    0.0,
+                    screen_width,
+                    screen_height,
+                    &match status {
+                        Status::Connected => GREEN,
+                        _ => RED,
+                    },
+                );
+                draw_version_info(&state, screen_width, screen_height, atlas);
             }
 
             pop_buffer_message();
@@ -376,7 +375,7 @@ fn draw_version_info(
     const ROOM_VERSION: &str = "Room Version:";
     // TODO Maybe at some point I'd want to have the mod poke github on launch?
     font_handler::draw_string(
-        &state,
+        state,
         &format!("{} {}", MOD_VERSION, env!("CARGO_PKG_VERSION")),
         0.0,
         //VERSION.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>(),
@@ -385,34 +384,34 @@ fn draw_version_info(
         screen_height,
         get_default_color(),
     );
-    if CONNECTION_STATUS.load(Ordering::SeqCst)
-        == <Status as Into<isize>>::into(Status::Connected.into())
+
+    if (CONNECTION_STATUS.load(Ordering::SeqCst)
+        == <Status as Into<isize>>::into(Status::Connected))
+        && let Some(mapping) = MAPPING.read().unwrap().as_ref()
     {
-        if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
-            if let Some(cv) = &mapping.client_version {
-                font_handler::draw_string(
-                    &state,
-                    &format!("{} {}", AP_VERSION, cv),
-                    0.0,
-                    //VERSION.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>(),
-                    100.0,
-                    screen_width,
-                    screen_height,
-                    get_default_color(),
-                );
-            }
-            if let Some(gv) = &mapping.generated_version {
-                font_handler::draw_string(
-                    &state,
-                    &format!("{} {}", ROOM_VERSION, gv),
-                    0.0,
-                    //VERSION.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>(),
-                    150.0,
-                    screen_width,
-                    screen_height,
-                    get_default_color(),
-                );
-            }
+        if let Some(cv) = &mapping.client_version {
+            font_handler::draw_string(
+                state,
+                &format!("{} {}", AP_VERSION, cv),
+                0.0,
+                //VERSION.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>(),
+                100.0,
+                screen_width,
+                screen_height,
+                get_default_color(),
+            );
+        }
+        if let Some(gv) = &mapping.generated_version {
+            font_handler::draw_string(
+                state,
+                &format!("{} {}", ROOM_VERSION, gv),
+                0.0,
+                //VERSION.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>(),
+                150.0,
+                screen_width,
+                screen_height,
+                get_default_color(),
+            );
         }
     }
 }
@@ -480,16 +479,16 @@ struct TimedMessage {
 }
 
 fn pop_buffer_message() {
-    if let Ok(mut queue) = MESSAGE_QUEUE.lock() {
-        if let Some(message) = queue.pop_front() {
-            let expiration = Instant::now() + message.duration;
-            let timed = TimedMessage {
-                message,
-                expiration,
-            };
-            if let Ok(mut active) = ACTIVE_MESSAGES.lock() {
-                active.push_back(timed);
-            }
+    if let Ok(mut queue) = MESSAGE_QUEUE.lock()
+        && let Some(message) = queue.pop_front()
+    {
+        let expiration = Instant::now() + message.duration;
+        let timed = TimedMessage {
+            message,
+            expiration,
+        };
+        if let Ok(mut active) = ACTIVE_MESSAGES.lock() {
+            active.push_back(timed);
         }
     }
 }

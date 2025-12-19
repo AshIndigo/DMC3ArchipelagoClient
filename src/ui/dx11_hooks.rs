@@ -116,7 +116,7 @@ where
             return Err("swap_ptr was null".into());
         }
         let vtable = *(swap_ptr as *const *const usize);
-        install(vtable.add(vtable_idx) as *mut T, hook, &original);
+        install(vtable.add(vtable_idx) as *mut T, hook, original);
     }
     Ok(())
 }

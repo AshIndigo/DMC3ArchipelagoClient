@@ -1,14 +1,15 @@
-use std::collections::HashSet;
-use crate::constants::{get_items_by_category, get_weapon_id, Difficulty, ItemCategory, BASE_HP, GUN_NAMES, ITEM_MAP, ITEM_OFFSET_MAP, MAX_HP, MAX_MAGIC, MELEE_NAMES, ONE_ORB};
+use crate::constants::{
+    get_items_by_category, get_weapon_id, Difficulty, ItemCategory, BASE_HP, GUN_NAMES, ITEM_MAP, ITEM_OFFSET_MAP,
+    MAX_HP, MAX_MAGIC, MELEE_NAMES, ONE_ORB,
+};
 use crate::hook::ORIGINAL_GIVE_STYLE_XP;
 use crate::mapping::MAPPING;
-use crate::utilities::{
-    get_inv_address, read_data_from_address, DMC3_ADDRESS,
-};
+use crate::utilities;
+use crate::utilities::{get_inv_address, read_data_from_address, DMC3_ADDRESS};
+use randomizer_utilities::replace_single_byte;
+use std::collections::HashSet;
 use std::ptr::{read_unaligned, write_unaligned};
 use std::sync::{LazyLock, RwLock};
-use randomizer_utilities::replace_single_byte;
-use crate::utilities;
 
 pub(crate) const GAME_SESSION_DATA: usize = 0xC8F250;
 
@@ -69,10 +70,10 @@ impl ArchipelagoData {
 
     pub(crate) fn add_purple_orb(&mut self) {
         self.purple_orbs = (self.purple_orbs + 1).min(10);
-        if let Some(mappings) = MAPPING.read().unwrap().as_ref() {
-            if !mappings.devil_trigger_mode {
-                self.dt_unlocked = true;
-            }
+        if let Some(mappings) = MAPPING.read().unwrap().as_ref()
+            && !mappings.devil_trigger_mode
+        {
+            self.dt_unlocked = true;
         }
     }
 
@@ -105,8 +106,8 @@ impl ArchipelagoData {
 
     pub(crate) fn get_style_unlocked(&self) -> [bool; 4] {
         let mut style_table = [false, false, false, false];
-        for i in 0..4 {
-            style_table[i] = self.style_levels[i] > 0;
+        for style_idx in 0..4 {
+            style_table[style_idx] = self.style_levels[style_idx] > 0;
         }
         style_table
     }
@@ -302,7 +303,6 @@ pub(crate) fn set_item(item_name: &str, has_item: bool, set_flag: bool) {
             set_loc_chk_flg(item_name, has_item);
         }
     }
-
 }
 
 const LOCATION_FLAGS: usize = 0xc90e28;
@@ -372,11 +372,11 @@ pub fn set_max_hp_and_magic() {
 
 pub(crate) fn hurt_dante() {
     let damage_fraction: f32 = match get_difficulty() {
-        Difficulty::Easy => 1.0/4.0,
-        Difficulty::Normal => 1.0/3.0,
-        Difficulty::Hard => 1.0/2.0,
-        Difficulty::VeryHard => 2.0/3.0,
-        Difficulty::DanteMustDie => 5.0/6.0,
+        Difficulty::Easy => 1.0 / 4.0,
+        Difficulty::Normal => 1.0 / 3.0,
+        Difficulty::Hard => 1.0 / 2.0,
+        Difficulty::VeryHard => 2.0 / 3.0,
+        Difficulty::DanteMustDie => 5.0 / 6.0,
         // Insta kill
         Difficulty::HeavenOrHell => 1.0,
     };
@@ -386,11 +386,13 @@ pub(crate) fn hurt_dante() {
             let max_hp = read_unaligned((char_data_ptr + 0x40EC) as *mut f32);
             write_unaligned(
                 hp_addr as *mut f32,
-                f32::max(read_unaligned(hp_addr as *const f32) - (max_hp * damage_fraction), 0.0),
+                f32::max(
+                    read_unaligned(hp_addr as *const f32) - (max_hp * damage_fraction),
+                    0.0,
+                ),
             );
         }
     }
-
 }
 
 pub(crate) fn kill_dante() {
@@ -399,7 +401,6 @@ pub(crate) fn kill_dante() {
             write_unaligned((char_data_ptr + 0x411C) as *mut f32, 0.0);
         }
     }
-
 }
 
 pub fn set_session_weapons() {
@@ -408,22 +409,25 @@ pub fn set_session_weapons() {
             for weapon in get_items_by_category(ItemCategory::Weapon) {
                 if data.items.contains(&weapon) {
                     let weapon_id = get_weapon_id(weapon);
-                    if MELEE_NAMES.contains(&weapon) {
-                        if s.weapons[0] != weapon_id && s.weapons[1] == 0xFF {
-                            log::debug!("Inserting {} into second melee slot", weapon);
-                            s.weapons[1] = weapon_id;
-                        }
+                    if MELEE_NAMES.contains(&weapon)
+                        && s.weapons[0] != weapon_id
+                        && s.weapons[1] == 0xFF
+                    {
+                        log::debug!("Inserting {} into second melee slot", weapon);
+                        s.weapons[1] = weapon_id;
                     }
-                    if GUN_NAMES.contains(&weapon) {
-                        if s.weapons[2] != weapon_id && s.weapons[3] == 0xFF {
-                            log::debug!("Inserting {} into second gun slot", weapon);
-                            s.weapons[3] = weapon_id;
-                        }
+
+                    if GUN_NAMES.contains(&weapon)
+                        && s.weapons[2] != weapon_id
+                        && s.weapons[3] == 0xFF
+                    {
+                        log::debug!("Inserting {} into second gun slot", weapon);
+                        s.weapons[3] = weapon_id;
                     }
                 }
             }
         })
-            .unwrap();
+        .unwrap();
     }
 }
 //const WEAPON_SLOT: usize = 0x045FF2D8;
@@ -523,12 +527,12 @@ pub(crate) fn apply_style_levels(style: Style) {
 #[repr(C)]
 #[derive(Debug)]
 pub struct TotalRankings {
-    pub easy_ranking: [u8;20],
-    pub normal_ranking: [u8;20],
-    pub hard_ranking: [u8;20],
-    pub very_hard_ranking: [u8;20],
-    pub dmd_ranking: [u8;20],
-    pub hoh_ranking: [u8;20],
+    pub easy_ranking: [u8; 20],
+    pub normal_ranking: [u8; 20],
+    pub hard_ranking: [u8; 20],
+    pub very_hard_ranking: [u8; 20],
+    pub dmd_ranking: [u8; 20],
+    pub hoh_ranking: [u8; 20],
 }
 
 static RANKING_PTR: LazyLock<usize> = LazyLock::new(|| *DMC3_ADDRESS + 0xC8F8E5);

@@ -30,16 +30,16 @@ jobs:
           # Key is based off of main cargo.lock hash
           key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
     # Build DMC3's release
-    - name: Build
+    - name: Build DMC3 Client
       run: cargo build -p DMC3ArchipelagoClient --release
     # Build mod loader
-    - name: Build
+    - name: Build Loader
       run: cargo build -p DMCHDLoader --release
     # Get the version for use in zip name
     - name: Get Cargo.toml version
       id: cargo_version
       run: |
-        $version = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json | %{$_.packages[0].version}
+        $version = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json | %{$_.packages[1].version}
         echo "CARGO_VERSION=$version" >> $env:GITHUB_ENV
     # Compile needed files
     - name: Package files
@@ -49,7 +49,7 @@ jobs:
         Copy-Item -Path DMCHDloader/src/data/steam_appid.txt -Destination steam_appid.txt
     # Zip files
     - name: Upload a Build Artifact
-      uses: actions/upload-artifact@v4.6.2
+      uses: actions/upload-artifact@v6
       with:
         name: "DMC3-Archipelago-${{ env.CARGO_VERSION }}"
         path: |
@@ -71,7 +71,7 @@ jobs:
           path: ./
 
       - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.5.0
         with:
           files: "DMC3-Archipelago-${{ env.CARGO_VERSION }}.zip"
         env:
