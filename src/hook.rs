@@ -24,6 +24,7 @@ use std::ptr::{read_unaligned, write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, OnceLock};
 use std::{ptr, slice};
+use std::cmp::min;
 
 static HOOKS_CREATED: AtomicBool = AtomicBool::new(false);
 
@@ -922,6 +923,7 @@ pub fn set_rando_session_data(ptr: usize) {
         if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
             // Unlock all difficulties
             // This is some kind of bitflag, but I'd need to see if I have old notes on what each bit could be
+            // TODO Need to set it so it begins on mission select screen
             unsafe {
                 let final_flag = DifficultyUnlockFlags::create_final_flag(
                     &mapping.initially_unlocked_difficulties,
@@ -1084,7 +1086,7 @@ fn set_actual_mission(cscene_result: usize, param_1: usize, param_2: usize, para
             0x12 => {
                 with_session(|s| {
                     s.mission = mapping.mission_order.as_ref().unwrap()
-                        [mapping.get_index_for_mission(current_mission) + 1]
+                        [min(mapping.get_index_for_mission(current_mission) + 1, 19)]
                         as u32;
                 })
                 .unwrap();
