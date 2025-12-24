@@ -18,7 +18,7 @@ use crate::{
 use bitflags::bitflags;
 use minhook::{MinHook, MH_STATUS};
 use randomizer_utilities::archipelago_utilities::{DeathLinkData, CHECKED_LOCATIONS};
-use randomizer_utilities::{mapping_utilities, replace_single_byte};
+use randomizer_utilities::replace_single_byte;
 use std::arch::asm;
 use std::ptr::{read_unaligned, write};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -467,8 +467,8 @@ async fn send_deathlink() {
         .unwrap()
         .send(DeathLinkData {
             cause: format!(
-                "{} died in Mission #{} on {}", // TODO Maybe an "against {}" at some point?
-                mapping_utilities::get_own_slot_name().unwrap(),
+                "died in Mission #{} on {}", // TODO Maybe an "against {}" at some point?
+                //mapping_utilities::get_own_slot_name().unwrap(),
                 get_mission(),
                 get_difficulty()
             ),

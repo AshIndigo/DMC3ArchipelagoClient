@@ -336,7 +336,7 @@ pub(crate) unsafe extern "system" fn present_hook(
                         _ => RED,
                     },
                 );
-                draw_version_info(&state, screen_width, screen_height, atlas);
+                draw_version_info(&state, screen_width, screen_height);
             }
 
             pop_buffer_message();
@@ -368,7 +368,6 @@ fn draw_version_info(
     state: &RwLockReadGuard<D3D11State>,
     screen_width: f32,
     screen_height: f32,
-    _atlas: &FontAtlas, // TODO Remove later
 ) {
     const MOD_VERSION: &str = "Mod Version:";
     const AP_VERSION: &str = "AP Client Version:";

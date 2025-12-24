@@ -278,7 +278,7 @@ async fn handle_bounced(bounced: Bounced) -> Result<(), Box<dyn Error>> {
         match bounced.data {
             BounceData::DeathLink(dl) => {
                 overlay::add_message(OverlayMessage::new(
-                    vec![MessageSegment::new(dl.cause.unwrap_or_default(), WHITE)],
+                    vec![MessageSegment::new(format!("{}: {}", dl.source, dl.cause.unwrap_or_default()), WHITE)],
                     Duration::from_secs(3),
                     // TODO May want to adjust position, currently added to the 'notification list' so it's in the upper right queue
                     0.0,

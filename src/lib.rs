@@ -1,17 +1,20 @@
+use std::fmt::{Display, Formatter};
 use crate::archipelago::{TX_CONNECT, TX_DEATHLINK, TX_DISCONNECT};
 use crate::bank::TX_BANK_MESSAGE;
-use crate::utilities::{is_crimson_loaded, is_ddmk_loaded};
-use archipelago_rs::protocol::ClientStatus;
-use std::sync::atomic::Ordering;
-use std::thread;
-use connection_manager::CONNECTION_STATUS;
-use windows::core::BOOL;
-use windows::Win32::Foundation::*;
-use randomizer_utilities::archipelago_utilities::{connect_local_archipelago_proxy, CLIENT, SLOT_NUMBER, TEAM_NUMBER};
-use randomizer_utilities::exception_handler;
-use randomizer_utilities::ui_utilities::Status;
 use crate::check_handler::TX_LOCATION;
 use crate::constants::DMC3Config;
+use crate::utilities::{is_crimson_loaded, is_ddmk_loaded};
+use connection_manager::CONNECTION_STATUS;
+use randomizer_utilities::archipelago_utilities::{
+    connect_local_archipelago_proxy, CLIENT, SLOT_NUMBER, TEAM_NUMBER,
+};
+use randomizer_utilities::exception_handler;
+use randomizer_utilities::ui_utilities::Status;
+use std::sync::atomic::Ordering;
+use std::thread;
+use windows::core::{BOOL, PCSTR};
+use windows::Win32::Foundation::*;
+use windows::Win32::System::LibraryLoader;
 
 mod archipelago;
 mod bank;
@@ -21,6 +24,7 @@ mod data;
 //mod experiments;
 mod compat;
 mod config;
+pub(crate) mod connection_manager;
 mod game_manager;
 mod hook;
 mod location_handler;
@@ -29,7 +33,6 @@ mod save_handler;
 mod skill_manager;
 mod ui;
 mod utilities;
-pub(crate) mod connection_manager;
 
 #[macro_export]
 /// Does not enable the hook, that needs to be done separately
@@ -49,15 +52,23 @@ macro_rules! create_hook {
 #[derive(Debug)]
 #[repr(C)]
 pub(crate) struct LoaderStatus {
-    pub crimson_hash_error: bool,
+    // DMC3
     pub dmc3_hash_error: bool,
+    pub crimson_hash_error: bool,
+    pub ddmk_dmc3_hash_error: bool,
+    // DMC1
+    pub dmc1_hash_error: bool,
+    pub ddmk_dmc1_hash_error: bool,
 }
 
-/*#[link(name = "dinput8")]
-unsafe extern "C" {
-    pub(crate) fn get_loader_status() -> &'static LoaderStatus;
+impl Display for LoaderStatus {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
-*/
+
+type GetStatusFn = unsafe extern "C" fn() -> *const LoaderStatus;
+
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
 pub extern "system" fn DllMain(
@@ -73,9 +84,21 @@ pub extern "system" fn DllMain(
     match fdw_reason {
         DLL_PROCESS_ATTACH => {
             ui::dx11_hooks::setup_overlay();
-            randomizer_utilities::setup_logger("dmc3_rando");
-            //let loader_status = unsafe { get_loader_status() };
-            //log::debug!("loader_status: {loader_status:?}");
+            randomizer_utilities::setup_logger("dmc3_randomizer");
+            // Loader status
+            thread::spawn(|| unsafe {
+                let loader_hmodule = LibraryLoader::LoadLibraryA(
+                    PCSTR::from_raw(c"dinput8.dll".as_ptr() as *const u8),
+                );
+                let proc_addr = LibraryLoader::GetProcAddress(
+                    loader_hmodule.unwrap(),
+                    PCSTR::from_raw(c"get_loader_status".as_ptr() as *const u8),
+                );
+                // TODO Make this display on the overlay
+                let loader_status = &*std::mem::transmute::<FARPROC, GetStatusFn>(proc_addr)();
+                log::info!("Loader Status: {loader_status:?}");
+            });
+
             thread::spawn(|| {
                 main_setup();
             });
@@ -124,7 +147,7 @@ fn main_setup() {
 pub(crate) async fn spawn_archipelago_thread() {
     log::info!("Archipelago Thread started");
     let mut setup = false;
-    let mut rx_locations =  randomizer_utilities::setup_channel_pair(&TX_LOCATION, None);
+    let mut rx_locations = randomizer_utilities::setup_channel_pair(&TX_LOCATION, None);
     let mut rx_connect = randomizer_utilities::setup_channel_pair(&TX_CONNECT, None);
     let mut rx_bank_to_inv = randomizer_utilities::setup_channel_pair(&TX_BANK_MESSAGE, None);
     let mut rx_deathlink = randomizer_utilities::setup_channel_pair(&TX_DEATHLINK, None);
@@ -164,12 +187,12 @@ pub(crate) async fn spawn_archipelago_thread() {
         // Client is successfully connected
         if let Some(ref mut client) = client_lock.as_mut() {
             if !setup && let Err(err) = archipelago::run_setup(client).await {
-                log::error!("{err}");
+                log::error!("Failed to run initial setup, this is probably bad: {err}");
             }
 
-            if let Err(e) = client.status_update(ClientStatus::ClientReady).await {
-                log::error!("Status update failed: {e}");
-            }
+            // if let Err(e) = client.status_update(ClientStatus::ClientReady).await {
+            //     log::error!("Status update failed: {e}");
+            // }
             // This blocks until a reconnect or disconnect is triggered
             archipelago::handle_things(
                 client,
@@ -177,7 +200,7 @@ pub(crate) async fn spawn_archipelago_thread() {
                 &mut rx_bank_to_inv,
                 &mut rx_connect,
                 &mut rx_deathlink,
-                &mut rx_disconnect
+                &mut rx_disconnect,
             )
             .await;
         }

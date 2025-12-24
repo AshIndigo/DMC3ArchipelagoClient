@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
 pub static CONFIG: LazyLock<Config> = LazyLock::new(|| {
-    // TODO Small breaking change
     randomizer_utilities::load_config("dmc3_randomizer").unwrap_or_else(|err| {
         log::error!("Failed to load config: {}", err);
         Config::default()

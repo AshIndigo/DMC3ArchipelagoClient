@@ -957,13 +957,6 @@ impl Coordinates {
     }
 }
 
-// TODO Remove
-// impl PartialEq for Coordinates {
-//     fn eq(&self, other: &Self) -> bool {
-//         self.x == other.x && self.y == other.y && self.z == other.z
-//     }
-// }
-
 #[derive(Copy, Clone, strum_macros::Display, strum_macros::FromRepr)]
 pub(crate) enum Character {
     // Values from DDMK, only care about Dante or Vergil though
