@@ -341,12 +341,22 @@ pub(crate) unsafe extern "system" fn present_hook(
                 draw_version_info(&state, screen_width, screen_height);
             }
             if CANT_PURCHASE.load(Ordering::SeqCst) && let Some(atlas) = &state.atlas {
-                const NO_PURCHASE: &str = "Cannot purchase upgrades from here due to world settings";
+                const NO_PURCHASE: &str = "Cannot purchase upgrades";
+                const NO_PURCHASE_L2: &str = "due to world settings";
                 font_handler::draw_string(
                     &state,
                     NO_PURCHASE,
-                    NO_PURCHASE.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>()/2.0,
-                    0.0,
+                    480.0+(NO_PURCHASE.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>()/2.0),
+                    70.0,
+                    screen_width,
+                    screen_height,
+                    &WHITE,
+                );
+                font_handler::draw_string(
+                    &state,
+                    NO_PURCHASE_L2,
+                    480.0+(NO_PURCHASE.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>()/2.0),
+                    106.0,
                     screen_width,
                     screen_height,
                     &WHITE,
