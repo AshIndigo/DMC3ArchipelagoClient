@@ -20,11 +20,12 @@ use minhook::{MinHook, MH_STATUS};
 use randomizer_utilities::archipelago_utilities::{DeathLinkData, CHECKED_LOCATIONS};
 use randomizer_utilities::replace_single_byte;
 use std::arch::asm;
+use std::cmp::min;
 use std::ptr::{read_unaligned, write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, OnceLock};
 use std::{ptr, slice};
-use std::cmp::min;
+use crate::ui::overlay::CANT_PURCHASE;
 
 static HOOKS_CREATED: AtomicBool = AtomicBool::new(false);
 
@@ -780,13 +781,14 @@ pub const SKILL_SHOP_ADDR: usize = 0x288280;
 pub static ORIGINAL_SKILL_SHOP: OnceLock<unsafe extern "C" fn(custom_skill: usize)> =
     OnceLock::new();
 
-// TODO I would like to make this show a custom message denied message, but for now, just do nothing
 pub fn deny_skill_purchasing(custom_skill: usize) {
     if let Some(mapping) = MAPPING.read().unwrap().as_ref()
         && mapping.randomize_skills
-        && read_data_from_address::<u8>(custom_skill + 0x08) == 0x05
     {
-        unsafe { replace_single_byte(custom_skill + 0x08, 0x01) }
+        CANT_PURCHASE.store(true, Ordering::SeqCst);
+        if read_data_from_address::<u8>(custom_skill + 0x08) == 0x05 {
+            unsafe { replace_single_byte(custom_skill + 0x08, 0x01) }
+        }
     }
 
     if let Some(orig) = ORIGINAL_SKILL_SHOP.get() {
@@ -801,9 +803,11 @@ pub static ORIGINAL_GUN_SHOP: OnceLock<unsafe extern "C" fn(custom_gun: usize)> 
 pub fn deny_gun_upgrade(custom_gun: usize) {
     if let Some(mapping) = MAPPING.read().unwrap().as_ref()
         && mapping.randomize_gun_levels
-        && read_data_from_address::<u8>(custom_gun + 0x08) == 0x03
     {
-        unsafe { replace_single_byte(custom_gun + 0x08, 0x01) }
+        CANT_PURCHASE.store(true, Ordering::SeqCst);
+        if read_data_from_address::<u8>(custom_gun + 0x08) == 0x03 {
+            unsafe { replace_single_byte(custom_gun + 0x08, 0x01) }
+        }
     }
 
     if let Some(orig) = ORIGINAL_GUN_SHOP.get() {
@@ -904,6 +908,66 @@ impl DifficultyUnlockFlags {
     }
 }
 
+bitflags! {
+    #[derive(Debug)]
+    struct UnlockFlags: u8 {
+        const DMC1DanteCostume = 0b10000000;
+        const ShirtlessDanteCostume = 0b01000000;
+        const Unk3 = 0b00100000;
+        const Vergil = 0b00010000;
+        const BloodyPalace = 0b00001000;
+        const Unk6 = 0b00000100;
+        const Gallery = 0b00000010;
+        const MissionSelect = 0b00000001;
+    }
+}
+
+impl UnlockFlags {
+    fn create_final_flag() -> UnlockFlags {
+        let mut res = UnlockFlags::empty();
+        res = res.union(UnlockFlags::DMC1DanteCostume);
+        res = res.union(UnlockFlags::ShirtlessDanteCostume);
+        //res = res.union(UnlockFlags::Unk3);
+        //res = res.union(UnlockFlags::Vergil);
+        res = res.union(UnlockFlags::BloodyPalace);
+        //res = res.union(UnlockFlags::Unk6);
+        res = res.union(UnlockFlags::Gallery);
+        res = res.union(UnlockFlags::MissionSelect);
+        res
+    }
+}
+
+bitflags! {
+    #[derive(Debug)]
+    struct CostumeFlags: u8 {
+        const SuperCorruptVergil = 0b10000000;
+        const CorruptVergil = 0b01000000;
+        const SuperVergil = 0b00100000;
+        const CoatlessVergil = 0b00010000;
+        const SuperSparda = 0b00001000;
+        const Sparda = 0b00000100;
+        const SuperDante = 0b00000010;
+        const CoatlessDMC1Dante = 0b00000001;
+    }
+}
+
+impl CostumeFlags {
+    fn create_final_flag() -> CostumeFlags {
+        let mut res = CostumeFlags::empty();
+        //res = res.union(CostumeFlags::SuperCorruptVergil);
+        res = res.union(CostumeFlags::CorruptVergil);
+        //res = res.union(CostumeFlags::SuperVergil);
+        res = res.union(CostumeFlags::CoatlessVergil);
+        //res = res.union(CostumeFlags::SuperSparda);
+        res = res.union(CostumeFlags::Sparda);
+        //res = res.union(CostumeFlags::SuperDante);
+        res = res.union(CostumeFlags::CoatlessDMC1Dante);
+        res
+    }
+}
+
+// Could do gallery here, but I see no reason to
+
 pub fn set_rando_session_data(ptr: usize) {
     if let Some(orig) = ORIGINAL_SET_NEW_SESSION_DATA.get() {
         unsafe {
@@ -921,15 +985,16 @@ pub fn set_rando_session_data(ptr: usize) {
             return;
         }
         if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
-            // Unlock all difficulties
-            // This is some kind of bitflag, but I'd need to see if I have old notes on what each bit could be
-            // TODO Need to set it so it begins on mission select screen
+            // Unlock difficulties, costumes and modes
             unsafe {
-                let final_flag = DifficultyUnlockFlags::create_final_flag(
+                let difficulty_flags = DifficultyUnlockFlags::create_final_flag(
                     &mapping.initially_unlocked_difficulties,
                 );
-                replace_single_byte(*DMC3_ADDRESS + 0x564594, final_flag.bits());
-                // 0x564595 does other things including unlocking vergil
+                let unlock_flags = UnlockFlags::create_final_flag();
+                let costume_flags = CostumeFlags::create_final_flag();
+                replace_single_byte(*DMC3_ADDRESS + 0x564594, difficulty_flags.bits());
+                replace_single_byte(*DMC3_ADDRESS + 0x564595, unlock_flags.bits());
+                replace_single_byte(*DMC3_ADDRESS + 0x564596, costume_flags.bits());
             }
             // Set initial style if relevant
             if mapping.randomize_styles
@@ -959,9 +1024,10 @@ pub fn set_rando_session_data(ptr: usize) {
             Overall, not too important */
             // 29A5E8
             // 0x45FECCA
-            // if mapping.goal == Goal::RandomOrder {
-            //     s.mission = mapping.mission_order.as_ref().unwrap()[0] as u32;
-            // }
+            if mapping.goal == Goal::RandomOrder {
+                s.mission = mapping.mission_order.as_ref().unwrap()[0] as u32;
+                s.other_mission =  mapping.mission_order.as_ref().unwrap()[0] as u32;
+            }
         }
     })
     .unwrap();

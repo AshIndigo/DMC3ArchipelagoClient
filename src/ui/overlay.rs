@@ -7,7 +7,7 @@ use archipelago_rs::protocol::NetworkItemFlags;
 use randomizer_utilities::ui_utilities::Status;
 use std::collections::VecDeque;
 use std::slice::from_raw_parts;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex, OnceLock, RwLock, RwLockReadGuard};
 use std::time::{Duration, Instant};
 use windows::core::PCSTR;
@@ -278,6 +278,8 @@ pub(crate) unsafe extern "system" fn resize_hook(
     }
 }
 
+pub(crate) static CANT_PURCHASE: AtomicBool = AtomicBool::new(false);
+
 pub(crate) unsafe extern "system" fn present_hook(
     orig_swap_chain: IDXGISwapChain,
     sync_interval: u32,
@@ -337,6 +339,19 @@ pub(crate) unsafe extern "system" fn present_hook(
                     },
                 );
                 draw_version_info(&state, screen_width, screen_height);
+            }
+            if CANT_PURCHASE.load(Ordering::SeqCst) && let Some(atlas) = &state.atlas {
+                const NO_PURCHASE: &str = "Cannot purchase upgrades from here due to world settings";
+                font_handler::draw_string(
+                    &state,
+                    NO_PURCHASE,
+                    NO_PURCHASE.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>()/2.0,
+                    0.0,
+                    screen_width,
+                    screen_height,
+                    &WHITE,
+                );
+                CANT_PURCHASE.store(false, Ordering::SeqCst);
             }
 
             pop_buffer_message();
