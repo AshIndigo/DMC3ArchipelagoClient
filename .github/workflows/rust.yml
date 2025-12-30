@@ -32,9 +32,6 @@ jobs:
     # Build DMC3's release
     - name: Build DMC3 Client
       run: cargo build -p DMC3ArchipelagoClient --release
-    # Build mod loader
-    - name: Build Loader
-      run: cargo build -p DMCHDLoader --release
     # Get the version for use in zip name
     - name: Get Cargo.toml version
       id: cargo_version
@@ -44,18 +41,14 @@ jobs:
     # Compile needed files
     - name: Package files
       run: |
-        Copy-Item -Path target/release/dinput8.dll -Destination dinput8.dll 
-        Copy-Item -Path target/release/dmc3_randomizer.dll -Destination dmc3_randomizer.dll 
-        Copy-Item -Path DMCHDloader/src/data/steam_appid.txt -Destination steam_appid.txt
+        Copy-Item -Path target/release/dmc3_randomizer.dll -Destination dmc3_randomizer.dll
     # Zip files
     - name: Upload a Build Artifact
       uses: actions/upload-artifact@v6
       with:
         name: "DMC3-Archipelago-${{ env.CARGO_VERSION }}"
         path: |
-            dinput8.dll
-            dmc3_randomizer.dll 
-            steam_appid.txt
+            dmc3_randomizer.dll
   # Release section
   release:
     needs: build
