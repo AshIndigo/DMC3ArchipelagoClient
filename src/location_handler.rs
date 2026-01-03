@@ -1,4 +1,4 @@
-use crate::check_handler::{Location, MISSION_COMPLETE, SS_RANK};
+use crate::check_handler::{Location, LocationType};
 use crate::constants::{EventCode, ItemCategory, DUMMY_ID, EVENT_TABLES, ITEM_MAP, REMOTE_ID};
 use crate::data::generated_locations;
 use crate::game_manager::get_mission;
@@ -25,24 +25,30 @@ pub fn in_key_item_room() -> Result<&'static str, Box<dyn Error>> {
 }
 
 pub fn get_location_name_by_data(location_data: &Location) -> Result<&'static str, Box<dyn Error>> {
-    if location_data.room == MISSION_COMPLETE {
+    if location_data.location_type != LocationType::Standard {
         let mission_loc: Vec<_> = generated_locations::ITEM_MISSION_MAP
             .iter()
-            .filter(|(key, _item_entry)| {
-                *(*key) == format!("Mission #{} Complete", location_data.mission).as_str()
+            .filter(|(key, _item_entry)| match location_data.location_type {
+                LocationType::Standard => unreachable!(),
+                LocationType::MissionComplete => {
+                    *(*key) == format!("Mission #{} Complete", location_data.mission).as_str()
+                }
+                LocationType::SSRank => {
+                    *(*key) == format!("Mission #{} SS Rank", location_data.mission).as_str()
+                }
+                LocationType::PurchaseItem => {
+                    *(*key)
+                        == match location_data.item_id {
+                            0x07 => format!("Blue Orb #{}", location_data.mission),
+                            0x08 => format!("Purple Orb #{}", location_data.mission),
+                            _ => unreachable!(),
+                        }
+                }
             })
             .collect();
         return Ok(mission_loc[0].0);
     }
-    if location_data.room == SS_RANK {
-        let mission_loc: Vec<_> = generated_locations::ITEM_MISSION_MAP
-            .iter()
-            .filter(|(key, _item_entry)| {
-                *(*key) == format!("Mission #{} SS Rank", location_data.mission).as_str()
-            })
-            .collect();
-        return Ok(mission_loc[0].0);
-    }
+
     let filtered_locs =
         generated_locations::ITEM_MISSION_MAP
             .iter()

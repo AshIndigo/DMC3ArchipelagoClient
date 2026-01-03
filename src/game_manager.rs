@@ -154,7 +154,7 @@ pub struct SessionData {
     pub(crate) _unknown3: [u8; 7],
     bloody_palace: bool,
     _unknown4: [u8; 15],
-    red_orbs: u32,
+    pub(crate) red_orbs: u32,
     pub(crate) items: [u8; 20],
     unknown5: [u8; 2],
     unlocks: [bool; 14],

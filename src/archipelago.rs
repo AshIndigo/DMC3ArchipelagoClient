@@ -1,5 +1,5 @@
 use crate::bank::{get_bank, get_bank_key};
-use crate::check_handler::Location;
+use crate::check_handler::{Location, LocationType};
 use crate::connection_manager::CONNECTION_STATUS;
 use crate::constants::{get_item_name, ItemCategory, GAME_NAME, MISSION_ITEM_MAP, REMOTE_ID};
 use crate::data::generated_locations;
@@ -324,7 +324,7 @@ async fn handle_item_receive(
     // See if there's an item!
     log::info!("Processing item: {}", received_item);
     if let Some(mapping_data) = MAPPING.read()?.as_ref() && let Some(data_package) = DATA_PACKAGE.read()?.as_ref() {
-        if received_item.item_id <= 0x39 {
+        if received_item.location_type == LocationType::Standard  && received_item.item_id <= 0x39 {
             crate::check_handler::take_away_received_item(received_item.item_id);
         }
         let location_key = location_handler::get_location_name_by_data(&received_item)?;

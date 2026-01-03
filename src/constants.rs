@@ -938,6 +938,7 @@ pub fn get_weapon_id(weapon: &str) -> u8 {
         "Artemis" => 7,
         "Spiral" => 8,
         "Kalina Ann" => 9,
+        "None" => 0xFF,
         _ => 0xFF,
     }
 }

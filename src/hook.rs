@@ -9,6 +9,7 @@ use crate::game_manager::{
 };
 use crate::location_handler::in_key_item_room;
 use crate::mapping::{Goal, Mapping, MAPPING};
+use crate::ui::overlay::CANT_PURCHASE;
 use crate::ui::text_handler;
 use crate::ui::text_handler::LAST_OBTAINED_ID;
 use crate::utilities::{read_data_from_address, DMC3_ADDRESS};
@@ -25,7 +26,6 @@ use std::ptr::{read_unaligned, write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, OnceLock};
 use std::{ptr, slice};
-use crate::ui::overlay::CANT_PURCHASE;
 
 static HOOKS_CREATED: AtomicBool = AtomicBool::new(false);
 
@@ -110,6 +110,17 @@ unsafe fn create_hooks() -> Result<(), MH_STATUS> {
             "Don't add the Shotgun/Cerberus to second slot"
         );
         create_hook!(
+            PURCHASE_HP_ADDR,
+            deny_blue_or_purple_orb,
+            ORIGINAL_PURCHASE_HP,
+            "N/A"
+        );  create_hook!(
+            PURCHASE_DT_ADDR,
+            deny_blue_or_purple_orb,
+            ORIGINAL_PURCHASE_DT,
+            "N/A"
+        );
+        create_hook!(
             CUSTOMIZE_STYLE_MENU,
             modify_available_styles,
             ORIGINAL_STYLE_MENU,
@@ -147,11 +158,12 @@ unsafe fn create_hooks() -> Result<(), MH_STATUS> {
 }
 
 static HOOK_ADDRESSES: LazyLock<Vec<usize>> = LazyLock::new(|| {
-    const ADDRESSES: [usize; 26] = [
+    const ADDRESSES: [usize; 29] = [
         // Check handling
         check_handler::ITEM_HANDLE_PICKUP_ADDR,
         check_handler::ITEM_PICKED_UP_ADDR,
         check_handler::RESULT_CALC_ADDR,
+        check_handler::PURCHASE_ITEM_ADDR,
         // Misc
         ITEM_SPAWNS_ADDR, // Handles replacing item spawns.
         EDIT_EVENT_HOOK_ADDR,
@@ -168,6 +180,8 @@ static HOOK_ADDRESSES: LazyLock<Vec<usize>> = LazyLock::new(|| {
         SET_NEW_SESSION_DATA,
         SELECT_MISSION_BUTTON,
         RESULT_SCREEN_BUTTON_ADDR,
+        PURCHASE_DT_ADDR,
+        PURCHASE_HP_ADDR,
         // Bank
         bank::OPEN_INV_SCREEN_ADDR,
         bank::CLOSE_INV_SCREEN_ADDR,
@@ -787,7 +801,7 @@ pub fn deny_skill_purchasing(custom_skill: usize) {
     {
         CANT_PURCHASE.store(true, Ordering::SeqCst);
         if read_data_from_address::<u8>(custom_skill + 0x08) == 0x05 {
-            unsafe { replace_single_byte(custom_skill + 0x08, 0x01) }
+            //unsafe { replace_single_byte(custom_skill + 0x08, 0x01) }
         }
     }
 
@@ -806,7 +820,7 @@ pub fn deny_gun_upgrade(custom_gun: usize) {
     {
         CANT_PURCHASE.store(true, Ordering::SeqCst);
         if read_data_from_address::<u8>(custom_gun + 0x08) == 0x03 {
-            unsafe { replace_single_byte(custom_gun + 0x08, 0x01) }
+            //unsafe { replace_single_byte(custom_gun + 0x08, 0x01) }
         }
     }
 
@@ -826,6 +840,18 @@ pub fn deny_cerberus_or_shotgun(_param_1: usize, _id: u8) -> bool {
     false
 }
 
+// Making it so purchasing a blue/purple orb in the store does not give the relevant stat boost
+pub static ORIGINAL_PURCHASE_HP: OnceLock<
+    PurchaseStatOrb,
+> = OnceLock::new();pub static ORIGINAL_PURCHASE_DT: OnceLock<
+    PurchaseStatOrb,
+> = OnceLock::new();
+type PurchaseStatOrb = unsafe fn(ptr: usize, hp: f32) -> f32;
+const PURCHASE_HP_ADDR: usize = 0x86e90;
+const PURCHASE_DT_ADDR: usize = 0x86e30;
+pub fn deny_blue_or_purple_orb(_param_1: usize, _amount: f32) -> f32 {
+    1000.0
+}
 pub const CUSTOMIZE_STYLE_MENU: usize = 0x2b8a10;
 pub static ORIGINAL_STYLE_MENU: OnceLock<unsafe extern "C" fn(custom_gun: usize) -> bool> =
     OnceLock::new();
@@ -1010,23 +1036,26 @@ pub fn set_rando_session_data(ptr: usize) {
             }
 
             // Set starter weapons
-            s.weapons[0] = get_weapon_id(mapping.start_melee.as_str());
-            s.weapons[1] = 0xFF;
-            s.weapons[2] = get_weapon_id(mapping.start_gun.as_str());
-            s.weapons[3] = 0xFF;
+            s.weapons[0] = mapping.start_melee;
+            s.weapons[1] = mapping.start_second_melee;
+            s.weapons[2] = mapping.start_gun;
+            s.weapons[3] = mapping.start_second_gun;
             // Disable buying blue/purple orbs
-            s.items[7] = 6;
-            s.items[8] = 7;
+
+            //s.items[7] = 6;
+            //s.items[8] = 7;
+
             // Unlock DT off the bat
             s.unlocked_dt = true;
             /* Should see if I can change unlocked files? Or unlock them all.
             Game seemed to just auto unlock them though when the weapon is used
             Overall, not too important */
+            s.red_orbs = u32::MAX;
             // 29A5E8
             // 0x45FECCA
             if mapping.goal == Goal::RandomOrder {
                 s.mission = mapping.mission_order.as_ref().unwrap()[0] as u32;
-                s.other_mission =  mapping.mission_order.as_ref().unwrap()[0] as u32;
+                s.other_mission = mapping.mission_order.as_ref().unwrap()[0] as u32;
             }
         }
     })

@@ -1,16 +1,17 @@
-use crate::constants::{Coordinates, Difficulty, Rank, EMPTY_COORDINATES};
+use crate::constants::{Coordinates, Difficulty, Rank, EMPTY_COORDINATES, ONE_ORB};
 use crate::data::generated_locations;
 use crate::game_manager::{get_mission, set_item, with_session_read};
 use crate::mapping::MAPPING;
 use crate::ui::text_handler;
 use crate::utilities::{get_inv_address, DMC3_ADDRESS};
-use crate::{constants, create_hook, game_manager, location_handler, utilities};
+use crate::{constants, create_hook, game_manager, location_handler, utilities, GetStatusFn};
 use minhook::{MinHook, MH_STATUS};
 use std::cmp::PartialEq;
 use std::fmt::{Display, Formatter};
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::OnceLock;
 use tokio::sync::mpsc::Sender;
+use randomizer_utilities::read_data_from_address;
 
 pub const ITEM_HANDLE_PICKUP_ADDR: usize = 0x1b45a0;
 pub static ORIGINAL_HANDLE_PICKUP: OnceLock<unsafe extern "C" fn(item_struct: usize)> =
@@ -47,6 +48,12 @@ pub fn setup_check_hooks() -> Result<(), MH_STATUS> {
             ORIGINAL_RESULT_CALC,
             "Mission complete"
         );
+        create_hook!(
+            PURCHASE_ITEM_ADDR,
+            purchase_item_check,
+            ORIGINAL_PURCHASE_ITEM,
+            "Purchase item from store"
+        );
     }
     Ok(())
 }
@@ -67,6 +74,7 @@ pub fn item_non_event(item_struct: usize) {
                 let y_coord_val = (*(y_coord_addr) as u32).to_be();
                 let z_coord_val = (*(z_coord_addr) as u32).to_be();
                 let loc = Location {
+                    location_type: LocationType::Standard,
                     item_id: item_id as u32,
                     room: game_manager::get_room(),
                     mission: get_mission(),
@@ -144,6 +152,7 @@ pub fn item_event(loc_chk_flg: usize, item_id: i16, unknown: i32) {
     unsafe {
         if is_valid_id(item_id as u32) && unknown == -1 {
             let mut loc = Location {
+                location_type: LocationType::Standard,
                 item_id: item_id as u32,
                 room: game_manager::get_room(),
                 mission: get_mission(),
@@ -228,8 +237,9 @@ pub fn mission_complete_check(cuid_result: usize, ranking: i32) -> i32 {
             {
                 send_off_location_coords(
                     Location {
+                        location_type: LocationType::SSRank,
                         item_id: u32::MAX,
-                        room: SS_RANK,
+                        room: 0,
                         mission: s.mission,
                         coordinates: EMPTY_COORDINATES,
                     },
@@ -242,8 +252,9 @@ pub fn mission_complete_check(cuid_result: usize, ranking: i32) -> i32 {
             {
                 send_off_location_coords(
                     Location {
+                        location_type: LocationType::MissionComplete,
                         item_id: u32::MAX,
-                        room: MISSION_COMPLETE,
+                        room: 0,
                         mission: s.mission,
                         coordinates: EMPTY_COORDINATES,
                     },
@@ -256,12 +267,69 @@ pub fn mission_complete_check(cuid_result: usize, ranking: i32) -> i32 {
     final_ranking
 }
 
+pub const PURCHASE_ITEM_ADDR: usize = 0x285bb0;
+pub static ORIGINAL_PURCHASE_ITEM: OnceLock<unsafe extern "C" fn(custom_gun: usize)> =
+    OnceLock::new();
+pub fn purchase_item_check(ptr: usize) {
+    // Run original code, need consumables to still work
+    if let Some(orig) = ORIGINAL_PURCHASE_ITEM.get() {
+        unsafe {
+            orig(ptr);
+        }
+    }
+
+    if let Some(mapping) = MAPPING.read().unwrap().as_ref()
+        && mapping.shop_checks
+    {
+        // Figure out the index of the item we just bought from the store.
+        // 0xC8F263 is to check whether we are on gold or yellow
+        let comb = ((read_data_from_address::<u8>(*DMC3_ADDRESS + 0xC8F263) as usize) * 7)
+            + (read_data_from_address::<i32>(ptr + 0x419C) as usize);
+        let shop_index = read_data_from_address::<i32>(*DMC3_ADDRESS + (comb * 4) + 0x00597688);
+        if shop_index == 4 || shop_index == 5 {
+            // I only need two of these, but may as well map them all out
+            let bought_item_id = match shop_index {
+                0 => 0x11, // Vital Star S
+                1 => 0x10, // Vital Star L
+                2 => 0x12, // Devil Star
+                3 => 0x13, // Holy Water
+                4 => 0x07, // Blue Orb
+                5 => 0x08, // Purple Orb
+                // Mode dependent (Only one of these will be visible)
+                6 => 0x05, // Gold Orb
+                7 => 0x06, // Yellow Orb
+                _ => unreachable!(),
+            };
+            // Determine how many of these we have bought
+            let amt = read_data_from_address::<u8>(
+                read_data_from_address::<usize>(ptr + 0x4190) + 0xC + bought_item_id,
+            );
+            log::debug!("Item {} Bought {}", bought_item_id, amt);
+            // Now that we know what was bought and how many times. We need to send this off to AP
+            send_off_location_coords(Location {
+                location_type: LocationType::PurchaseItem,
+                item_id: bought_item_id as u32,
+                mission: amt as u32,
+                room: 0,
+                coordinates: EMPTY_COORDINATES
+            }, u32::MAX);
+        }
+    }
+}
+
 pub(crate) static TX_LOCATION: OnceLock<Sender<Location>> = OnceLock::new();
 
-pub const MISSION_COMPLETE: i32 = -1;
-pub const SS_RANK: i32 = -2;
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum LocationType {
+    Standard,
+    MissionComplete,
+    SSRank,
+    PurchaseItem
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Location {
+    pub(crate) location_type: LocationType,
     pub(crate) item_id: u32,
     pub(crate) room: i32,
     pub(crate) mission: u32,
@@ -310,7 +378,7 @@ pub(crate) fn take_away_received_item(id: u32) {
         unsafe {
             randomizer_utilities::replace_single_byte(
                 current_inv_addr + offset as usize,
-                utilities::read_data_from_address::<u8>(current_inv_addr + offset as usize)
+                read_data_from_address::<u8>(current_inv_addr + offset as usize)
                     .saturating_sub(1),
             );
         }

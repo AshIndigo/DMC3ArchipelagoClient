@@ -13,72 +13,12 @@ use std::sync::{LazyLock, RwLock};
 
 pub static MAPPING: LazyLock<RwLock<Option<Mapping>>> = LazyLock::new(|| RwLock::new(None));
 
-fn default_gun() -> String {
-    "Ebony & Ivory".to_string()
-}
-
-fn default_melee() -> String {
-    "Rebellion".to_string()
-}
-
 fn default_goal() -> Goal {
     Goal::Standard
 }
 
 fn default_difficulty_list() -> Vec<Difficulty> {
     vec![Difficulty::Easy, Difficulty::Normal]
-}
-
-/// Converts the option number from the slot data into a more usable gun name
-fn parse_gun_number<'de, D>(deserializer: D) -> Result<String, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let val = Value::deserialize(deserializer)?;
-    match val {
-        Value::Number(n) => match n.as_i64().unwrap_or_default() {
-            0 => Ok("Ebony & Ivory".to_string()),
-            1 => Ok("Shotgun".to_string()),
-            2 => Ok("Artemis".to_string()),
-            3 => Ok("Spiral".to_string()),
-            4 => Ok("Kalina Ann".to_string()),
-            _ => Err(serde::de::Error::custom(format!(
-                "Invalid gun number: {}",
-                n
-            ))),
-        },
-        Value::String(s) => Ok(s),
-        other => Err(serde::de::Error::custom(format!(
-            "Unexpected type: {:?}",
-            other
-        ))),
-    }
-}
-
-/// Converts the option number from the slot data into a more usable melee name
-fn parse_melee_number<'de, D>(deserializer: D) -> Result<String, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let val = Value::deserialize(deserializer)?;
-    match val {
-        Value::Number(n) => match n.as_i64().unwrap_or_default() {
-            0 => Ok("Rebellion".to_string()),
-            1 => Ok("Cerberus".to_string()),
-            2 => Ok("Agni and Rudra".to_string()),
-            3 => Ok("Nevan".to_string()),
-            4 => Ok("Beowulf".to_string()),
-            _ => Err(serde::de::Error::custom(format!(
-                "Invalid melee number: {}",
-                n
-            ))),
-        },
-        Value::String(s) => Ok(s),
-        other => Err(serde::de::Error::custom(format!(
-            "Unexpected type: {:?}",
-            other
-        ))),
-    }
 }
 
 /// Figure out which DL setting were on
@@ -176,18 +116,17 @@ pub struct Mapping {
     pub items: HashMap<String, LocationData>,
     pub starter_items: Vec<String>,
     pub adjudicators: Option<HashMap<String, AdjudicatorData>>,
-    #[serde(default = "default_melee")]
-    #[serde(deserialize_with = "parse_melee_number")]
-    pub start_melee: String,
-    #[serde(default = "default_gun")]
-    #[serde(deserialize_with = "parse_gun_number")]
-    pub start_gun: String,
+    pub start_melee: u8,
+    pub start_second_melee: u8,
+    pub start_gun: u8,
+    pub start_second_gun: u8,
     pub randomize_skills: bool,
     pub randomize_gun_levels: bool,
     pub randomize_styles: bool,
     pub purple_orb_mode: bool,
     pub devil_trigger_mode: bool,
     pub check_ss_difficulty: bool,
+    pub shop_checks: bool,
     #[serde(deserialize_with = "parse_death_link")]
     pub death_link: DeathlinkSetting,
     #[serde(default = "default_goal")]
