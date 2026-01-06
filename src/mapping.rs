@@ -238,3 +238,10 @@ pub(crate) fn parse_slot_data() -> Result<(), Box<dyn std::error::Error>> {
         Err(err) => Err(err.into()),
     }
 }
+
+pub static CACHED_LOCATIONS: LazyLock<RwLock<HashMap<String, LocationData>>> = LazyLock::new(|| RwLock::new(HashMap::new()));
+
+pub fn run_initial_scouts() {
+    // Run scouts for shop checks
+    
+}

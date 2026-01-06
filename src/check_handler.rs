@@ -1,10 +1,10 @@
-use crate::constants::{Coordinates, Difficulty, Rank, EMPTY_COORDINATES, ONE_ORB};
+use crate::constants::{Coordinates, Difficulty, Rank, EMPTY_COORDINATES};
 use crate::data::generated_locations;
 use crate::game_manager::{get_mission, set_item, with_session_read};
 use crate::mapping::MAPPING;
 use crate::ui::text_handler;
 use crate::utilities::{get_inv_address, DMC3_ADDRESS};
-use crate::{constants, create_hook, game_manager, location_handler, utilities, GetStatusFn};
+use crate::{constants, create_hook, game_manager, location_handler};
 use minhook::{MinHook, MH_STATUS};
 use std::cmp::PartialEq;
 use std::fmt::{Display, Formatter};
