@@ -25,8 +25,8 @@ pub(crate) struct ArchipelagoData {
     pub(crate) reverb_level: u8,
     // Beast uppercut -> Rising dragon
     pub(crate) beowulf_level: u8,
-    pub(crate) items: HashSet<&'static str>,
-    pub(crate) skills: HashSet<&'static str>,
+    pub(crate) items: HashSet<String>,
+    pub(crate) skills: HashSet<usize>,
 }
 
 #[derive(Copy, Clone, strum_macros::Display, strum_macros::FromRepr)]
@@ -56,12 +56,12 @@ pub static ARCHIPELAGO_DATA: LazyLock<RwLock<ArchipelagoData>> =
     LazyLock::new(|| RwLock::new(ArchipelagoData::default()));
 
 impl ArchipelagoData {
-    pub fn add_item(&mut self, item: &'static str) {
+    pub fn add_item(&mut self, item: String) {
         self.items.insert(item);
     }
 
-    pub fn add_skill(&mut self, item: &'static str) {
-        self.skills.insert(item);
+    pub fn add_skill(&mut self, skill_id: usize) {
+        self.skills.insert(skill_id);
     }
 
     pub(crate) fn add_blue_orb(&mut self) {
@@ -407,7 +407,7 @@ pub fn set_session_weapons() {
     if let Ok(data) = ARCHIPELAGO_DATA.read() {
         with_session(|s| {
             for weapon in get_items_by_category(ItemCategory::Weapon) {
-                if data.items.contains(&weapon) {
+                if data.items.contains(&weapon.to_string()) {
                     let weapon_id = get_weapon_id(weapon);
                     if MELEE_NAMES.contains(&weapon)
                         && s.weapons[0] != weapon_id
@@ -435,7 +435,7 @@ pub(crate) fn set_weapons_in_inv() {
     let mut flag;
     if let Ok(data) = ARCHIPELAGO_DATA.read() {
         for weapon in get_items_by_category(ItemCategory::Weapon) {
-            if data.items.contains(&weapon) {
+            if data.items.contains(&weapon.to_string()) {
                 flag = true;
                 log::debug!("Adding weapon/style to inventory {}", weapon);
             } else {

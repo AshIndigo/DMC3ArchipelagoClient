@@ -16,6 +16,12 @@ pub struct Connection {
     pub reconnect_interval_seconds: i32, // How many seconds between each reconnection attempt to the local client
 }
 
+impl Connection {
+    pub fn get_url(&self) -> String {
+        format!("{}:{}", self.address, self.port)
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Mods {
     pub disable_ddmk_hooks: bool, // Stop DDMK hooks from being loaded, this does not stop hash verification though

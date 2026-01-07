@@ -1,16 +1,18 @@
-use std::fmt::{Display, Formatter};
-use crate::archipelago::{TX_CONNECT, TX_DEATHLINK, TX_DISCONNECT};
+use crate::archipelago::{ArchipelagoCore, TX_CONNECT, TX_DEATHLINK, TX_DISCONNECT};
 use crate::bank::TX_BANK_MESSAGE;
 use crate::check_handler::TX_LOCATION;
-use crate::constants::DMC3Config;
+use crate::config::Config;
+use crate::constants::{BasicNothingFunc, DMC3Config};
+use crate::utilities::DMC3_ADDRESS;
 use crate::utilities::{is_crimson_loaded, is_ddmk_loaded};
+use archipelago_rs::Connection;
 use connection_manager::CONNECTION_STATUS;
-use randomizer_utilities::archipelago_utilities::{
-    connect_local_archipelago_proxy, CLIENT, SLOT_NUMBER, TEAM_NUMBER,
-};
+use minhook::{MinHook, MH_STATUS};
 use randomizer_utilities::exception_handler;
-use randomizer_utilities::ui_utilities::Status;
+use randomizer_utilities::mapping_utilities::GameConfig;
+use std::fmt::{Display, Formatter};
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use windows::core::{BOOL, PCSTR};
 use windows::Win32::Foundation::*;
@@ -87,9 +89,9 @@ pub extern "system" fn DllMain(
             randomizer_utilities::setup_logger("dmc3_randomizer");
             // Loader status
             thread::spawn(|| unsafe {
-                let loader_hmodule = LibraryLoader::LoadLibraryA(
-                    PCSTR::from_raw(c"dinput8.dll".as_ptr() as *const u8),
-                );
+                let loader_hmodule = LibraryLoader::LoadLibraryA(PCSTR::from_raw(
+                    c"dinput8.dll".as_ptr() as *const u8,
+                ));
                 let proc_addr = LibraryLoader::GetProcAddress(
                     loader_hmodule.unwrap(),
                     PCSTR::from_raw(c"get_loader_status".as_ptr() as *const u8),
@@ -115,6 +117,48 @@ pub extern "system" fn DllMain(
     BOOL(1)
 }
 
+fn setup_main_loop_hook() -> Result<(), MH_STATUS> {
+    unsafe {
+        create_hook!(
+            MAIN_LOOP_ADDR,
+            main_loop_hook,
+            MAIN_LOOP_ORIGINAL,
+            "Main loop hook"
+        );
+        MinHook::enable_hook((*DMC3_ADDRESS + MAIN_LOOP_ADDR) as *mut _)?;
+    }
+    Ok(())
+}
+
+pub static AP_CORE: OnceLock<Arc<Mutex<ArchipelagoCore>>> = OnceLock::new();
+
+static MAIN_LOOP_ORIGINAL: OnceLock<BasicNothingFunc> = OnceLock::new();
+const MAIN_LOOP_ADDR: usize = 0x337df0;
+fn main_loop_hook() {
+    // Run original game code
+    if let Some(func) = MAIN_LOOP_ORIGINAL.get() {
+        unsafe {
+            func();
+        }
+    }
+
+    if let Err(err) = AP_CORE
+        .get_or_init(|| {
+            ArchipelagoCore::new(
+                config::CONFIG.connections.get_url(),
+                DMC3Config::GAME_NAME.parse().unwrap(),
+            )
+            .map(|core| Arc::new(Mutex::new(core)))
+            .unwrap()
+        })
+        .lock()
+        .unwrap()
+        .update()
+    {
+        log::error!("{}", err);
+    }
+}
+
 fn main_setup() {
     exception_handler::install_exception_handler();
     if is_ddmk_loaded() {
@@ -134,24 +178,25 @@ fn main_setup() {
     } else {
         log::info!("DDMK or Crimson are not loaded!");
     }
-    log::info!("DMC3 Base Address is: {:X}", *utilities::DMC3_ADDRESS);
-    thread::Builder::new()
-        .name("Archipelago Client".to_string())
-        .spawn(move || {
-            spawn_archipelago_thread();
-        })
-        .expect("Failed to spawn arch thread");
+    log::info!("DMC3 Base Address is: {:X}", *DMC3_ADDRESS);
+    setup_main_loop_hook().unwrap();
+    // thread::Builder::new()
+    //     .name("Archipelago Client".to_string())
+    //     .spawn(move || {
+    //         spawn_archipelago_thread();
+    //     })
+    //     .expect("Failed to spawn arch thread");
 }
 
-#[tokio::main]
-pub(crate) async fn spawn_archipelago_thread() {
+//#[tokio::main]
+/*pub(crate) fn spawn_archipelago_thread() {
     log::info!("Archipelago Thread started");
     let mut setup = false;
-    let mut rx_locations = randomizer_utilities::setup_channel_pair(&TX_LOCATION, None);
-    let mut rx_connect = randomizer_utilities::setup_channel_pair(&TX_CONNECT, None);
-    let mut rx_bank_to_inv = randomizer_utilities::setup_channel_pair(&TX_BANK_MESSAGE, None);
-    let mut rx_deathlink = randomizer_utilities::setup_channel_pair(&TX_DEATHLINK, None);
-    let mut rx_disconnect = randomizer_utilities::setup_channel_pair(&TX_DISCONNECT, None);
+    let mut rx_locations = randomizer_utilities::setup_channel_pair(&TX_LOCATION);
+    let mut rx_connect = randomizer_utilities::setup_channel_pair(&TX_CONNECT);
+    let mut rx_bank_to_inv = randomizer_utilities::setup_channel_pair(&TX_BANK_MESSAGE);
+    let mut rx_deathlink = randomizer_utilities::setup_channel_pair(&TX_DEATHLINK);
+    let mut rx_disconnect = randomizer_utilities::setup_channel_pair(&TX_DISCONNECT);
     if !config::CONFIG.connections.disable_auto_connect {
         thread::spawn(|| {
             log::debug!("Starting auto connector");
@@ -161,25 +206,23 @@ pub(crate) async fn spawn_archipelago_thread() {
     }
     loop {
         // Wait for a connection request
-        let Some(item) = rx_connect.recv().await else {
+        let Some(item) = rx_connect.recv() else {
             log::warn!("Connect channel closed, exiting Archipelago thread.");
             break;
         };
 
         log::info!("Processing connection request");
-        let mut client_lock = CLIENT.lock().await;
 
-        match connect_local_archipelago_proxy::<DMC3Config>(item).await {
+        match connect_local_archipelago_proxy::<DMC3Config>(item) {
             Ok(cl) => {
-                client_lock.replace(cl);
+                cl.state()
+                //client_lock.replace(cl);
                 CONNECTION_STATUS.store(Status::Connected.into(), Ordering::SeqCst);
             }
             Err(err) => {
                 log::error!("Failed to connect to Archipelago: {err}");
-                client_lock.take(); // Clear the client
+                //client_lock.take(); // Clear the client
                 CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::SeqCst);
-                SLOT_NUMBER.store(-1, Ordering::SeqCst);
-                TEAM_NUMBER.store(-1, Ordering::SeqCst);
                 continue; // Try again on next connection request
             }
         }
@@ -189,10 +232,6 @@ pub(crate) async fn spawn_archipelago_thread() {
             if !setup && let Err(err) = archipelago::run_setup(client).await {
                 log::error!("Failed to run initial setup, this is probably bad: {err}");
             }
-
-            // if let Err(e) = client.status_update(ClientStatus::ClientReady).await {
-            //     log::error!("Status update failed: {e}");
-            // }
             // This blocks until a reconnect or disconnect is triggered
             archipelago::handle_things(
                 client,
@@ -202,10 +241,10 @@ pub(crate) async fn spawn_archipelago_thread() {
                 &mut rx_deathlink,
                 &mut rx_disconnect,
             )
-            .await;
+                .await;
         }
         CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::SeqCst);
         setup = false;
         // Allow reconnection immediately without delay
     }
-}
+}*/

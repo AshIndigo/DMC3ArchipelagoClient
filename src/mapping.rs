@@ -1,15 +1,15 @@
 use crate::data::generated_locations;
 use crate::hook::modify_item_table;
-use crate::{constants, location_handler};
+use crate::{constants, location_handler, AP_CORE};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
 use crate::constants::{Difficulty, Rank};
-use randomizer_utilities::archipelago_utilities::CONNECTED;
-use randomizer_utilities::mapping_utilities::LocationData;
 use randomizer_utilities::APVersion;
 use std::sync::{LazyLock, RwLock};
+use archipelago_rs::Client;
+use randomizer_utilities::mapping_utilities::LocationData;
 
 pub static MAPPING: LazyLock<RwLock<Option<Mapping>>> = LazyLock::new(|| RwLock::new(None));
 
@@ -184,7 +184,7 @@ pub struct AdjudicatorData {
     pub ranking: u8,
 }
 
-pub fn use_mappings() -> Result<(), Box<dyn std::error::Error>> {
+pub fn use_mappings(cl: &mut Client) -> Result<(), Box<dyn std::error::Error>> {
     let guard = MAPPING.read()?; // Annoying
     let mapping = guard.as_ref().ok_or("No mappings found, cannot use")?;
     // Run through each mapping entry
@@ -193,7 +193,7 @@ pub fn use_mappings() -> Result<(), Box<dyn std::error::Error>> {
         match generated_locations::ITEM_MISSION_MAP.get(location_name as &str) {
             Some(entry) => {
                 // With the offset acquired, before the necessary replacement
-                if location_handler::location_is_checked_and_end(location_name) {
+                if location_handler::location_is_checked_and_end(cl, location_name) {
                     // If the item procs an end mission event, replace with a dummy ID in order to not immediately trigger a mission end
                     modify_item_table(entry.offset, *constants::DUMMY_ID as u8)
                 }
@@ -207,11 +207,9 @@ pub fn use_mappings() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub(crate) fn parse_slot_data() -> Result<(), Box<dyn std::error::Error>> {
-    match CONNECTED.read() {
-        Ok(conn_opt) => {
-            if let Some(connected) = conn_opt.as_ref() {
+            if let Ok(connected) = AP_CORE.get().unwrap().lock().as_ref() {
                 let mapping: Mapping =
-                    serde_path_to_error::deserialize(connected.slot_data.clone())?;
+                    serde_path_to_error::deserialize(connected.connection.client().unwrap().slot_data().clone())?;
                 log::debug!("Mod version: {}", env!("CARGO_PKG_VERSION"));
                 log::debug!(
                     "Client version: {}",
@@ -234,14 +232,12 @@ pub(crate) fn parse_slot_data() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 Err("No mapping found, cannot parse".into())
             }
-        }
-        Err(err) => Err(err.into()),
-    }
+
 }
 
-pub static CACHED_LOCATIONS: LazyLock<RwLock<HashMap<String, LocationData>>> = LazyLock::new(|| RwLock::new(HashMap::new()));
+/*pub static CACHED_LOCATIONS: LazyLock<RwLock<HashMap<String, LocationData>>> = LazyLock::new(|| RwLock::new(HashMap::new()));
 
 pub fn run_initial_scouts() {
     // Run scouts for shop checks
     
-}
+}*/

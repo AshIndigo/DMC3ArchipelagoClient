@@ -4,7 +4,7 @@ use crate::data::generated_locations;
 use crate::game_manager::get_mission;
 use crate::{constants, game_manager, mapping, utilities};
 use anyhow::anyhow;
-use randomizer_utilities::archipelago_utilities::CHECKED_LOCATIONS;
+use archipelago_rs::Client;
 use std::error::Error;
 
 /// If we are in a room with a key item+appropriate mission, return Ok(location_key)
@@ -73,11 +73,13 @@ pub fn get_mapped_item_id(location_name: &str) -> Result<u32, Box<dyn Error>> {
     let Some(mapping_data) = mapping_data.as_ref() else {
         return Err(Box::from("No mapping data"));
     };
-    let id = mapping_data
-        .items
-        .get(location_name)
-        .unwrap()
-        .get_in_game_id::<constants::DMC3Config>();
+    // TODO Properly get ID
+    let id = 0x58;
+    // let id = mapping_data
+    //     .items
+    //     .get(location_name)
+    //     .unwrap()
+    //     .get_in_game_id::<constants::DMC3Config>();
     // To set the displayed graphic to the corresponding weapon
     if id > 0x39 {
         return Ok(match id {
@@ -132,7 +134,7 @@ pub fn edit_end_event(location_key: &str) {
 
 /// If the location key corresponds to an END event and is checked off, return true, otherwise false
 /// Used for dummy related item
-pub(crate) fn location_is_checked_and_end(location_key: &str) -> bool {
+pub(crate) fn location_is_checked_and_end(cl: &mut Client, location_key: &String) -> bool {
     match EVENT_TABLES.get(&get_mission()) {
         None => false,
         Some(event_tables) => {
@@ -140,16 +142,8 @@ pub(crate) fn location_is_checked_and_end(location_key: &str) -> bool {
                 if event_table.location == location_key {
                     for event in event_table.events.iter() {
                         if event.event_type == EventCode::End {
-                            match CHECKED_LOCATIONS.read() {
-                                Ok(checked_locations) => {
-                                    if checked_locations.contains(&location_key) {
-                                        return true;
-                                    }
-                                }
-                                Err(err) => {
-                                    log::error!("Failed to get checked locations: {}", err);
-                                    return false;
-                                }
+                            if cl.checked_locations().find(|loc| loc.name() == location_key).is_some() {
+                                return true;
                             }
                         }
                     }

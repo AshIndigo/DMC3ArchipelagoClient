@@ -4,14 +4,12 @@ use std::sync::atomic::{AtomicIsize, Ordering};
 // Disconnected
 pub(crate) static CONNECTION_STATUS: AtomicIsize = AtomicIsize::new(0);
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 1)]
 pub async fn send_connect_message(url: String) {
     log::debug!("Connecting to Archipelago");
     match archipelago::TX_CONNECT.get() {
         None => log::error!("Connect TX doesn't exist"),
         Some(tx) => {
             tx.send(url)
-            .await
             .expect("Failed to send data");
         }
     }

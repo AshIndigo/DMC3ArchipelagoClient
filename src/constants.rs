@@ -1,4 +1,3 @@
-use randomizer_utilities::cache::DATA_PACKAGE;
 use crate::skill_manager::ID_SKILL_MAP;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
@@ -612,21 +611,6 @@ pub fn get_item_name(item_id: u32) -> &'static str {
     }
 }
 
-pub fn get_item_id(name: &str) -> Option<u32> {
-    match ITEM_MAP.get_by_left(name).copied() {
-        None => match DATA_PACKAGE.read().unwrap().as_ref() {
-            None => None,
-            Some(data_package) => data_package
-                .games
-                .get(GAME_NAME)?
-                .item_name_to_id
-                .get_by_left(&Arc::new(name.to_string()))
-                .copied()
-                .map(|id| id as u32),
-        },
-        Some(id) => Some(id),
-    }
-}
 pub fn get_items_by_category(category: ItemCategory) -> Vec<&'static str> {
     ALL_ITEMS
         .iter()

@@ -14,11 +14,11 @@ use crate::ui::text_handler;
 use crate::ui::text_handler::LAST_OBTAINED_ID;
 use crate::utilities::{read_data_from_address, DMC3_ADDRESS};
 use crate::{
-    bank, check_handler, create_hook, game_manager, save_handler, skill_manager, utilities,
+    bank, check_handler, create_hook, game_manager, save_handler, skill_manager, utilities, AP_CORE,
 };
 use bitflags::bitflags;
 use minhook::{MinHook, MH_STATUS};
-use randomizer_utilities::archipelago_utilities::{DeathLinkData, CHECKED_LOCATIONS};
+use randomizer_utilities::archipelago_utilities::DeathLinkData;
 use randomizer_utilities::replace_single_byte;
 use std::arch::asm;
 use std::cmp::min;
@@ -114,7 +114,8 @@ unsafe fn create_hooks() -> Result<(), MH_STATUS> {
             deny_blue_or_purple_orb,
             ORIGINAL_PURCHASE_HP,
             "N/A"
-        );  create_hook!(
+        );
+        create_hook!(
             PURCHASE_DT_ADDR,
             deny_blue_or_purple_orb,
             ORIGINAL_PURCHASE_DT,
@@ -228,13 +229,13 @@ pub static ORIGINAL_EDIT_EVENT: OnceLock<
 > = OnceLock::new();
 pub fn edit_event_drop(param_1: usize, param_2: i32, param_3: usize) {
     let (mapping, mission_event_tables, checked_locations) =
-        if let (Ok(mapping), Some(mission_event_tables), Some(checked_locations)) = (
+        if let (Ok(mapping), Some(mission_event_tables), Ok(client)) = (
             MAPPING.read(),
             EVENT_TABLES.get(&get_mission()),
-            CHECKED_LOCATIONS.read().ok(),
+            AP_CORE.get().unwrap().as_ref().lock(),
         ) && mapping.is_some()
         {
-            (mapping, mission_event_tables, checked_locations)
+            (mapping, mission_event_tables, client)
         } else {
             unsafe {
                 if let Some(original) = ORIGINAL_EDIT_EVENT.get() {
@@ -251,7 +252,14 @@ pub fn edit_event_drop(param_1: usize, param_2: i32, param_3: usize) {
                 for event_table in mission_event_tables {
                     for event in &event_table.events {
                         if let Some(event_table_addr) = utilities::get_event_address() {
-                            if checked_locations.contains(&event_table.location) {
+                            if checked_locations
+                                .connection
+                                .client()
+                                .unwrap()
+                                .checked_locations()
+                                .find(|loc| loc.name() == &event_table.location)
+                                .is_some()
+                            {
                                 log::debug!("Event loc checked: {}", &event_table.location);
                                 match event.event_type {
                                     // If the location has already been checked use DUMMY_ID as a dummy item.
@@ -475,20 +483,17 @@ fn monitor_hp(damage_calc: usize, param_1: usize, param_2: usize, param_3: usize
     }
 }
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 1)]
-async fn send_deathlink() {
+fn send_deathlink() {
     TX_DEATHLINK
         .get()
         .unwrap()
         .send(DeathLinkData {
             cause: format!(
                 "died in Mission #{} on {}", // TODO Maybe an "against {}" at some point?
-                //mapping_utilities::get_own_slot_name().unwrap(),
                 get_mission(),
                 get_difficulty()
             ),
         })
-        .await
         .unwrap();
 }
 
@@ -583,22 +588,27 @@ fn dummy_replace(location_key: &&str, item_addr: *mut i32) -> bool {
             .iter()
             .filter(|table| table.location == *location_key)
         {
-            for _event in event_table
+            for _ in event_table
                 .events
                 .iter()
                 .filter(|event| event.event_type == EventCode::End)
             {
-                // Then if location in question is checked, replace the item with a dummy and return true
-                if let Ok(checked_locations) = CHECKED_LOCATIONS.read() {
-                    if checked_locations.contains(location_key) {
+                if let Ok(core) = AP_CORE.get().unwrap().lock().as_ref() {
+                    // Then if location in question is checked, replace the item with a dummy and return true
+                    if core
+                        .connection
+                        .client()
+                        .unwrap()
+                        .checked_locations()
+                        .find(|loc| loc.name() == *location_key)
+                        .is_some()
+                    {
                         unsafe {
                             *item_addr = *DUMMY_ID as i32;
                         }
                         log::info!("Replaced item at {} with dummy item", location_key);
                         return true;
                     }
-                } else {
-                    log::error!("Failed to lock checked locations vec");
                 }
             }
         }
@@ -617,7 +627,7 @@ fn set_relevant_key_items() {
                 None => {} // No items for the mission
                 Some(item_list) => {
                     for item in item_list.iter() {
-                        if data.items.contains(item) {
+                        if data.items.contains(&item.to_string()) {
                             let res = game_manager::has_item_by_flags(item);
                             if !res {
                                 set_item(item, true, true);
@@ -636,39 +646,40 @@ fn set_relevant_key_items() {
             }
             // Special case for Ignis Fatuus
             // Needed so the Ignis Fatuus location can be reached even when the actual key item is acquired
-
-            if get_room() == 302
-                && let Some(event_table_addr) = utilities::get_event_address()
-            {
-                if CHECKED_LOCATIONS
-                    .read()
-                    .unwrap()
-                    .contains(&"Mission #8 - Ignis Fatuus")
+            if let Ok(core) = AP_CORE.get().unwrap().lock().as_ref() {
+                let mut checked_locations = core.connection.client().unwrap().checked_locations();
+                if get_room() == 302
+                    && let Some(event_table_addr) = utilities::get_event_address()
                 {
-                    // If we have the location checked, continue normal routing
-                    unsafe {
-                        write((event_table_addr + 0x748) as _, 311);
-                    }
-                } else {
-                    // If location not checked, alter event to get to it
-                    unsafe {
-                        write((event_table_addr + 0x748) as _, 303);
+                    if checked_locations
+                        .find(|loc| loc.name() == "Mission #8 - Ignis Fatuus")
+                        .is_some()
+                    {
+                        // If we have the location checked, continue normal routing
+                        unsafe {
+                            write((event_table_addr + 0x748) as _, 311);
+                        }
+                    } else {
+                        // If location not checked, alter event to get to it
+                        unsafe {
+                            write((event_table_addr + 0x748) as _, 303);
+                        }
                     }
                 }
-            }
 
-            if let Ok(loc) = in_key_item_room() {
-                log::debug!("In key room: {}", loc);
-                if !CHECKED_LOCATIONS.read().unwrap().contains(&loc) {
-                    set_loc_chk_flg(
-                        get_item_name(
-                            generated_locations::ITEM_MISSION_MAP
-                                .get(loc)
-                                .unwrap()
-                                .item_id,
-                        ),
-                        false,
-                    );
+                if let Ok(loc) = in_key_item_room() {
+                    log::debug!("In key room: {}", loc);
+                    if !checked_locations.find(|location| location.name() == loc).is_some() {
+                        set_loc_chk_flg(
+                            get_item_name(
+                                generated_locations::ITEM_MISSION_MAP
+                                    .get(loc)
+                                    .unwrap()
+                                    .item_id,
+                            ),
+                            false,
+                        );
+                    }
                 }
             }
         })
@@ -841,11 +852,8 @@ pub fn deny_cerberus_or_shotgun(_param_1: usize, _id: u8) -> bool {
 }
 
 // Making it so purchasing a blue/purple orb in the store does not give the relevant stat boost
-pub static ORIGINAL_PURCHASE_HP: OnceLock<
-    PurchaseStatOrb,
-> = OnceLock::new();pub static ORIGINAL_PURCHASE_DT: OnceLock<
-    PurchaseStatOrb,
-> = OnceLock::new();
+pub static ORIGINAL_PURCHASE_HP: OnceLock<PurchaseStatOrb> = OnceLock::new();
+pub static ORIGINAL_PURCHASE_DT: OnceLock<PurchaseStatOrb> = OnceLock::new();
 type PurchaseStatOrb = unsafe fn(ptr: usize, hp: f32) -> f32;
 const PURCHASE_HP_ADDR: usize = 0x86e90;
 const PURCHASE_DT_ADDR: usize = 0x86e30;

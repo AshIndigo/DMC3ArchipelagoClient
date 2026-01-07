@@ -9,8 +9,8 @@ use minhook::{MinHook, MH_STATUS};
 use std::cmp::PartialEq;
 use std::fmt::{Display, Formatter};
 use std::sync::atomic::Ordering::SeqCst;
+use std::sync::mpsc::Sender;
 use std::sync::OnceLock;
-use tokio::sync::mpsc::Sender;
 use randomizer_utilities::read_data_from_address;
 
 pub const ITEM_HANDLE_PICKUP_ADDR: usize = 0x1b45a0;
@@ -107,7 +107,7 @@ pub fn item_non_event(item_struct: usize) {
                     Ok(location_name) => {
                         send_off_location_coords(
                             loc,
-                            location_handler::get_mapped_item_id(location_name).unwrap(), //location_handler::get_item_at_location(&loc).unwrap(),
+                            location_handler::get_mapped_item_id(location_name).unwrap(),
                         );
                     }
                     Err(err) => {
@@ -357,10 +357,9 @@ pub(crate) fn clear_high_roller() {
     set_item("Dummy", false, true);
 }
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 1)]
-async fn send_off_location_coords(loc: Location, to_display: u32) {
+fn send_off_location_coords(loc: Location, to_display: u32) {
     if let Some(tx) = TX_LOCATION.get() {
-        tx.send(loc).await.expect("Failed to send Location!");
+        tx.send(loc).expect("Failed to send Location!");
         if to_display != u32::MAX {
             clear_high_roller();
             text_handler::LAST_OBTAINED_ID.store(to_display as u8, SeqCst);

@@ -212,9 +212,9 @@ pub(crate) fn reset_expertise() {
 
 const EXPERTISE_OFFSET: usize = 0x400C;
 
-fn give_skill(skill_name: &&'static str) {
+fn give_skill(skill_id: &usize) {
     // This works, might not update files? need to double-check
-    let data = SKILLS_MAP.get(skill_name).unwrap();
+    let data = SKILLS_MAP.get(ID_SKILL_MAP.get(&skill_id).unwrap()).unwrap();
     game_manager::with_session(|s| {
         s.expertise[data.index].bitor_assign(data.flag);
     })
@@ -259,7 +259,7 @@ pub(crate) fn add_skill(id: usize, data: &mut ArchipelagoData) {
         _ => {}
     }
 
-    let skill_name = match id {
+    let skill_id = match id {
         0x40 => match data.stinger_level {
             1 => 0x40,
             2 => 0x41,
@@ -282,5 +282,5 @@ pub(crate) fn add_skill(id: usize, data: &mut ArchipelagoData) {
         },
         _ => id,
     };
-    data.add_skill(ID_SKILL_MAP.get(&skill_name).unwrap());
+    data.add_skill(skill_id);
 }

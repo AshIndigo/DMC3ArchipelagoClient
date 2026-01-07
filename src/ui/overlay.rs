@@ -3,7 +3,6 @@ use crate::mapping::MAPPING;
 use crate::ui::font_handler::{get_default_color, FontAtlas, FontColorCB, GREEN, RED, WHITE};
 use crate::ui::{dx11_hooks, font_handler};
 use crate::utilities;
-use archipelago_rs::protocol::NetworkItemFlags;
 use randomizer_utilities::ui_utilities::Status;
 use std::collections::VecDeque;
 use std::slice::from_raw_parts;
@@ -21,6 +20,7 @@ use windows::Win32::Graphics::Dxgi::Common::{
 };
 use windows::Win32::Graphics::Dxgi::*;
 use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
+use archipelago_rs::{Item, LocatedItem};
 
 pub(crate) struct D3D11State {
     device: ID3D11Device,
@@ -517,19 +517,21 @@ fn pop_buffer_message() {
     }
 }
 
-pub(crate) fn get_color_for_item(flags: &NetworkItemFlags) -> FontColorCB {
+pub(crate) fn get_color_for_item(item: &LocatedItem) -> FontColorCB {
     const CYAN: FontColorCB = FontColorCB::new(0.0, 0.933, 0.933, 1.0);
     const PLUM: FontColorCB = FontColorCB::new(0.686, 0.6, 0.937, 1.0);
     const STATE_BLUE: FontColorCB = FontColorCB::new(0.427, 0.545, 0.91, 1.0);
     const SALMON: FontColorCB = FontColorCB::new(0.98, 0.502, 0.447, 1.0);
-    match flags.bits() {
-        0b000 => CYAN,       // Cyan for regular/filler
-        0b001 => PLUM,       // Plum for progression
-        0b010 => STATE_BLUE, // 'Stateblue' for useful
-        0b100 => SALMON,     // Salmon for trap
-        0b101 => PLUM,       // Plum for progression
-        0b110 => STATE_BLUE, // 'Stateblue' for useful
-        0b011 => PLUM,       // Plum-gression (could be gold if I wanted to do proguseful)
-        _ => WHITE,
-    }
+    WHITE
+    // TODO Would maybe be nice to have the bits again
+    // match item.flags.bits() {
+    //     0b000 => CYAN,       // Cyan for regular/filler
+    //     0b001 => PLUM,       // Plum for progression
+    //     0b010 => STATE_BLUE, // 'Stateblue' for useful
+    //     0b100 => SALMON,     // Salmon for trap
+    //     0b101 => PLUM,       // Plum for progression
+    //     0b110 => STATE_BLUE, // 'Stateblue' for useful
+    //     0b011 => PLUM,       // Plum-gression (could be gold if I wanted to do proguseful)
+    //     _ => WHITE,
+    // }
 }

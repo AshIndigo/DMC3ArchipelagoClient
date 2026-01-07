@@ -1,6 +1,6 @@
 use crate::mapping::MAPPING;
 use crate::utilities::DMC3_ADDRESS;
-use crate::{create_hook, utilities};
+use crate::{create_hook, utilities, AP_CORE};
 use minhook::MinHook;
 use minhook::MH_STATUS;
 use std::error::Error;
@@ -9,7 +9,6 @@ use std::ptr::{write, write_unaligned};
 use std::sync::atomic::Ordering;
 use std::sync::{OnceLock, RwLock};
 use std::{fs, io};
-use randomizer_utilities::mapping_utilities::get_own_slot_name;
 use crate::connection_manager::CONNECTION_STATUS;
 
 /// Pointer to where save file is in memory
@@ -36,11 +35,16 @@ pub fn get_save_path() -> Result<String, io::Error> {
 pub fn get_new_save_path() -> Result<String, Box<dyn Error>> {
     // Load up the mappings to get the seed
     if let Some(mappings) = MAPPING.read()?.as_ref() {
-        Ok(format!(
-            "archipelago/dmc3_{}_{}.sav",
-            &mappings.seed,
-            &get_own_slot_name()?
-        ))
+        if let Ok(core) = AP_CORE.get().unwrap().as_ref().lock() {
+            Ok(format!(
+                "archipelago/dmc3_{}_{}.sav",
+                &mappings.seed,
+                core.connection.client().unwrap().this_player().name()
+            ))
+        } else {
+            Err("Connecting unavailable".into())
+        }
+        
     } else {
         Err("Mappings not available".into())
     }

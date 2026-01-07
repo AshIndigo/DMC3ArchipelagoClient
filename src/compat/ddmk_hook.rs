@@ -82,7 +82,7 @@ unsafe fn tracking_window() {
                 for chunk in constants::get_items_by_category(ItemCategory::Key).chunks(3) {
                     let row_text = chunk
                         .iter()
-                        .map(|&item| checkbox_text(item, &data.items))
+                        .map(|&item| checkbox_text(&item.to_string(), &data.items))
                         .collect::<Vec<String>>()
                         .join("  ");
                     text(format!("{}\0", row_text));
@@ -132,8 +132,8 @@ unsafe fn bank_window() {
     }
 }
 
-fn checkbox_text(item: &str, list: &HashSet<&str>) -> String {
-    format!("{} [{}]", item, if list.contains(&item) { "X" } else { " " })
+fn checkbox_text(item: &String, list: &HashSet<String>) -> String {
+    format!("{} [{}]", item, if list.contains(item) { "X" } else { " " })
 }
 
 pub unsafe fn archipelago_window() {

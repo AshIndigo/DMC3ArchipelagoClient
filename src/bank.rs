@@ -1,27 +1,20 @@
-use crate::constants::ItemCategory;
-use randomizer_utilities::replace_single_byte;
+use crate::constants::{ItemCategory, ITEM_MAP};
 use crate::utilities::{read_data_from_address, DMC3_ADDRESS};
 use crate::{constants, create_hook};
-use archipelago_rs::client::{ArchipelagoClient, ArchipelagoError};
-use archipelago_rs::protocol::{ClientMessage, DataStorageOperation, Get, Set};
+use archipelago_rs::{Client, Connection, DataStorageOperation, Error, Player};
 use minhook::{MinHook, MH_STATUS};
+use randomizer_utilities::replace_single_byte;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::{OnceLock, RwLock};
-use tokio::sync::mpsc::{Sender};
-use randomizer_utilities::archipelago_utilities::{SLOT_NUMBER, TEAM_NUMBER};
+use std::sync::mpsc::Sender;
 
 pub(crate) static BANK: OnceLock<RwLock<HashMap<&'static str, i32>>> = OnceLock::new();
 pub static TX_BANK_MESSAGE: OnceLock<Sender<(&'static str, i32)>> = OnceLock::new();
 
-pub(crate) fn get_bank_key(item: &str) -> String {
-    format!(
-        "team{}_slot{}_{}",
-        TEAM_NUMBER.load(Ordering::SeqCst),
-        SLOT_NUMBER.load(Ordering::SeqCst),
-        item
-    )
+pub(crate) fn get_bank_key(item: &str, player: &Player) -> String {
+    format!("team{}_slot{}_{}", player.team(), player.slot(), item)
 }
 
 pub fn get_bank() -> &'static RwLock<HashMap<&'static str, i32>> {
@@ -35,34 +28,44 @@ pub fn get_bank() -> &'static RwLock<HashMap<&'static str, i32>> {
     })
 }
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 2)]
-pub async fn modify_bank_message(item_name: &'static str, count: i32) {
+pub fn modify_bank_message(item_name: &'static str, count: i32) {
     match TX_BANK_MESSAGE.get() {
         None => log::error!("Connect TX doesn't exist"),
         Some(tx) => {
             tx.send((item_name, count))
-                .await
                 .expect("Failed to send data");
         }
     }
 }
 
-pub(crate) async fn modify_bank_value(
-    client: &mut ArchipelagoClient,
+pub(crate) fn modify_bank_value(
+    connection: &mut Connection,
     item: (&'static str, i32),
-) -> Result<(), ArchipelagoError> {
-    client
-        .send(ClientMessage::Set(Set {
-            key: get_bank_key(item.0),
-            default: Value::from(1),
-            want_reply: true,
-            operations: vec![DataStorageOperation::Add(Value::from(item.1))],
-        }))
-        .await
+) -> Result<(), Error> {
+    if let Some(client) = connection.client_mut() {
+        client.change(
+            get_bank_key(item.0, client.this_player()),
+            Value::from(item.1),
+            vec![DataStorageOperation::Add(item.1 as f64)],
+            true,
+        )
+    } else {
+        Err(Error::ClientDisconnected)
+    }
+
+    // client
+    //     .send(ClientMessage::Set(Set {
+    //         key: get_bank_key(item.0),
+    //         default: Value::from(1),
+    //         want_reply: true,
+    //         operations: vec![DataStorageOperation::Add(Value::from(item.1))],
+    //     }))
+    //     .await
 }
 
 /// Reset the banks contents to nothing. Used for resetting the values if needed.
-pub(crate) async fn _reset_bank(
+// TODO Remove?
+/*pub(crate) async fn _reset_bank(
     client: &mut ArchipelagoClient,
 ) -> Result<(), Box<dyn std::error::Error>> {
     get_bank().write()?.iter_mut().for_each(|(_k, v)| {
@@ -79,17 +82,21 @@ pub(crate) async fn _reset_bank(
             .await?;
     }
     Ok(())
-}
+}*/
 
-pub(crate) async fn read_values(
-    client: &mut ArchipelagoClient,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) fn read_values(
+    client: &mut Client
+) -> Result<(), Error> {
     let mut keys = vec![];
-    for item in constants::get_items_by_category(ItemCategory::Consumable) {
-        keys.push(get_bank_key(item));
-    }
-    client.send(ClientMessage::Get(Get { keys })).await?;
-    Ok(())
+        for item in constants::get_items_by_category(ItemCategory::Consumable) {
+            keys.push(get_bank_key(item, client.this_player()));
+        }
+        let rec = client.get(keys);
+// TODO
+        //client.get(ClientMessage::Get(Get { keys })).await?;
+        Ok(())
+
+
 }
 
 pub fn setup_bank_hooks() -> Result<(), MH_STATUS> {
@@ -131,7 +138,8 @@ pub fn open_inv_screen(param_1: usize) {
     }
     let bank = get_bank().read().unwrap();
     for item in constants::get_items_by_category(ItemCategory::Consumable) {
-        let item_address = param_1 + 0xC + constants::get_item_id(item).unwrap() as usize;
+        let item_id = ITEM_MAP.get_by_left(item).copied().unwrap();
+        let item_address = param_1 + 0xC + item_id as usize;
         unsafe {
             replace_single_byte(
                 item_address,
@@ -150,7 +158,8 @@ pub fn close_inv_screen(param_1: usize) {
     log::debug!("Closing Inv Screen");
     let bank = get_bank().read().unwrap();
     for item in constants::get_items_by_category(ItemCategory::Consumable) {
-        let status_item_address = param_1 + 0xC + constants::get_item_id(item).unwrap() as usize;
+        let item_id = ITEM_MAP.get_by_left(item).copied().unwrap();
+        let status_item_address = param_1 + 0xC + item_id as usize;
         let real_value = (read_data_from_address::<u8>(status_item_address) as i32
             - *bank.get(item).unwrap_or(&0))
         .max(0);
