@@ -1,4 +1,3 @@
-use crate::connection_manager::CONNECTION_STATUS;
 use crate::mapping::MAPPING;
 use crate::ui::font_handler::{get_default_color, FontAtlas, FontColorCB, GREEN, RED, WHITE};
 use crate::ui::{dx11_hooks, font_handler};
@@ -20,7 +19,8 @@ use windows::Win32::Graphics::Dxgi::Common::{
 };
 use windows::Win32::Graphics::Dxgi::*;
 use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
-use archipelago_rs::{Item, LocatedItem};
+use archipelago_rs::{LocatedItem};
+use crate::archipelago::CONNECTION_STATUS;
 
 pub(crate) struct D3D11State {
     device: ID3D11Device,
@@ -522,6 +522,20 @@ pub(crate) fn get_color_for_item(item: &LocatedItem) -> FontColorCB {
     const PLUM: FontColorCB = FontColorCB::new(0.686, 0.6, 0.937, 1.0);
     const STATE_BLUE: FontColorCB = FontColorCB::new(0.427, 0.545, 0.91, 1.0);
     const SALMON: FontColorCB = FontColorCB::new(0.98, 0.502, 0.447, 1.0);
+
+    if item.is_trap() {
+        return SALMON;
+    }
+    if item.is_useful() && item.is_progression() || item.is_progression() {
+        return PLUM;
+    }
+    if item.is_useful() {
+        return STATE_BLUE;
+    }
+    if !item.is_trap() && !item.is_useful() && !item.is_progression() {
+        return CYAN;
+    }
+
     WHITE
     // TODO Would maybe be nice to have the bits again
     // match item.flags.bits() {

@@ -407,7 +407,7 @@ pub fn set_session_weapons() {
     if let Ok(data) = ARCHIPELAGO_DATA.read() {
         with_session(|s| {
             for weapon in get_items_by_category(ItemCategory::Weapon) {
-                if data.items.contains(&weapon.to_string()) {
+                if data.items.contains(weapon) {
                     let weapon_id = get_weapon_id(weapon);
                     if MELEE_NAMES.contains(&weapon)
                         && s.weapons[0] != weapon_id
@@ -435,7 +435,7 @@ pub(crate) fn set_weapons_in_inv() {
     let mut flag;
     if let Ok(data) = ARCHIPELAGO_DATA.read() {
         for weapon in get_items_by_category(ItemCategory::Weapon) {
-            if data.items.contains(&weapon.to_string()) {
+            if data.items.contains(weapon) {
                 flag = true;
                 log::debug!("Adding weapon/style to inventory {}", weapon);
             } else {

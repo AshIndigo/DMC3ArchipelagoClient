@@ -1,17 +1,11 @@
-use crate::archipelago::{ArchipelagoCore, TX_CONNECT, TX_DEATHLINK, TX_DISCONNECT};
-use crate::bank::TX_BANK_MESSAGE;
-use crate::check_handler::TX_LOCATION;
-use crate::config::Config;
+use crate::archipelago::ArchipelagoCore;
 use crate::constants::{BasicNothingFunc, DMC3Config};
 use crate::utilities::DMC3_ADDRESS;
 use crate::utilities::{is_crimson_loaded, is_ddmk_loaded};
-use archipelago_rs::Connection;
-use connection_manager::CONNECTION_STATUS;
 use minhook::{MinHook, MH_STATUS};
 use randomizer_utilities::exception_handler;
 use randomizer_utilities::mapping_utilities::GameConfig;
 use std::fmt::{Display, Formatter};
-use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use windows::core::{BOOL, PCSTR};
@@ -21,12 +15,10 @@ use windows::Win32::System::LibraryLoader;
 mod archipelago;
 mod bank;
 mod check_handler;
-mod constants;
-mod data;
-//mod experiments;
 mod compat;
 mod config;
-pub(crate) mod connection_manager;
+mod constants;
+mod data;
 mod game_manager;
 mod hook;
 mod location_handler;
@@ -180,71 +172,4 @@ fn main_setup() {
     }
     log::info!("DMC3 Base Address is: {:X}", *DMC3_ADDRESS);
     setup_main_loop_hook().unwrap();
-    // thread::Builder::new()
-    //     .name("Archipelago Client".to_string())
-    //     .spawn(move || {
-    //         spawn_archipelago_thread();
-    //     })
-    //     .expect("Failed to spawn arch thread");
 }
-
-//#[tokio::main]
-/*pub(crate) fn spawn_archipelago_thread() {
-    log::info!("Archipelago Thread started");
-    let mut setup = false;
-    let mut rx_locations = randomizer_utilities::setup_channel_pair(&TX_LOCATION);
-    let mut rx_connect = randomizer_utilities::setup_channel_pair(&TX_CONNECT);
-    let mut rx_bank_to_inv = randomizer_utilities::setup_channel_pair(&TX_BANK_MESSAGE);
-    let mut rx_deathlink = randomizer_utilities::setup_channel_pair(&TX_DEATHLINK);
-    let mut rx_disconnect = randomizer_utilities::setup_channel_pair(&TX_DISCONNECT);
-    if !config::CONFIG.connections.disable_auto_connect {
-        thread::spawn(|| {
-            log::debug!("Starting auto connector");
-            connection_manager::auto_connect();
-            // TODO I can probably just replace this and the bit below with the methods contents, I don't need another loop
-        });
-    }
-    loop {
-        // Wait for a connection request
-        let Some(item) = rx_connect.recv() else {
-            log::warn!("Connect channel closed, exiting Archipelago thread.");
-            break;
-        };
-
-        log::info!("Processing connection request");
-
-        match connect_local_archipelago_proxy::<DMC3Config>(item) {
-            Ok(cl) => {
-                cl.state()
-                //client_lock.replace(cl);
-                CONNECTION_STATUS.store(Status::Connected.into(), Ordering::SeqCst);
-            }
-            Err(err) => {
-                log::error!("Failed to connect to Archipelago: {err}");
-                //client_lock.take(); // Clear the client
-                CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::SeqCst);
-                continue; // Try again on next connection request
-            }
-        }
-
-        // Client is successfully connected
-        if let Some(ref mut client) = client_lock.as_mut() {
-            if !setup && let Err(err) = archipelago::run_setup(client).await {
-                log::error!("Failed to run initial setup, this is probably bad: {err}");
-            }
-            // This blocks until a reconnect or disconnect is triggered
-            archipelago::handle_things(
-                client,
-                &mut rx_locations,
-                &mut rx_bank_to_inv,
-                &mut rx_connect,
-                &mut rx_deathlink,
-                &mut rx_disconnect,
-            )
-                .await;
-        }
-        CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::SeqCst);
-        setup = false;
-        // Allow reconnection immediately without delay
-    }
-}*/

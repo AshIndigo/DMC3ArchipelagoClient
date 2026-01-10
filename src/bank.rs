@@ -6,15 +6,15 @@ use minhook::{MinHook, MH_STATUS};
 use randomizer_utilities::replace_single_byte;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::atomic::Ordering;
-use std::sync::{OnceLock, RwLock};
 use std::sync::mpsc::Sender;
+use std::sync::{OnceLock, RwLock};
+use std::thread;
 
 pub(crate) static BANK: OnceLock<RwLock<HashMap<&'static str, i32>>> = OnceLock::new();
 pub static TX_BANK_MESSAGE: OnceLock<Sender<(&'static str, i32)>> = OnceLock::new();
 
-pub(crate) fn get_bank_key(item: &str, player: &Player) -> String {
-    format!("team{}_slot{}_{}", player.team(), player.slot(), item)
+pub(crate) fn get_bank_key(item: &str, team: u32, slot: u32) -> String {
+    format!("team{}_slot{}_{}", team, slot, item)
 }
 
 pub fn get_bank() -> &'static RwLock<HashMap<&'static str, i32>> {
@@ -32,71 +32,68 @@ pub fn modify_bank_message(item_name: &'static str, count: i32) {
     match TX_BANK_MESSAGE.get() {
         None => log::error!("Connect TX doesn't exist"),
         Some(tx) => {
-            tx.send((item_name, count))
-                .expect("Failed to send data");
+            tx.send((item_name, count)).expect("Failed to send data");
         }
     }
 }
 
 pub(crate) fn modify_bank_value(
-    connection: &mut Connection,
+    client: &mut Client,
     item: (&'static str, i32),
 ) -> Result<(), Error> {
-    if let Some(client) = connection.client_mut() {
-        client.change(
-            get_bank_key(item.0, client.this_player()),
-            Value::from(item.1),
-            vec![DataStorageOperation::Add(item.1 as f64)],
-            true,
-        )
-    } else {
-        Err(Error::ClientDisconnected)
-    }
-
-    // client
-    //     .send(ClientMessage::Set(Set {
-    //         key: get_bank_key(item.0),
-    //         default: Value::from(1),
-    //         want_reply: true,
-    //         operations: vec![DataStorageOperation::Add(Value::from(item.1))],
-    //     }))
-    //     .await
+    let player = client.this_player();
+    client.change(
+        get_bank_key(item.0, player.team(), player.slot()),
+        Value::from(item.1),
+        vec![DataStorageOperation::Add(item.1 as f64)],
+        true,
+    )
 }
 
-/// Reset the banks contents to nothing. Used for resetting the values if needed.
-// TODO Remove?
-/*pub(crate) async fn _reset_bank(
-    client: &mut ArchipelagoClient,
-) -> Result<(), Box<dyn std::error::Error>> {
-    get_bank().write()?.iter_mut().for_each(|(_k, v)| {
-        *v = 0; // Set each bank item in the map to 0
-    });
-    for item in constants::get_items_by_category(ItemCategory::Consumable) {
-        client
-            .send(ClientMessage::Set(Set {
-                key: get_bank_key(item),
-                default: Value::from(0),
-                want_reply: true,
-                operations: vec![DataStorageOperation::Default],
-            }))
-            .await?;
-    }
-    Ok(())
-}*/
-
-pub(crate) fn read_values(
-    client: &mut Client
-) -> Result<(), Error> {
+pub(crate) fn read_values(client: &mut Client) -> Result<(), Error> {
+    let player = client.this_player();
+    let (team, slot) = (player.team(), player.slot());
     let mut keys = vec![];
-        for item in constants::get_items_by_category(ItemCategory::Consumable) {
-            keys.push(get_bank_key(item, client.this_player()));
+    for item in constants::get_items_by_category(ItemCategory::Consumable) {
+        keys.push(get_bank_key(item, team, slot));
+    }
+    let rec = client.get(keys);
+    thread::spawn(move || match rec.recv() {
+        Ok(values) => match values {
+            Ok(bank_map) => {
+                if let Err(e) = handle_retrieved(bank_map, team, slot) {
+                    log::error!("{}", e);
+                }
+            }
+            Err(err) => {
+                log::error!("{}", err);
+            }
+        },
+        Err(err) => {
+            log::error!("Failed to read data storage values: {}", err);
         }
-        let rec = client.get(keys);
-// TODO
-        //client.get(ClientMessage::Get(Get { keys })).await?;
-        Ok(())
+    });
+    Ok(())
+}
 
-
+// TODO Figure this out
+fn handle_retrieved(
+    bank_map: HashMap<String, Value>,
+    team: u32,
+    slot: u32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut bank = get_bank().write()?;
+    bank.iter_mut().for_each(|(item_name, count)| {
+        //log::debug!("Reading {}", item_name);
+        match bank_map.get(&get_bank_key(item_name, team, slot)) {
+            None => {
+                log::error!("Bank key: {} not found", item_name);
+            }
+            Some(cnt) => *count = cnt.as_i64().unwrap_or_default() as i32,
+        }
+        //log::debug!("Set count {}", item_name);
+    });
+    Ok(())
 }
 
 pub fn setup_bank_hooks() -> Result<(), MH_STATUS> {

@@ -1,16 +1,18 @@
 use crate::skill_manager::ID_SKILL_MAP;
+use bimap::BiMap;
+use randomizer_utilities::mapping_utilities::GameConfig;
+use serde::{Deserialize, Serialize};
 use std::cmp::PartialEq;
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock};
-use bimap::BiMap;
-use serde::{Deserialize, Serialize};
-use randomizer_utilities::mapping_utilities::GameConfig;
+use std::sync::{LazyLock};
 
 pub type BasicNothingFunc = unsafe extern "system" fn();
 
-pub(crate) static DUMMY_ID: LazyLock<u32> = LazyLock::new(|| *ITEM_MAP.get_by_left("Dummy").unwrap());
+pub(crate) static DUMMY_ID: LazyLock<u32> =
+    LazyLock::new(|| *ITEM_MAP.get_by_left("Dummy").unwrap());
 
-pub(crate) static REMOTE_ID: LazyLock<u32> = LazyLock::new(|| *ITEM_MAP.get_by_left("Remote").unwrap());
+pub(crate) static REMOTE_ID: LazyLock<u32> =
+    LazyLock::new(|| *ITEM_MAP.get_by_left("Remote").unwrap());
 
 pub struct DMC3Config;
 pub const GAME_NAME: &str = "Devil May Cry 3";
@@ -20,7 +22,6 @@ impl GameConfig for DMC3Config {
     const GAME_NAME: &'static str = GAME_NAME;
 }
 
-
 // DMC3 Offsets+Functions - Offsets are from 2022 DDMK's version
 
 pub const ITEM_MODE_TABLE: usize = 0x1B4534; // This is actually a constant, we like this one
@@ -29,6 +30,8 @@ pub const ONE_ORB: f32 = 1000.0; // One Blue/Purple orb is worth 1000 "points"
 pub const BASE_HP: f32 = 6.0 * ONE_ORB;
 pub const MAX_HP: f32 = 20000.0;
 pub const MAX_MAGIC: f32 = 10000.0;
+pub const NO_MISSION: u32 = 0;
+
 pub struct Item {
     pub id: u32,
     pub name: &'static str,
@@ -590,9 +593,8 @@ pub static MISSION_ITEM_MAP: LazyLock<HashMap<u32, Vec<&'static str>>> = LazyLoc
     map
 });
 
-pub static ITEM_MAP: LazyLock<BiMap<&'static str, u32>> = LazyLock::new(|| {
-    ALL_ITEMS.iter().map(|item| (item.name, item.id)).collect()
-});
+pub static ITEM_MAP: LazyLock<BiMap<&'static str, u32>> =
+    LazyLock::new(|| ALL_ITEMS.iter().map(|item| (item.name, item.id)).collect());
 
 pub fn get_item_name(item_id: u32) -> &'static str {
     if item_id <= 0x39 {
@@ -857,8 +859,18 @@ pub struct ItemEntry {
     pub coordinates: Coordinates,
 }
 
-
-#[derive(Copy, Clone, Debug, Default, Deserialize, Serialize, PartialEq, PartialOrd, strum_macros::Display, strum_macros::FromRepr)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    Deserialize,
+    Serialize,
+    PartialEq,
+    PartialOrd,
+    strum_macros::Display,
+    strum_macros::FromRepr,
+)]
 pub(crate) enum Difficulty {
     #[default]
     Easy = 0,
@@ -877,7 +889,18 @@ pub(crate) enum Difficulty {
     HeavenOrHell = 5,
 }
 
-#[derive(Copy, Clone, Debug, Default, Deserialize, Serialize, PartialEq, PartialOrd, strum_macros::Display, strum_macros::FromRepr)]
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    Deserialize,
+    Serialize,
+    PartialEq,
+    PartialOrd,
+    strum_macros::Display,
+    strum_macros::FromRepr,
+)]
 pub(crate) enum Rank {
     #[default]
     D = 0,

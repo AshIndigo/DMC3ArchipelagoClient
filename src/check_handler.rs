@@ -363,7 +363,6 @@ fn send_off_location_coords(loc: Location, to_display: u32) {
         if to_display != u32::MAX {
             clear_high_roller();
             text_handler::LAST_OBTAINED_ID.store(to_display as u8, SeqCst);
-            //take_away_received_item(loc.item_id);
         }
     }
 }

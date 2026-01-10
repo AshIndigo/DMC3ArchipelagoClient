@@ -69,17 +69,27 @@ pub fn get_location_name_by_data(location_data: &Location) -> Result<&'static st
 }
 
 pub fn get_mapped_item_id(location_name: &str) -> Result<u32, Box<dyn Error>> {
-    let mapping_data = mapping::MAPPING.read()?;
-    let Some(mapping_data) = mapping_data.as_ref() else {
-        return Err(Box::from("No mapping data"));
+    let id = match mapping::CACHED_LOCATIONS.read() {
+        Ok(cached_locations) => {
+            if let Some(located_item) = cached_locations.get(location_name) {
+                if located_item.sender() == located_item.receiver() {
+                    located_item.item().id() as u32
+                } else {
+                    *REMOTE_ID
+                }
+            } else {
+                log::error!(
+                    "Location wasn't scouted: {}, defaulting to Remote ID",
+                    location_name
+                );
+                *REMOTE_ID
+            }
+        }
+        Err(err) => {
+            log::error!("Unable to read scout cache: {}", err);
+            *REMOTE_ID
+        }
     };
-    // TODO Properly get ID
-    let id = 0x58;
-    // let id = mapping_data
-    //     .items
-    //     .get(location_name)
-    //     .unwrap()
-    //     .get_in_game_id::<constants::DMC3Config>();
     // To set the displayed graphic to the corresponding weapon
     if id > 0x39 {
         return Ok(match id {
@@ -134,17 +144,17 @@ pub fn edit_end_event(location_key: &str) {
 
 /// If the location key corresponds to an END event and is checked off, return true, otherwise false
 /// Used for dummy related item
-pub(crate) fn location_is_checked_and_end(cl: &mut Client, location_key: &String) -> bool {
+pub(crate) fn location_is_checked_and_end(cl: &mut Client, location_key: &'static str) -> bool {
     match EVENT_TABLES.get(&get_mission()) {
         None => false,
         Some(event_tables) => {
             for event_table in event_tables {
                 if event_table.location == location_key {
                     for event in event_table.events.iter() {
-                        if event.event_type == EventCode::End {
-                            if cl.checked_locations().find(|loc| loc.name() == location_key).is_some() {
-                                return true;
-                            }
+                        if event.event_type == EventCode::End
+                            && cl.checked_locations().any(|loc| loc.name() == location_key)
+                        {
+                            return true;
                         }
                     }
                 }

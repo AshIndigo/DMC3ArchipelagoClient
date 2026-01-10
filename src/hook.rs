@@ -1,5 +1,4 @@
-use crate::archipelago::TX_DEATHLINK;
-use crate::connection_manager::CONNECTION_STATUS;
+use crate::archipelago::{CONNECTION_STATUS, TX_DEATHLINK};
 use crate::constants::ItemEntry;
 use crate::constants::*;
 use crate::data::generated_locations;
@@ -8,7 +7,7 @@ use crate::game_manager::{
     with_session, Style, ARCHIPELAGO_DATA,
 };
 use crate::location_handler::in_key_item_room;
-use crate::mapping::{Goal, Mapping, MAPPING};
+use crate::mapping::{run_scouts_for_mission, Goal, Mapping, MAPPING};
 use crate::ui::overlay::CANT_PURCHASE;
 use crate::ui::text_handler;
 use crate::ui::text_handler::LAST_OBTAINED_ID;
@@ -23,30 +22,13 @@ use randomizer_utilities::replace_single_byte;
 use std::arch::asm;
 use std::cmp::min;
 use std::ptr::{read_unaligned, write};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{Ordering};
 use std::sync::{LazyLock, OnceLock};
 use std::{ptr, slice};
-
-static HOOKS_CREATED: AtomicBool = AtomicBool::new(false);
-
-pub(crate) fn install_initial_functions() {
-    if !HOOKS_CREATED.load(Ordering::SeqCst) {
-        unsafe {
-            match create_hooks() {
-                Ok(_) => {
-                    HOOKS_CREATED.store(true, Ordering::SeqCst);
-                }
-                Err(err) => {
-                    log::error!("Failed to create hooks: {:?}", err);
-                }
-            }
-        }
-    }
-    enable_hooks();
-}
+use archipelago_rs::CreateAsHint;
 
 // 23d680 - Pause menu event? Hook in here to do rendering
-unsafe fn create_hooks() -> Result<(), MH_STATUS> {
+pub(crate) unsafe fn create_hooks() -> Result<(), MH_STATUS> {
     unsafe {
         check_handler::setup_check_hooks()?;
         create_hook!(
@@ -159,7 +141,7 @@ unsafe fn create_hooks() -> Result<(), MH_STATUS> {
 }
 
 static HOOK_ADDRESSES: LazyLock<Vec<usize>> = LazyLock::new(|| {
-    const ADDRESSES: [usize; 29] = [
+    const ADDRESSES: [usize; 31] = [
         // Check handling
         check_handler::ITEM_HANDLE_PICKUP_ADDR,
         check_handler::ITEM_PICKED_UP_ADDR,
@@ -190,6 +172,8 @@ static HOOK_ADDRESSES: LazyLock<Vec<usize>> = LazyLock::new(|| {
         // Save handler
         save_handler::LOAD_GAME_ADDR,
         save_handler::SAVE_GAME_ADDR,
+        save_handler::LOAD_SESSION_DATA,
+        save_handler::SAVE_SESSION_DATA,
         // Text Handler
         text_handler::DISPLAY_ITEM_GET_ADDR,
         text_handler::DISPLAY_ITEM_GET_DESTRUCTOR_ADDR,
@@ -198,7 +182,7 @@ static HOOK_ADDRESSES: LazyLock<Vec<usize>> = LazyLock::new(|| {
     ADDRESSES.to_vec()
 });
 
-fn enable_hooks() {
+pub(crate) fn enable_hooks() {
     HOOK_ADDRESSES.iter().for_each(|addr| unsafe {
         match MinHook::enable_hook((*DMC3_ADDRESS + addr) as *mut _) {
             Ok(_) => {}
@@ -257,8 +241,7 @@ pub fn edit_event_drop(param_1: usize, param_2: i32, param_3: usize) {
                                 .client()
                                 .unwrap()
                                 .checked_locations()
-                                .find(|loc| loc.name() == &event_table.location)
-                                .is_some()
+                                .any(|loc| loc.name() == event_table.location)
                             {
                                 log::debug!("Event loc checked: {}", &event_table.location);
                                 match event.event_type {
@@ -600,8 +583,7 @@ fn dummy_replace(location_key: &&str, item_addr: *mut i32) -> bool {
                         .client()
                         .unwrap()
                         .checked_locations()
-                        .find(|loc| loc.name() == *location_key)
-                        .is_some()
+                        .any(|loc| loc.name() == *location_key)
                     {
                         unsafe {
                             *item_addr = *DUMMY_ID as i32;
@@ -627,7 +609,7 @@ fn set_relevant_key_items() {
                 None => {} // No items for the mission
                 Some(item_list) => {
                     for item in item_list.iter() {
-                        if data.items.contains(&item.to_string()) {
+                        if data.items.contains(*item) {
                             let res = game_manager::has_item_by_flags(item);
                             if !res {
                                 set_item(item, true, true);
@@ -652,8 +634,7 @@ fn set_relevant_key_items() {
                     && let Some(event_table_addr) = utilities::get_event_address()
                 {
                     if checked_locations
-                        .find(|loc| loc.name() == "Mission #8 - Ignis Fatuus")
-                        .is_some()
+                        .any(|loc| loc.name() == "Mission #8 - Ignis Fatuus")
                     {
                         // If we have the location checked, continue normal routing
                         unsafe {
@@ -669,7 +650,7 @@ fn set_relevant_key_items() {
 
                 if let Ok(loc) = in_key_item_room() {
                     log::debug!("In key room: {}", loc);
-                    if !checked_locations.find(|location| location.name() == loc).is_some() {
+                    if !checked_locations.any(|location| location.name() == loc) {
                         set_loc_chk_flg(
                             get_item_name(
                                 generated_locations::ITEM_MISSION_MAP
@@ -728,6 +709,7 @@ pub fn set_player_data(param_1: usize) -> bool {
         }
     }
     LAST_OBTAINED_ID.store(0, Ordering::SeqCst); // Should stop random item jumpscares
+    run_scouts_for_mission(AP_CORE.get().unwrap().lock().unwrap().connection.client_mut().unwrap(), get_mission(), CreateAsHint::No);
     unsafe {
         if let Some(original) = ORIGINAL_SETUP_PLAYER_DATA.get() {
             res = original(param_1)

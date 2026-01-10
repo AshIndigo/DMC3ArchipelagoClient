@@ -11,8 +11,8 @@ use std::sync::{LazyLock, OnceLock};
 use std::thread;
 use randomizer_utilities::get_base_address;
 use randomizer_utilities::ui_utilities::get_status_text;
+use crate::archipelago::CONNECTION_STATUS;
 use crate::ui::text_handler;
-use crate::connection_manager::CONNECTION_STATUS;
 
 pub static MARY_ADDRESS: LazyLock<usize> =
     LazyLock::new(|| get_base_address("Mary.dll"));

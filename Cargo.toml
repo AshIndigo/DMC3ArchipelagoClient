@@ -18,7 +18,6 @@ windows = { workspace = true, features = ["Win32_System_LibraryLoader", "Win32_S
 randomizer_utilities = { path = "../randomizer_utilities" }
 log = { workspace = true }
 anyhow = { workspace = true }
-#tokio = { version = "1.48.0", features = ["full"] }
 serde_json = "1.0.147"
 serde = { version = "1.0.228", features = ["derive"] }
 #imgui = { version = "0.12.0" }

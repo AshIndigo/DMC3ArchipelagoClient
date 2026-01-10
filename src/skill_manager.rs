@@ -214,7 +214,7 @@ const EXPERTISE_OFFSET: usize = 0x400C;
 
 fn give_skill(skill_id: &usize) {
     // This works, might not update files? need to double-check
-    let data = SKILLS_MAP.get(ID_SKILL_MAP.get(&skill_id).unwrap()).unwrap();
+    let data = SKILLS_MAP.get(ID_SKILL_MAP.get(skill_id).unwrap()).unwrap();
     game_manager::with_session(|s| {
         s.expertise[data.index].bitor_assign(data.flag);
     })
