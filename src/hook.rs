@@ -6,6 +6,7 @@ use crate::game_manager::{
     get_difficulty, get_mission, get_room, set_item, set_loc_chk_flg, set_weapons_in_inv, with_rankings_read,
     with_session, Style, ARCHIPELAGO_DATA,
 };
+use crate::item_sync::CURRENT_INDEX;
 use crate::location_handler::in_key_item_room;
 use crate::mapping::{run_scouts_for_mission, Goal, Mapping, MAPPING};
 use crate::ui::overlay::CANT_PURCHASE;
@@ -13,8 +14,9 @@ use crate::ui::text_handler;
 use crate::ui::text_handler::LAST_OBTAINED_ID;
 use crate::utilities::{read_data_from_address, DMC3_ADDRESS};
 use crate::{
-    bank, check_handler, create_hook, game_manager, save_handler, skill_manager, utilities, AP_CORE,
+    check_handler, create_hook, game_manager, save_handler, skill_manager, utilities, AP_CORE,
 };
+use archipelago_rs::CreateAsHint;
 use bitflags::bitflags;
 use minhook::{MinHook, MH_STATUS};
 use randomizer_utilities::archipelago_utilities::DeathLinkData;
@@ -22,10 +24,9 @@ use randomizer_utilities::replace_single_byte;
 use std::arch::asm;
 use std::cmp::min;
 use std::ptr::{read_unaligned, write};
-use std::sync::atomic::{Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::{LazyLock, OnceLock};
 use std::{ptr, slice};
-use archipelago_rs::CreateAsHint;
 
 // 23d680 - Pause menu event? Hook in here to do rendering
 pub(crate) unsafe fn create_hooks() -> Result<(), MH_STATUS> {
@@ -135,13 +136,12 @@ pub(crate) unsafe fn create_hooks() -> Result<(), MH_STATUS> {
         );
         text_handler::setup_text_hooks()?;
         save_handler::setup_save_hooks()?;
-        bank::setup_bank_hooks()?;
     }
     Ok(())
 }
 
 static HOOK_ADDRESSES: LazyLock<Vec<usize>> = LazyLock::new(|| {
-    const ADDRESSES: [usize; 31] = [
+    const ADDRESSES: [usize; 28] = [
         // Check handling
         check_handler::ITEM_HANDLE_PICKUP_ADDR,
         check_handler::ITEM_PICKED_UP_ADDR,
@@ -165,10 +165,6 @@ static HOOK_ADDRESSES: LazyLock<Vec<usize>> = LazyLock::new(|| {
         RESULT_SCREEN_BUTTON_ADDR,
         PURCHASE_DT_ADDR,
         PURCHASE_HP_ADDR,
-        // Bank
-        bank::OPEN_INV_SCREEN_ADDR,
-        bank::CLOSE_INV_SCREEN_ADDR,
-        bank::USE_ITEM_ADDR,
         // Save handler
         save_handler::LOAD_GAME_ADDR,
         save_handler::SAVE_GAME_ADDR,
@@ -633,9 +629,7 @@ fn set_relevant_key_items() {
                 if get_room() == 302
                     && let Some(event_table_addr) = utilities::get_event_address()
                 {
-                    if checked_locations
-                        .any(|loc| loc.name() == "Mission #8 - Ignis Fatuus")
-                    {
+                    if checked_locations.any(|loc| loc.name() == "Mission #8 - Ignis Fatuus") {
                         // If we have the location checked, continue normal routing
                         unsafe {
                             write((event_table_addr + 0x748) as _, 311);
@@ -709,7 +703,18 @@ pub fn set_player_data(param_1: usize) -> bool {
         }
     }
     LAST_OBTAINED_ID.store(0, Ordering::SeqCst); // Should stop random item jumpscares
-    run_scouts_for_mission(AP_CORE.get().unwrap().lock().unwrap().connection.client_mut().unwrap(), get_mission(), CreateAsHint::No);
+    run_scouts_for_mission(
+        AP_CORE
+            .get()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .connection
+            .client_mut()
+            .unwrap(),
+        get_mission(),
+        CreateAsHint::No,
+    );
     unsafe {
         if let Some(original) = ORIGINAL_SETUP_PLAYER_DATA.get() {
             res = original(param_1)
@@ -718,54 +723,6 @@ pub fn set_player_data(param_1: usize) -> bool {
         }
     }
     res
-}
-
-/// The mapping data at dmc3.exe+5c4c20+1A00
-/// This table dictates what item is in what room. Only relevant for consumables and blue orb fragments
-pub fn modify_item_table(offset: usize, id: u8) {
-    unsafe {
-        // let start_addr = 0x5C4C20usize; dmc3.exe+5c4c20+1A00
-        // let end_addr = 0x5C4C20 + 0xC8; // 0x5C4CE8
-        let true_offset = offset + *DMC3_ADDRESS + 0x1A00usize; // MFW I can't do my offsets correctly
-        if offset == 0x0 {
-            return; // Undecided/ignorable
-        }
-        randomizer_utilities::modify_protected_memory(
-            || {
-                let table = slice::from_raw_parts_mut(true_offset as *mut u8, 4);
-                table[3] = id;
-            },
-            true_offset as *mut [u8; 4],
-        )
-        .unwrap();
-        // log::trace!(
-        //     "Modified Item Table: Address: 0x{:x}, ID: 0x{:x}, Offset: 0x{:x}",
-        //     true_offset,
-        //     id,
-        //     offset
-        // ); // Shushing this for now
-    }
-}
-
-/// Restore the mode table to its original values
-pub(crate) fn restore_item_table() {
-    generated_locations::ITEM_MISSION_MAP
-        .iter()
-        .filter(|(_name, entry)| entry.offset != 0x0)
-        .for_each(|(_key, val)| {
-            let true_offset = val.offset + *DMC3_ADDRESS + 0x1A00usize;
-            randomizer_utilities::modify_protected_memory(
-                || {
-                    const LENGTH: usize = 4;
-                    unsafe {
-                        let table = slice::from_raw_parts_mut(true_offset as *mut u8, LENGTH);
-                        table[3] = val.item_id as u8;
-                    }
-                },
-                true_offset as *mut [u8; 4],
-            )
-            .unwrap();
-        })
 }
 
 /// Set the modified modes back to 1 from 2
@@ -1032,8 +989,7 @@ pub fn set_rando_session_data(ptr: usize) {
             s.weapons[3] = mapping.start_second_gun;
             // Disable buying blue/purple orbs
 
-            //s.items[7] = 6;
-            //s.items[8] = 7;
+            s.items = Default::default();
 
             // Unlock DT off the bat
             s.unlocked_dt = true;
@@ -1050,6 +1006,17 @@ pub fn set_rando_session_data(ptr: usize) {
         }
     })
     .unwrap();
+    match AP_CORE.get().unwrap().lock() {
+        Ok(mut core) => {
+            CURRENT_INDEX.store(0, Ordering::SeqCst);
+            if let Err(e) = core.connection.client_mut().unwrap().sync() {
+                log::error!("Error syncing game: {}", e);
+            }
+        }
+        Err(err) => {
+            log::error!("Error locking core: {}", err);
+        }
+    }
 }
 
 pub const SELECT_MISSION_BUTTON: usize = 0x29a7b0;

@@ -4,7 +4,6 @@ use crate::data::generated_locations;
 use crate::game_manager::get_mission;
 use crate::{constants, game_manager, mapping, utilities};
 use anyhow::anyhow;
-use archipelago_rs::Client;
 use std::error::Error;
 
 /// If we are in a room with a key item+appropriate mission, return Ok(location_key)
@@ -138,28 +137,6 @@ pub fn edit_end_event(location_key: &str) {
                     }
                 }
             }
-        }
-    }
-}
-
-/// If the location key corresponds to an END event and is checked off, return true, otherwise false
-/// Used for dummy related item
-pub(crate) fn location_is_checked_and_end(cl: &mut Client, location_key: &'static str) -> bool {
-    match EVENT_TABLES.get(&get_mission()) {
-        None => false,
-        Some(event_tables) => {
-            for event_table in event_tables {
-                if event_table.location == location_key {
-                    for event in event_table.events.iter() {
-                        if event.event_type == EventCode::End
-                            && cl.checked_locations().any(|loc| loc.name() == location_key)
-                        {
-                            return true;
-                        }
-                    }
-                }
-            }
-            false
         }
     }
 }

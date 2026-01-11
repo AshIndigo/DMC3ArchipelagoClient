@@ -13,7 +13,6 @@ use windows::Win32::Foundation::*;
 use windows::Win32::System::LibraryLoader;
 
 mod archipelago;
-mod bank;
 mod check_handler;
 mod compat;
 mod config;
@@ -27,6 +26,7 @@ mod save_handler;
 mod skill_manager;
 mod ui;
 mod utilities;
+mod item_sync;
 
 #[macro_export]
 /// Does not enable the hook, that needs to be done separately

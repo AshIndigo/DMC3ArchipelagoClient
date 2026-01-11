@@ -1,22 +1,23 @@
 use crate::check_handler::{Location, LocationType, TX_LOCATION};
-use crate::constants::{ItemCategory, MISSION_ITEM_MAP, REMOTE_ID};
+use crate::constants::{MISSION_ITEM_MAP, REMOTE_ID};
 use crate::game_manager::{get_mission, ArchipelagoData, Style, ARCHIPELAGO_DATA};
 use crate::mapping::{DeathlinkSetting, Goal, Mapping, MAPPING};
 use crate::ui::font_handler::{WHITE, YELLOW};
 use crate::ui::overlay::{MessageSegment, MessageType, OverlayMessage};
 use crate::ui::{overlay, text_handler};
-use crate::{bank, constants, game_manager, hook, location_handler, mapping, skill_manager};
-use randomizer_utilities::item_sync::{get_index, RoomSyncInfo, CURRENT_INDEX};
+use crate::{
+    constants, game_manager, hook, item_sync, location_handler, mapping, skill_manager, utilities,
+};
 
 use randomizer_utilities::ui_utilities::Status;
 
-use crate::bank::{modify_bank_value, TX_BANK_MESSAGE};
+use crate::item_sync::CURRENT_INDEX;
 use archipelago_rs::{
     AsItemId, Client, ClientStatus, Connection, ConnectionOptions, ConnectionState, CreateAsHint,
-    DeathLinkOptions, Event, ItemHandling, UpdatedField,
+    DeathLinkOptions, Event, ItemHandling, ReceivedItem,
 };
 use randomizer_utilities::archipelago_utilities::{handle_print, DeathLinkData};
-use randomizer_utilities::{archipelago_utilities, item_sync, setup_channel_pair};
+use randomizer_utilities::{archipelago_utilities, setup_channel_pair};
 use serde_json::Value;
 use std::error::Error;
 use std::sync::atomic::{AtomicIsize, Ordering};
@@ -34,7 +35,7 @@ pub struct ArchipelagoCore {
 
     location_receiver: Receiver<Location>,
     deathlink_receiver: Receiver<DeathLinkData>,
-    bank_receiver: Receiver<(&'static str, i32)>,
+    //bank_receiver: Receiver<(&'static str, i32)>,
 }
 
 impl ArchipelagoCore {
@@ -53,7 +54,7 @@ impl ArchipelagoCore {
             hooks_enabled: false,
             location_receiver: setup_channel_pair(&TX_LOCATION),
             deathlink_receiver: setup_channel_pair(&TX_DEATHLINK),
-            bank_receiver: setup_channel_pair(&TX_BANK_MESSAGE),
+            //bank_receiver: setup_channel_pair(&TX_BANK_MESSAGE),
         })
     }
 
@@ -88,7 +89,10 @@ impl ArchipelagoCore {
                     log::info!("Print from server: {}", str);
                 }
                 Event::ReceivedItems(idx) => {
-                    handle_received_items_packet(idx, self.connection.client_mut().unwrap())?;
+                    handle_received_items_packet(
+                        idx,
+                        self.connection.client_mut().unwrap().received_items(),
+                    )?;
                 }
                 Event::Error(err) => log::error!("{}", err),
                 Event::Bounce { .. } => {}
@@ -122,18 +126,11 @@ impl ArchipelagoCore {
                     }
                 }
                 Event::KeyChanged {
-                    key,
+                    key: _,
                     old_value: _,
-                    new_value,
+                    new_value: _,
                     player: _,
-                } => {
-                    let mut bank = bank::get_bank().write()?;
-                    for item in constants::get_items_by_category(ItemCategory::Consumable).iter() {
-                        if item.eq(&key.split("_").collect::<Vec<_>>()[2]) {
-                            bank.insert(item, new_value.as_i64().unwrap() as i32);
-                        }
-                    }
-                }
+                } => {}
             }
         }
         match self.connection.state() {
@@ -143,6 +140,7 @@ impl ArchipelagoCore {
             }
             ConnectionState::Disconnected(state) => {
                 CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::SeqCst);
+                disconnect();
                 return Err(format!("Disconnected from server: {:?}", state).into());
             }
         }
@@ -174,17 +172,6 @@ impl ArchipelagoCore {
                 }
             }
         }
-        
-        match self.bank_receiver.try_recv() {
-            Ok((key, value)) => {
-                modify_bank_value(self.connection.client_mut().unwrap(), (key, value))?;
-            }
-            Err(err) => {
-                if err == TryRecvError::Disconnected {
-                    return Err("Disconnected from Bank Message receiver".into());
-                }
-            }
-        }
         Ok(())
     }
 }
@@ -193,21 +180,6 @@ impl ArchipelagoCore {
 pub fn run_setup(client: &mut Client) -> Result<(), Box<dyn Error>> {
     log::info!("Running setup");
     hook::rewrite_mode_table();
-
-    let mut sync_data = item_sync::get_sync_data().lock()?;
-    *sync_data = item_sync::read_save_data().unwrap_or_default();
-    let index = get_index(
-        client.seed_name(),
-        client.this_player().slot(),
-    );
-    if sync_data.room_sync_info.contains_key(&index) {
-        CURRENT_INDEX.store(
-            sync_data.room_sync_info.get(&index).unwrap().sync_index,
-            Ordering::SeqCst,
-        );
-    } else {
-        CURRENT_INDEX.store(0, Ordering::SeqCst);
-    }
 
     match mapping::parse_slot_data(client) {
         Ok(_) => {
@@ -223,16 +195,14 @@ pub fn run_setup(client: &mut Client) -> Result<(), Box<dyn Error>> {
             );
         }
     }
-    mapping::modify_item_table_for_ends(client);
     mapping::run_scouts_for_mission(client, constants::NO_MISSION, CreateAsHint::New);
-
+    mapping::run_scouts_for_secret_mission(client);
     Ok(())
 }
 
-async fn disconnect() {
+fn disconnect() {
     // TODO I want this to actually be useful. Need to make sure its called when I disconnect on the proxy
     log::info!("Disconnecting and restoring game");
-    CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::Relaxed);
     match hook::disable_hooks() {
         Ok(_) => {
             log::debug!("Disabled hooks");
@@ -242,9 +212,7 @@ async fn disconnect() {
         }
     }
     MAPPING.write().unwrap().take(); // Clear mappings
-    *ARCHIPELAGO_DATA.write().unwrap() = ArchipelagoData::default(); // Reset Data (Probably not needed
-    // Do I need to something for the bank here?
-    hook::restore_item_table();
+    *ARCHIPELAGO_DATA.write().unwrap() = ArchipelagoData::default(); // Reset Data (Probably not needed)
     hook::restore_mode_table();
     log::info!("Game restored to default state");
 }
@@ -267,8 +235,12 @@ fn handle_item_receive(client: &mut Client, received_item: Location) -> Result<(
                 text_handler::CANCEL_TEXT.store(true, Ordering::SeqCst);
                 if let Err(arch_err) = client.mark_checked(vec![located_item.location()]) {
                     log::error!("Failed to check location: {}", arch_err);
-                    let index = get_index(client.seed_name(), client.this_player().slot());
-                    item_sync::add_offline_check(located_item.location().id(), index)?;
+                    let _index = item_sync::get_sync_file_key(
+                        client.seed_name(),
+                        client.this_player().name().parse()?,
+                    );
+                    // TODO Offline Checks
+                    //item_sync::add_offline_check(located_item.location().id(), index)?;
                 }
                 let name = located_item.item().name();
                 let in_game_id = if located_item.sender() == located_item.receiver() {
@@ -303,14 +275,11 @@ fn handle_item_receive(client: &mut Client, received_item: Location) -> Result<(
 fn has_reached_goal(client: &mut Client, mapping: &&Mapping) -> bool {
     let mut chk = client.checked_locations();
     match mapping.goal {
-        Goal::Standard => chk
-            .any(|loc| loc.name() == "Mission #20 Complete"),
+        Goal::Standard => chk.any(|loc| loc.name() == "Mission #20 Complete"),
         Goal::All => {
             for i in 1..20 {
                 // If we are missing a mission complete check then we cannot goal
-                if !chk
-                    .any(|loc| loc.name() == format!("Mission #{} Complete", i).as_str())
-                {
+                if !chk.any(|loc| loc.name() == format!("Mission #{} Complete", i).as_str()) {
                     return false;
                 }
             }
@@ -329,41 +298,76 @@ fn has_reached_goal(client: &mut Client, mapping: &&Mapping) -> bool {
 
 pub fn handle_received_items_packet(
     index: usize,
-    client: &mut Client,
+    received_items: &[ReceivedItem],
 ) -> Result<(), Box<dyn Error>> {
-    // Handle Checklist items here
-    *item_sync::get_sync_data()
-        .lock()
-        .expect("Failed to get Sync Data") = item_sync::read_save_data().unwrap_or_default();
-
-    CURRENT_INDEX.store(
-        item_sync::get_sync_data()
-            .lock()?
-            .room_sync_info
-            .get(&get_index(client.seed_name(), client.this_player().slot()))
-            .unwrap_or(&RoomSyncInfo::default())
-            .sync_index,
-        Ordering::SeqCst,
-    );
-
-    if index == 0 {
-        // If 0 abandon previous inv.
-        bank::read_values(client)?;
+    if game_manager::session_is_valid() {
+        if index == 0 {
+            // If 0 reset stored data
+            *ARCHIPELAGO_DATA.write()? = ArchipelagoData::default();
+        }
         match ARCHIPELAGO_DATA.write() {
             Ok(mut data) => {
-                *data = ArchipelagoData::default();
-                skill_manager::reset_expertise();
-                for item in client.received_items() {
+                for item in received_items
+                    .iter()
+                    .filter(|item| item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize)
+                {
+                    // Display overlay text if we're not at the main menu
+                    if !utilities::is_on_main_menu() {
+                        let rec_msg: Vec<MessageSegment> = vec![
+                            MessageSegment::new("Received ".to_string(), WHITE),
+                            MessageSegment::new(
+                                item.item().name().to_string(),
+                                overlay::get_color_for_item(item.as_ref()),
+                            ),
+                            MessageSegment::new(" from ".to_string(), WHITE),
+                            MessageSegment::new(item.sender().name().parse()?, YELLOW),
+                        ];
+                        overlay::add_message(OverlayMessage::new(
+                            rec_msg,
+                            Duration::from_secs(3),
+                            0.0,
+                            0.0,
+                            MessageType::Notification,
+                        ));
+                    }
+
                     match item.item().as_item_id() {
                         0x07 => {
                             data.add_blue_orb();
+                            game_manager::give_hp(constants::ONE_ORB);
                         }
                         0x08 => {
                             data.add_purple_orb();
+                            game_manager::give_magic(constants::ONE_ORB, &data);
+                        }
+                        0x10..0x14 => {
+                            game_manager::add_consumable(item.item());
                         }
                         0x19 => {
                             // Awakened Rebellion
                             data.add_dt();
+                            game_manager::give_magic(constants::ONE_ORB * 3.0, &data);
+                        }
+                        0x24..0x3A => {
+                            // For key items
+                            log::debug!("Setting newly acquired key items");
+                            match MISSION_ITEM_MAP.get(&(get_mission())) {
+                                None => {} // No items for the mission
+                                Some(item_list) => {
+                                    if item_list.contains(&&*item.item().name()) {
+                                        game_manager::set_item(&item.item().name(), true, true);
+                                    }
+                                }
+                            }
+                        }
+                        0x3A..0x53 => {
+                            // For skills
+                            if let Some(mapping) = MAPPING.read()?.as_ref()
+                                && mapping.randomize_skills
+                            {
+                                skill_manager::add_skill(item.item().id() as usize, &mut data);
+                                skill_manager::set_skills(&data); // Hacky...
+                            }
                         }
                         0x53 => {
                             // Ebony & Ivory
@@ -385,155 +389,46 @@ pub fn handle_received_items_packet(
                             // Kalina Ann
                             data.add_gun_level(4);
                         }
-                        0x60 => data.add_style_level(Style::Trickster),
-                        0x61 => data.add_style_level(Style::Swordmaster),
-                        0x62 => data.add_style_level(Style::Gunslinger),
-                        0x63 => data.add_style_level(Style::Royalguard),
-                        _ => {}
-                    }
-                    if item.item().as_item_id() < 0x53 && item.item().as_item_id() > 0x39 {
-                        skill_manager::add_skill(item.item().as_item_id() as usize, &mut data);
-                    }
-                }
-            }
-            Err(err) => {
-                log::error!("Couldn't get ArchipelagoData for write: {}", err)
-            }
-        }
-    }
-    if let Some(item) = client
-        .received_items()
-        .iter()
-        .find(|item| item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize)
-    {
-        log::debug!("Received new item: {:?}", item);
-        match ARCHIPELAGO_DATA.write() {
-            Ok(mut data) => {
-                let rec_msg: Vec<MessageSegment> = vec![
-                    MessageSegment::new("Received ".to_string(), WHITE),
-                    MessageSegment::new(
-                        item.item().name().to_string(),
-                        overlay::get_color_for_item(item.as_ref()),
-                    ),
-                    MessageSegment::new(" from ".to_string(), WHITE),
-                    MessageSegment::new(item.sender().name().parse()?, YELLOW),
-                ];
-                overlay::add_message(OverlayMessage::new(
-                    rec_msg,
-                    Duration::from_secs(3),
-                    0.0,
-                    0.0,
-                    MessageType::Notification,
-                ));
-                if item.item().as_item_id() < 0x14
-                    && let Some(tx) = bank::TX_BANK_MESSAGE.get()
-                {
-                    tx.send((item.item().name().into(), 1))?;
-                }
-
-                log::debug!("Supplying added HP/Magic if needed");
-                match item.item().as_item_id() {
-                    0x07 => {
-                        data.add_blue_orb();
-                        game_manager::give_hp(constants::ONE_ORB);
-                    }
-                    0x08 => {
-                        data.add_purple_orb();
-                        game_manager::give_magic(constants::ONE_ORB, &data);
-                    }
-                    0x19 => {
-                        // Awakened Rebellion
-                        data.add_dt();
-                        game_manager::give_magic(constants::ONE_ORB * 3.0, &data);
-                    }
-                    0x53 => {
-                        // Ebony & Ivory
-                        data.add_gun_level(0);
-                    }
-                    0x54 => {
-                        // Shotgun
-                        data.add_gun_level(1);
-                    }
-                    0x55 => {
-                        // Artemis
-                        data.add_gun_level(2);
-                    }
-                    0x56 => {
-                        // Spiral
-                        data.add_gun_level(3);
-                    }
-                    0x57 => {
-                        // Kalina Ann
-                        data.add_gun_level(4);
-                    }
-                    0x60 => {
-                        data.add_style_level(Style::Trickster);
-                        game_manager::apply_style_levels(Style::Trickster)
-                    }
-                    0x61 => {
-                        data.add_style_level(Style::Swordmaster);
-                        game_manager::apply_style_levels(Style::Swordmaster)
-                    }
-                    0x62 => {
-                        data.add_style_level(Style::Gunslinger);
-                        game_manager::apply_style_levels(Style::Gunslinger)
-                    }
-                    0x63 => {
-                        data.add_style_level(Style::Royalguard);
-                        game_manager::apply_style_levels(Style::Royalguard)
-                    }
-                    _ => {
-                        log::debug!("Non style/gun level id: {}", item.item())
-                    }
-                }
-                // For key items
-                if item.item().id() >= 0x24 && item.item().id() <= 0x39 {
-                    log::debug!("Setting newly acquired key items");
-                    match MISSION_ITEM_MAP.get(&(get_mission())) {
-                        None => {} // No items for the mission
-                        Some(item_list) => {
-                            if item_list.contains(&&*item.item().name()) {
-                                game_manager::set_item(&item.item().name(), true, true);
-                            }
+                        0x60 => {
+                            data.add_style_level(Style::Trickster);
+                            game_manager::apply_style_levels(Style::Trickster)
+                        }
+                        0x61 => {
+                            data.add_style_level(Style::Swordmaster);
+                            game_manager::apply_style_levels(Style::Swordmaster)
+                        }
+                        0x62 => {
+                            data.add_style_level(Style::Gunslinger);
+                            game_manager::apply_style_levels(Style::Gunslinger)
+                        }
+                        0x63 => {
+                            data.add_style_level(Style::Royalguard);
+                            game_manager::apply_style_levels(Style::Royalguard)
+                        }
+                        // Weapons
+                        0x16..0x19 => {
+                            // R, C, A&I
+                        }
+                        0x1A..0x22 => {
+                            // Rest of weapons
+                        }
+                        _ => {
+                            log::warn!(
+                                "Unhandled item ID: {} ({:#X})",
+                                item.item().name(),
+                                item.item().id()
+                            )
                         }
                     }
-                }
 
-                if (item.item().id() < 0x53 && item.item().id() > 0x39)
-                    && let Some(mapping) = MAPPING.read()?.as_ref()
-                    && mapping.randomize_skills
-                {
-                    skill_manager::add_skill(item.item().id() as usize, &mut data);
-                    skill_manager::set_skills(&data); // Hacky...
+                    data.add_item(item.item().name().into());
+                    CURRENT_INDEX.store(item.index() as i64, Ordering::SeqCst);
                 }
             }
             Err(err) => {
-                log::error!("Couldn't get ArchipelagoData for write: {}", err)
+                log::error!("Failed to write archipelago data: {}", err);
             }
         }
-
-        CURRENT_INDEX.store(index as i64, Ordering::SeqCst);
-        let mut sync_data = item_sync::get_sync_data().lock()?;
-        // TODO I wanna maybe move this to the save slot instead
-        let sync_index = get_index(client.seed_name(), client.this_player().slot());
-        // TODO Look at this tomorrow
-        let val = sync_data
-            .room_sync_info
-            .entry(sync_index)
-            .or_insert(RoomSyncInfo::default());
-        val.sync_index = index as i64;
     }
-
-    if let Ok(mut archipelago_data) = ARCHIPELAGO_DATA.write()
-        && let Some(item) = client
-            .received_items()
-            .iter()
-            .find(|item| item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize)
-    {
-        archipelago_data.add_item(item.item().name().into());
-    }
-
-    log::debug!("Writing sync file");
-    item_sync::write_sync_data_file()?;
     Ok(())
 }

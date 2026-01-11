@@ -1,12 +1,11 @@
 use crate::data::generated_locations;
-use crate::hook::modify_item_table;
-use crate::{constants, location_handler};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
 use crate::constants::{Difficulty, Rank};
 use archipelago_rs::{Client, CreateAsHint, Error, LocatedItem, Location};
+use oneshot::Receiver;
 use randomizer_utilities::APVersion;
 use std::sync::{LazyLock, RwLock};
 use std::thread;
@@ -182,15 +181,6 @@ pub struct AdjudicatorData {
     pub ranking: u8,
 }
 
-pub fn modify_item_table_for_ends(client: &mut Client) {
-    for (location_name, entry) in generated_locations::ITEM_MISSION_MAP.iter() {
-        if location_handler::location_is_checked_and_end(client, location_name) {
-            // If the item procs an end mission event, replace with a dummy ID in order to not immediately trigger a mission end
-            modify_item_table(entry.offset, *constants::DUMMY_ID as u8)
-        }
-    }
-}
-
 pub(crate) fn parse_slot_data(client: &mut Client) -> Result<(), Box<dyn std::error::Error>> {
     let mapping: Mapping = serde_path_to_error::deserialize(client.slot_data().clone())?;
     log::debug!("Mod version: {}", env!("CARGO_PKG_VERSION"));
@@ -216,15 +206,20 @@ pub(crate) fn parse_slot_data(client: &mut Client) -> Result<(), Box<dyn std::er
 
 pub static CACHED_LOCATIONS: LazyLock<RwLock<HashMap<String, LocatedItem>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
+
 pub fn run_scouts_for_mission(client: &mut Client, mission: u32, hint: CreateAsHint) {
-    let future = client.scout_locations(get_locations_by_mission(client, mission), hint);
-    thread::spawn(|| {
-        match future.recv() {
-            Ok(scouted) => {
-                parse_scouts(scouted);
-            }
-            Err(err) => log::error!("Failed to run Scouts for: {}", err),
+    run_scouts(client.scout_locations(get_locations_by_mission(client, mission), hint));
+}
+pub fn run_scouts_for_secret_mission(client: &mut Client) {
+    run_scouts(client.scout_locations(get_secret_missions(client), CreateAsHint::No));
+}
+
+fn run_scouts(future: Receiver<Result<Vec<LocatedItem>, Error>>) {
+    thread::spawn(|| match future.recv() {
+        Ok(scouted) => {
+            parse_scouts(scouted);
         }
+        Err(err) => log::error!("Failed to run Scouts for: {}", err),
     });
 }
 
@@ -251,6 +246,15 @@ pub fn get_locations_by_mission(client: &Client, mission: u32) -> Vec<Location> 
     generated_locations::ITEM_MISSION_MAP
         .iter()
         .filter(|(_k, v)| v.mission == mission)
+        .filter_map(|(k, _v)| current_game.location_by_name(*k))
+        .collect()
+}
+
+pub fn get_secret_missions(client: &Client) -> Vec<Location> {
+    let current_game = client.this_game();
+    generated_locations::ITEM_MISSION_MAP
+        .iter()
+        .filter(|(k, _v)| k.contains("Secret Mission"))
         .filter_map(|(k, _v)| current_game.location_by_name(*k))
         .collect()
 }

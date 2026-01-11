@@ -1,6 +1,7 @@
 use crate::archipelago::CONNECTION_STATUS;
+use crate::item_sync::{SlotSyncInfo, CURRENT_INDEX};
 use crate::utilities::DMC3_ADDRESS;
-use crate::{create_hook, utilities, AP_CORE};
+use crate::{create_hook, item_sync, utilities, AP_CORE};
 use minhook::MinHook;
 use minhook::MH_STATUS;
 use std::error::Error;
@@ -148,6 +149,38 @@ fn load_slot(param_1: usize, save_index: i32) {
         }
     }
     log::debug!("Loading from slot: {}", save_index);
+    match AP_CORE.get().unwrap().lock() {
+        Ok(mut core) => {
+            let client = core.connection.client_mut().unwrap();
+            match item_sync::read_save_data() {
+                Ok(sync_data) => {
+                    match sync_data.room_sync_info.get(&item_sync::get_sync_file_key(
+                        client.seed_name(),
+                        client.this_player().name().into(),
+                    )) {
+                        None => {
+                            // Doesn't exist so 0
+                            CURRENT_INDEX.store(0, Ordering::SeqCst);
+                        }
+                        Some(arr) => {
+                            let info = &arr[save_index as usize];
+                            CURRENT_INDEX.store(info.sync_index, Ordering::SeqCst);
+                            if let Err(e) = client.sync() {
+                                log::error!("Error syncing game: {}", e);
+                            }
+                        }
+                    }
+                }
+                Err(err) => {
+                    log::error!("Error getting sync data: {}", err);
+                }
+            }
+
+        }
+        Err(err) => {
+            log::error!("Error locking core while writing sync data: {}", err);
+        }
+    }
 }
 
 pub const SAVE_SESSION_DATA: usize = 0x32B080;
@@ -159,4 +192,39 @@ fn save_to_slot(param_1: usize, save_index: i32) {
         }
     }
     log::debug!("Saving to slot {}", save_index);
+    match AP_CORE.get().unwrap().lock() {
+        Ok(core) => {
+            let client = core.connection.client().unwrap();
+            match item_sync::read_save_data() {
+                Ok(mut sync_data) => {
+                    let key = item_sync::get_sync_file_key(
+                        client.seed_name(),
+                        client.this_player().name().into(),
+                    );
+                    match sync_data.room_sync_info.get_mut(&key) {
+                        None => {
+                            // Doesn't exist, need to add
+                            let mut arr: [SlotSyncInfo; 10] = Default::default();
+                            arr[save_index as usize].sync_index =
+                                CURRENT_INDEX.load(Ordering::SeqCst);
+                            sync_data.room_sync_info.insert(key, arr);
+                        }
+                        Some(arr) => {
+                            let info = &mut arr[save_index as usize];
+                            info.sync_index = CURRENT_INDEX.load(Ordering::SeqCst);
+                        }
+                    }
+                    if let Err(e) = item_sync::write_sync_data_file(sync_data) {
+                        log::error!("Error writing sync data: {}", e);
+                    }
+                }
+                Err(err) => {
+                    log::error!("Error getting sync data: {}", err);
+                }
+            }
+        }
+        Err(err) => {
+            log::error!("Error locking core while writing sync data: {}", err);
+        }
+    }
 }

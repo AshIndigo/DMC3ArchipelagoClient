@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use crate::constants::{BasicNothingFunc, ItemCategory};
 use crate::compat::imgui_bindings::*;
 use crate::utilities::read_data_from_address;
-use crate::{bank, check_handler, config, constants, game_manager};
+use crate::{check_handler, config, constants, game_manager};
 use imgui_sys::{ImGuiCond, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
 use minhook::MinHook;
 use std::os::raw::c_char;
@@ -53,7 +53,6 @@ unsafe extern "C" fn hooked_render() {
         }
         archipelago_window(); // For the archipelago window
         tracking_window();
-        bank_window();
         match get_orig_render_func() {
             None => {}
             Some(fnc) => {
@@ -101,33 +100,6 @@ unsafe fn tracking_window() {
             }
         }
 
-        get_imgui_end()();
-    }
-}
-
-unsafe fn bank_window() {
-    unsafe {
-        let flag = &mut true;
-        get_imgui_next_pos()(
-            &ImVec2 { x: 800.0, y: 500.0 },
-            ImGuiCond_Appearing as ImGuiCond,
-            &ImVec2 { x: 0.0, y: 0.0 },
-        );
-        get_imgui_begin()(
-            c"Bank".as_ptr() as *const c_char,
-            flag as *mut bool,
-            imgui_sys::ImGuiWindowFlags_AlwaysAutoResize as ImGuiWindowFlags,
-        );
-        let consumables = constants::get_items_by_category(ItemCategory::Consumable);
-        for n in 0..constants::get_items_by_category(ItemCategory::Consumable).len() {
-            // Special case for red orbs...
-            let item = consumables.get(n).unwrap();
-            text(format!(
-                "{}: {}\0",
-                item,
-                bank::get_bank().read().unwrap().get(item).unwrap()
-            ));
-        }
         get_imgui_end()();
     }
 }

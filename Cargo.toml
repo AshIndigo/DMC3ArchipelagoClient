@@ -8,7 +8,7 @@ name = "dmc3_randomizer"
 crate-type = ["cdylib"]
 
 [build-dependencies]
-serde_json = "1.0.147"
+serde_json = "1.0.149"
 serde = { version = "1.0.228", features = ["derive"] }
 
 [dependencies]
@@ -18,7 +18,7 @@ windows = { workspace = true, features = ["Win32_System_LibraryLoader", "Win32_S
 randomizer_utilities = { path = "../randomizer_utilities" }
 log = { workspace = true }
 anyhow = { workspace = true }
-serde_json = "1.0.147"
+serde_json = "1.0.149"
 serde = { version = "1.0.228", features = ["derive"] }
 #imgui = { version = "0.12.0" }
 imgui-sys = { version = "0.12.0" }
@@ -27,3 +27,4 @@ strum_macros = "0.27"
 fontdue = "0.9.3"
 serde_path_to_error = "0.1.20"
 bitflags = "2.10.0"
+oneshot = "0.1.11"

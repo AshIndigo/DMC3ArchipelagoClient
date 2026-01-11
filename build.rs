@@ -29,7 +29,7 @@ fn main() {
         let y_coord = value["yCoord"].as_u64().unwrap();
         let z_coord = value["zCoord"].as_u64().unwrap();
         output.push_str(&format!(
-            r#"        ("{}", ItemEntry {{ offset: {}, mission: {}, room_number: {}, item_id: {}, adjudicator: {}, coordinates: "#,
+            r#"        ("{}", ItemEntry {{ _offset: {}, mission: {}, room_number: {}, item_id: {}, adjudicator: {}, coordinates: "#,
             key, offset, mission_number, room, item_id, adjudicator
         ));
         if x_coord != 0 {
