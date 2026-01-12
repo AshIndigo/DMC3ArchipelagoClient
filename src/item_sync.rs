@@ -5,20 +5,22 @@ use std::fs::File;
 use std::io::{BufReader, Write};
 use std::path::Path;
 use std::sync::atomic::AtomicI64;
+use std::sync::Mutex;
+use archipelago_rs::Client;
 
 const SYNC_FILE: &str = "archipelago.json";
-//pub static SYNC_DATA: OnceLock<Mutex<SyncData>> = OnceLock::new();
 pub static CURRENT_INDEX: AtomicI64 = AtomicI64::new(0);
 
 #[derive(Deserialize, Serialize, Debug, Default)]
 pub struct SyncData {
     // Each save slot has its own sync index and offline checks
-    pub room_sync_info: HashMap<String, [SlotSyncInfo; 10]>, // String is "seed_slot-name"
+    pub room_sync_info: HashMap<String, SlotSyncInfo>, // String is "seed_slot-name"
 }
 
 #[derive(Deserialize, Serialize, Debug, Default)]
 pub struct SlotSyncInfo {
-    pub sync_index: i64,
+    // Index for each save slot
+    pub sync_index: [i64; 10],
     pub offline_checks: Vec<i64>,
 }
 
@@ -57,28 +59,16 @@ pub fn get_sync_file_key(seed_name: &str, slot_name: String) -> String {
     format!("{}_{}", seed_name, slot_name)
 }
 
-/*/// Adds an offline location to be sent when room connection is restored
-pub fn add_offline_check(location: i64, index: String, current_save_index: usize) -> Result<(), Box<dyn Error>> {
-    let mut sync_data = get_sync_data().lock()?;
-    if sync_data.room_sync_info.contains_key(&index) {
-        sync_data
-            .room_sync_info
-            .get_mut(&index)
-            .unwrap()
-            .offline_checks
-            .push(location);
-    } else {
-        sync_data
-            .room_sync_info
-            .insert(index, SlotSyncInfo::default());
-    }
-    write_sync_data_file()?;
-    Ok(())
-}*/
+// TODO Clear this out once written?
+pub static OFFLINE_CHECKS: Mutex<Vec<i64>> = Mutex::new(Vec::new());
+pub fn add_offline_check(location: i64) {
+    OFFLINE_CHECKS.lock().unwrap().push(location);
+}
 
-/*pub fn send_offline_checks(client: &mut Client, index: String) -> Result<(), Box<dyn Error>> {
-    log::debug!("Attempting to send offline checks");
-    let mut sync_data = get_sync_data().lock()?;
+pub fn send_offline_checks(client: &mut Client) -> Result<(), Box<dyn Error>> {
+    log::debug!("Attempting to send any offline checks");
+    let mut sync_data = read_save_data()?;
+    let index = get_sync_file_key(client.seed_name(), client.this_player().name().parse()?);
     if sync_data.room_sync_info.contains_key(&index) {
         match client.mark_checked(
             sync_data
@@ -96,7 +86,7 @@ pub fn add_offline_check(location: i64, index: String, current_save_index: usize
                     .unwrap()
                     .offline_checks
                     .clear();
-                write_sync_data_file()?;
+                write_sync_data_file(sync_data)?;
             }
             Err(err) => {
                 log::error!(
@@ -107,4 +97,4 @@ pub fn add_offline_check(location: i64, index: String, current_save_index: usize
         }
     }
     Ok(())
-}*/
+}

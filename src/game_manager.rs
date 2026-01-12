@@ -106,9 +106,9 @@ impl ArchipelagoData {
     }
 
     pub(crate) fn get_style_unlocked(&self) -> [bool; 4] {
-        let mut style_table = [false, false, false, false];
-        for style_idx in 0..4 {
-            style_table[style_idx] = self.style_levels[style_idx] > 0;
+        let mut style_table = [false; 4];
+        for (out, level) in style_table.iter_mut().zip(self.style_levels.iter()) {
+            *out = *level > 0;
         }
         style_table
     }

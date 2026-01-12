@@ -63,6 +63,7 @@ impl ArchipelagoCore {
             match event {
                 Event::Connected => {
                     log::info!("Connected!");
+                    item_sync::send_offline_checks(self.connection.client_mut().unwrap())?;
                     if !self.hooks_installed {
                         // Hooks needed to modify the game
                         unsafe {
@@ -235,12 +236,7 @@ fn handle_item_receive(client: &mut Client, received_item: Location) -> Result<(
                 text_handler::CANCEL_TEXT.store(true, Ordering::SeqCst);
                 if let Err(arch_err) = client.mark_checked(vec![located_item.location()]) {
                     log::error!("Failed to check location: {}", arch_err);
-                    let _index = item_sync::get_sync_file_key(
-                        client.seed_name(),
-                        client.this_player().name().parse()?,
-                    );
-                    // TODO Offline Checks
-                    //item_sync::add_offline_check(located_item.location().id(), index)?;
+                    item_sync::add_offline_check(located_item.location().id());
                 }
                 let name = located_item.item().name();
                 let in_game_id = if located_item.sender() == located_item.receiver() {

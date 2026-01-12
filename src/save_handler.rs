@@ -163,8 +163,8 @@ fn load_slot(param_1: usize, save_index: i32) {
                             CURRENT_INDEX.store(0, Ordering::SeqCst);
                         }
                         Some(arr) => {
-                            let info = &arr[save_index as usize];
-                            CURRENT_INDEX.store(info.sync_index, Ordering::SeqCst);
+                            CURRENT_INDEX
+                                .store(arr.sync_index[save_index as usize], Ordering::SeqCst);
                             if let Err(e) = client.sync() {
                                 log::error!("Error syncing game: {}", e);
                             }
@@ -175,7 +175,6 @@ fn load_slot(param_1: usize, save_index: i32) {
                     log::error!("Error getting sync data: {}", err);
                 }
             }
-
         }
         Err(err) => {
             log::error!("Error locking core while writing sync data: {}", err);
@@ -204,14 +203,16 @@ fn save_to_slot(param_1: usize, save_index: i32) {
                     match sync_data.room_sync_info.get_mut(&key) {
                         None => {
                             // Doesn't exist, need to add
-                            let mut arr: [SlotSyncInfo; 10] = Default::default();
-                            arr[save_index as usize].sync_index =
+                            let mut sync_info = SlotSyncInfo::default();
+                            sync_info.sync_index[save_index as usize] =
                                 CURRENT_INDEX.load(Ordering::SeqCst);
-                            sync_data.room_sync_info.insert(key, arr);
+                            sync_info.offline_checks = item_sync::OFFLINE_CHECKS.lock().unwrap().clone();
+                            sync_data.room_sync_info.insert(key, sync_info);
                         }
-                        Some(arr) => {
-                            let info = &mut arr[save_index as usize];
-                            info.sync_index = CURRENT_INDEX.load(Ordering::SeqCst);
+                        Some(sync_info) => {
+                            sync_info.sync_index[save_index as usize] =
+                                CURRENT_INDEX.load(Ordering::SeqCst);
+                            sync_info.offline_checks = item_sync::OFFLINE_CHECKS.lock().unwrap().clone();
                         }
                     }
                     if let Err(e) = item_sync::write_sync_data_file(sync_data) {
