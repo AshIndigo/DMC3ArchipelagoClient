@@ -1,41 +1,41 @@
 use crate::check_handler::{Location, LocationType, TX_LOCATION};
 use crate::constants::{MISSION_ITEM_MAP, REMOTE_ID};
 use crate::game_manager::{get_mission, ArchipelagoData, Style, ARCHIPELAGO_DATA};
-use crate::mapping::{DeathlinkSetting, Goal, Mapping, MAPPING};
+use crate::mapping::{
+    DeathlinkSetting, Goal, ModMode, ModModeData, OverlayInfo, MAPPING, OVERLAY_INFO,
+};
 use crate::ui::font_handler::{WHITE, YELLOW};
 use crate::ui::overlay::{MessageSegment, MessageType, OverlayMessage};
 use crate::ui::{overlay, text_handler};
-use crate::{
-    constants, game_manager, hook, item_sync, location_handler, mapping, skill_manager, utilities,
-};
+use crate::{constants, game_manager, hint_game, hook, item_sync, location_handler, mapping, skill_manager, utilities};
 
 use randomizer_utilities::ui_utilities::Status;
 
 use crate::item_sync::CURRENT_INDEX;
-use archipelago_rs::{
-    AsItemId, Client, ClientStatus, Connection, ConnectionOptions, ConnectionState, CreateAsHint,
-    DeathLinkOptions, Event, ItemHandling, ReceivedItem,
-};
+use archipelago_rs::{AsItemId, Client, ClientStatus, Connection, ConnectionOptions, ConnectionState, CreateAsHint, DeathLinkOptions, Event, HintStatus, ItemHandling};
 use randomizer_utilities::archipelago_utilities::{handle_print, DeathLinkData};
 use randomizer_utilities::{archipelago_utilities, setup_channel_pair};
-use serde_json::Value;
 use std::error::Error;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::sync::OnceLock;
 use std::time::Duration;
+use crate::hint_game::TX_HINT;
 
 pub(crate) static CONNECTION_STATUS: AtomicIsize = AtomicIsize::new(0);
 pub static TX_DEATHLINK: OnceLock<Sender<DeathLinkData>> = OnceLock::new();
 
 pub struct ArchipelagoCore {
-    pub connection: Connection<Value>,
+    pub connection: Connection<ModModeData>,
     hooks_installed: bool,
     hooks_enabled: bool,
 
+    hint_hooks_installed: bool,
+    hint_hooks_enabled: bool,
+
     location_receiver: Receiver<Location>,
     deathlink_receiver: Receiver<DeathLinkData>,
-    //bank_receiver: Receiver<(&'static str, i32)>,
+    hint_receiver: Receiver<Vec<i64>>,
 }
 
 impl ArchipelagoCore {
@@ -52,9 +52,11 @@ impl ArchipelagoCore {
             ),
             hooks_installed: false,
             hooks_enabled: false,
+            hint_hooks_installed: false,
+            hint_hooks_enabled: false,
             location_receiver: setup_channel_pair(&TX_LOCATION),
             deathlink_receiver: setup_channel_pair(&TX_DEATHLINK),
-            //bank_receiver: setup_channel_pair(&TX_BANK_MESSAGE),
+            hint_receiver: setup_channel_pair(&TX_HINT),
         })
     }
 
@@ -63,26 +65,81 @@ impl ArchipelagoCore {
             match event {
                 Event::Connected => {
                     log::info!("Connected!");
-                    item_sync::send_offline_checks(self.connection.client_mut().unwrap())?;
-                    if !self.hooks_installed {
-                        // Hooks needed to modify the game
-                        unsafe {
-                            match hook::create_hooks() {
-                                Ok(_) => {
-                                    log::debug!("Created DMC3 Hooks");
+                    log::debug!("Mod version: {}", env!("CARGO_PKG_VERSION"));
+                    let mut overlay_info = OVERLAY_INFO.write()?;
+                    match self.connection.client().unwrap().slot_data() {
+                        ModModeData::HintGame(mapping) => {
+                            log::info!("Running in hint game mode");
+                            overlay_info.client_version = mapping.client_version;
+                            overlay_info.generated_version = None;
+                            overlay_info.mode = ModMode::HintGame;
+                            if !self.hint_hooks_installed {
+                                unsafe {
+                                    match hint_game::create_hint_hooks() {
+                                        Ok(_) => {
+                                            log::debug!("Created DMC3 Hint Hooks");
+                                            self.hint_hooks_installed = true;
+                                        }
+                                        Err(err) => {
+                                            log::error!("Failed to create hint hooks: {:?}", err);
+                                        }
+                                    }
                                 }
-                                Err(err) => {
-                                    log::error!("Failed to create hooks: {:?}", err);
+                            }
+                            if self.hint_hooks_installed && !self.hint_hooks_enabled {
+                                unsafe {
+                                    hint_game::enable_hint_hooks();
+                                    self.hint_hooks_enabled = true;
                                 }
                             }
                         }
-                        self.hooks_installed = true;
+                        ModModeData::Normal(mapping) => {
+                            log::info!("Running in randomizer mode");
+                            overlay_info.generated_version = mapping.generated_version;
+                            overlay_info.client_version = mapping.client_version;
+                            overlay_info.mode = ModMode::Normal;
+                            MAPPING.write()?.replace(mapping.clone());
+                            item_sync::send_offline_checks(self.connection.client_mut().unwrap())?;
+                            if !self.hooks_installed {
+                                // Hooks needed to modify the game
+                                unsafe {
+                                    match hook::create_hooks() {
+                                        Ok(_) => {
+                                            log::debug!("Created DMC3 Hooks");
+                                            self.hooks_installed = true;
+                                        }
+                                        Err(err) => {
+                                            log::error!("Failed to create hooks: {:?}", err);
+                                        }
+                                    }
+                                }
+                            }
+                            if self.hooks_installed && !self.hooks_enabled {
+                                hook::enable_hooks();
+                                self.hooks_enabled = true;
+                            }
+                            run_setup(self.connection.client_mut().unwrap())?;
+                        }
                     }
-                    if !self.hooks_enabled {
-                        hook::enable_hooks();
-                        self.hooks_enabled = true;
+                    // Print out version info
+                    log::debug!(
+                        "Client version: {}",
+                        if let Some(cv) = overlay_info.client_version {
+                            cv.to_string()
+                        } else {
+                            "Unknown".to_string()
+                        }
+                    );
+                    if overlay_info.mode == ModMode::Normal {
+                        log::debug!(
+                            "Generated version: {}",
+                            if let Some(gv) = overlay_info.generated_version {
+                                gv.to_string()
+                            } else {
+                                "Unknown".to_string()
+                            }
+                        );
                     }
-                    run_setup(self.connection.client_mut().unwrap())?;
                 }
                 Event::Updated(_) => {}
                 Event::Print(print) => {
@@ -90,10 +147,7 @@ impl ArchipelagoCore {
                     log::info!("Print from server: {}", str);
                 }
                 Event::ReceivedItems(idx) => {
-                    handle_received_items_packet(
-                        idx,
-                        self.connection.client_mut().unwrap().received_items(),
-                    )?;
+                    handle_received_items_packet(idx, self.connection.client_mut().unwrap())?;
                 }
                 Event::Error(err) => log::error!("{}", err),
                 Event::Bounce { .. } => {}
@@ -116,14 +170,17 @@ impl ArchipelagoCore {
                         0.0,
                         MessageType::Notification,
                     ));
-                    match MAPPING.read()?.as_ref().unwrap().death_link {
-                        DeathlinkSetting::DeathLink => {
-                            game_manager::kill_dante();
+                    if let ModModeData::Normal(data) = self.connection.client().unwrap().slot_data()
+                    {
+                        match data.death_link {
+                            DeathlinkSetting::DeathLink => {
+                                game_manager::kill_dante();
+                            }
+                            DeathlinkSetting::HurtLink => {
+                                game_manager::hurt_dante();
+                            }
+                            DeathlinkSetting::Off => {}
                         }
-                        DeathlinkSetting::HurtLink => {
-                            game_manager::hurt_dante();
-                        }
-                        DeathlinkSetting::Off => {}
                     }
                 }
                 Event::KeyChanged {
@@ -141,7 +198,8 @@ impl ArchipelagoCore {
             }
             ConnectionState::Disconnected(state) => {
                 CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::SeqCst);
-                disconnect();
+                *OVERLAY_INFO.write()? = OverlayInfo::default();
+                disconnect(&mut self.hooks_enabled, &mut self.hint_hooks_enabled);
                 return Err(format!("Disconnected from server: {:?}", state).into());
             }
         }
@@ -173,43 +231,58 @@ impl ArchipelagoCore {
                 }
             }
         }
+        
+        match self.hint_receiver.try_recv() {
+            Ok(hint_data) => {
+                let client = self.connection.client_mut().unwrap();
+                client.create_hints(
+                    hint_data,
+                    client.this_player().slot(),
+                    HintStatus::HintUnspecified,
+                )?
+            }
+            Err(err) => {
+                if err == TryRecvError::Disconnected {
+                    return Err("Disconnected from DeathLink receiver".into());
+                }
+            }
+        }
         Ok(())
     }
 }
 
 /// This is run when a there is a valid connection to a room.
-pub fn run_setup(client: &mut Client) -> Result<(), Box<dyn Error>> {
+pub fn run_setup(client: &mut Client<ModModeData>) -> Result<(), Box<dyn Error>> {
     log::info!("Running setup");
     hook::rewrite_mode_table();
-
-    match mapping::parse_slot_data(client) {
-        Ok(_) => {
-            log::info!("Successfully parsed mapping information");
-            const DEBUG: bool = false;
-            if DEBUG {
-                log::debug!("Mapping data: {:#?}", MAPPING.read()?);
-            }
-        }
-        Err(err) => {
-            return Err(
-                format!("Failed to load mappings from slot data, aborting: {}", err).into(),
-            );
-        }
-    }
     mapping::run_scouts_for_mission(client, constants::NO_MISSION, CreateAsHint::New);
     mapping::run_scouts_for_secret_mission(client);
     Ok(())
 }
 
-fn disconnect() {
-    // TODO I want this to actually be useful. Need to make sure its called when I disconnect on the proxy
+fn disconnect(hooks_enabled: &mut bool, hint_hooks_enabled: &mut bool) {
     log::info!("Disconnecting and restoring game");
-    match hook::disable_hooks() {
-        Ok(_) => {
-            log::debug!("Disabled hooks");
+    if *hooks_enabled {
+        match hook::disable_hooks() {
+            Ok(_) => {
+                log::debug!("Disabled hooks");
+                *hooks_enabled = false;
+            }
+            Err(e) => {
+                log::error!("Failed to disable hooks: {:?}", e);
+            }
         }
-        Err(e) => {
-            log::error!("Failed to disable hooks: {:?}", e);
+    }
+
+    if *hint_hooks_enabled {
+        match hint_game::disable_hint_hooks() {
+            Ok(_) => {
+                log::debug!("Disabled hint hooks");
+                *hint_hooks_enabled = false;
+            }
+            Err(e) => {
+                log::error!("Failed to disable hint hooks: {:?}", e);
+            }
         }
     }
     MAPPING.write().unwrap().take(); // Clear mappings
@@ -218,83 +291,93 @@ fn disconnect() {
     log::info!("Game restored to default state");
 }
 
-fn handle_item_receive(client: &mut Client, received_item: Location) -> Result<(), Box<dyn Error>> {
+fn handle_item_receive(
+    client: &mut Client<ModModeData>,
+    received_item: Location,
+) -> Result<(), Box<dyn Error>> {
     // See if there's an item!
     log::info!("Processing item: {}", received_item);
-    if let Some(mapping_data) = MAPPING.read()?.as_ref() {
-        if received_item.location_type == LocationType::Standard && received_item.item_id <= 0x39 {
-            crate::check_handler::take_away_received_item(received_item.item_id);
-        }
-        let location_key = location_handler::get_location_name_by_data(&received_item)?;
-        // Then see if the item picked up matches the specified in the map
-        match mapping::CACHED_LOCATIONS.read()?.get(location_key) {
-            Some(located_item) => {
-                location_handler::edit_end_event(location_key); // Needed so a mission will end properly after picking up its trigger.
-                text_handler::replace_unused_with_text(archipelago_utilities::get_description(
-                    located_item,
-                ));
-                text_handler::CANCEL_TEXT.store(true, Ordering::SeqCst);
-                if let Err(arch_err) = client.mark_checked(vec![located_item.location()]) {
-                    log::error!("Failed to check location: {}", arch_err);
-                    item_sync::add_offline_check(located_item.location().id());
-                }
-                let name = located_item.item().name();
-                let in_game_id = if located_item.sender() == located_item.receiver() {
-                    located_item.item().as_item_id() as u32
-                } else {
-                    *REMOTE_ID
-                };
-                if let Ok(mut archipelago_data) = ARCHIPELAGO_DATA.write()
-                    && in_game_id > 0x14
-                    && in_game_id != *REMOTE_ID
-                {
-                    archipelago_data.add_item(located_item.item().name().to_string());
-                }
-
-                log::info!(
-                    "Location check successful: {}, Item: {}",
-                    location_key,
-                    name
-                );
-            }
-            None => Err(anyhow::anyhow!("Location not found: {}", location_key))?,
-        }
-        // Add to checked locations
-        if has_reached_goal(client, &mapping_data) {
-            client.set_status(ClientStatus::Goal)?
-        }
+    if received_item.location_type == LocationType::Standard && received_item.item_id <= 0x39 {
+        crate::check_handler::take_away_received_item(received_item.item_id);
     }
+    let location_key = location_handler::get_location_name_by_data(&received_item)?;
+    // Then see if the item picked up matches the specified in the map
+    match mapping::CACHED_LOCATIONS.read()?.get(location_key) {
+        Some(located_item) => {
+            location_handler::edit_end_event(location_key); // Needed so a mission will end properly after picking up its trigger.
+            text_handler::replace_unused_with_text(archipelago_utilities::get_description(
+                located_item,
+            ));
+            text_handler::CANCEL_TEXT.store(true, Ordering::SeqCst);
+            if let Err(arch_err) = client.mark_checked(vec![located_item.location()]) {
+                log::error!("Failed to check location: {}", arch_err);
+                item_sync::add_offline_check(located_item.location().id());
+            }
+            let name = located_item.item().name();
+            let in_game_id = if located_item.sender() == located_item.receiver() {
+                located_item.item().as_item_id() as u32
+            } else {
+                *REMOTE_ID
+            };
+            if let Ok(mut archipelago_data) = ARCHIPELAGO_DATA.write()
+                && in_game_id > 0x14
+                && in_game_id != *REMOTE_ID
+            {
+                archipelago_data.add_item(located_item.item().name().to_string());
+            }
 
+            log::info!(
+                "Location check successful: {}, Item: {}",
+                location_key,
+                name
+            );
+        }
+        None => Err(anyhow::anyhow!("Location not found: {}", location_key))?,
+    }
+    // Add to checked locations
+    if has_reached_goal(client) {
+        client.set_status(ClientStatus::Goal)?
+    }
     Ok(())
 }
 
-fn has_reached_goal(client: &mut Client, mapping: &&Mapping) -> bool {
+fn has_reached_goal(client: &mut Client<ModModeData>) -> bool {
     let mut chk = client.checked_locations();
-    match mapping.goal {
-        Goal::Standard => chk.any(|loc| loc.name() == "Mission #20 Complete"),
-        Goal::All => {
-            for i in 1..20 {
-                // If we are missing a mission complete check then we cannot goal
-                if !chk.any(|loc| loc.name() == format!("Mission #{} Complete", i).as_str()) {
-                    return false;
+    match client.slot_data() {
+        ModModeData::HintGame(_) => {
+            log::error!("Trying to check for goal in HintGame mode");
+            false
+        }
+        ModModeData::Normal(mapping) => {
+            match mapping.goal {
+                Goal::Standard => chk.any(|loc| loc.name() == "Mission #20 Complete"),
+                Goal::All => {
+                    for i in 1..20 {
+                        // If we are missing a mission complete check then we cannot goal
+                        if !chk.any(|loc| loc.name() == format!("Mission #{} Complete", i).as_str())
+                        {
+                            return false;
+                        }
+                    }
+                    // If we have them all, goal
+                    true
+                }
+                Goal::RandomOrder => {
+                    if let Some(order) = &mapping.mission_order {
+                        return chk.any(|loc| {
+                            loc.name() == format!("Mission #{} Complete", order[19]).as_str()
+                        });
+                    }
+                    false
                 }
             }
-            // If we have them all, goal
-            true
-        }
-        Goal::RandomOrder => {
-            if let Some(order) = &mapping.mission_order {
-                return chk
-                    .any(|loc| loc.name() == format!("Mission #{} Complete", order[19]).as_str());
-            }
-            false
         }
     }
 }
 
 pub fn handle_received_items_packet(
     index: usize,
-    received_items: &[ReceivedItem],
+    client: &mut Client<ModModeData>,
 ) -> Result<(), Box<dyn Error>> {
     if game_manager::session_is_valid() {
         if index == 0 {
@@ -303,7 +386,8 @@ pub fn handle_received_items_packet(
         }
         match ARCHIPELAGO_DATA.write() {
             Ok(mut data) => {
-                for item in received_items
+                for item in client
+                    .received_items()
                     .iter()
                     .filter(|item| item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize)
                 {
@@ -358,7 +442,7 @@ pub fn handle_received_items_packet(
                         }
                         0x3A..0x53 => {
                             // For skills
-                            if let Some(mapping) = MAPPING.read()?.as_ref()
+                            if let ModModeData::Normal(mapping) = client.slot_data()
                                 && mapping.randomize_skills
                             {
                                 skill_manager::add_skill(item.item().id() as usize, &mut data);

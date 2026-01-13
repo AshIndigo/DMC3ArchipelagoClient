@@ -7,6 +7,7 @@ use std::path::Path;
 use std::sync::atomic::AtomicI64;
 use std::sync::Mutex;
 use archipelago_rs::Client;
+use crate::mapping::ModModeData;
 
 const SYNC_FILE: &str = "archipelago.json";
 pub static CURRENT_INDEX: AtomicI64 = AtomicI64::new(0);
@@ -43,6 +44,7 @@ pub fn check_for_sync_file() -> bool {
 }
 
 /// Reads the received items indices from the save file
+// TODO Need to account for older files
 pub fn read_save_data() -> Result<SyncData, Box<dyn Error>> {
     if !check_for_sync_file() {
         Ok(SyncData::default())
@@ -59,13 +61,12 @@ pub fn get_sync_file_key(seed_name: &str, slot_name: String) -> String {
     format!("{}_{}", seed_name, slot_name)
 }
 
-// TODO Clear this out once written?
 pub static OFFLINE_CHECKS: Mutex<Vec<i64>> = Mutex::new(Vec::new());
 pub fn add_offline_check(location: i64) {
     OFFLINE_CHECKS.lock().unwrap().push(location);
 }
 
-pub fn send_offline_checks(client: &mut Client) -> Result<(), Box<dyn Error>> {
+pub fn send_offline_checks(client: &mut Client<ModModeData>) -> Result<(), Box<dyn Error>> {
     log::debug!("Attempting to send any offline checks");
     let mut sync_data = read_save_data()?;
     let index = get_sync_file_key(client.seed_name(), client.this_player().name().parse()?);

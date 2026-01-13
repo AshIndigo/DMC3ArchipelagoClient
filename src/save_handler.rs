@@ -215,6 +215,7 @@ fn save_to_slot(param_1: usize, save_index: i32) {
                             sync_info.offline_checks = item_sync::OFFLINE_CHECKS.lock().unwrap().clone();
                         }
                     }
+                    item_sync::OFFLINE_CHECKS.lock().unwrap().clear();
                     if let Err(e) = item_sync::write_sync_data_file(sync_data) {
                         log::error!("Error writing sync data: {}", e);
                     }

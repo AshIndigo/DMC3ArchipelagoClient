@@ -871,7 +871,7 @@ pub struct ItemEntry {
     strum_macros::Display,
     strum_macros::FromRepr,
 )]
-pub(crate) enum Difficulty {
+pub enum Difficulty {
     #[default]
     Easy = 0,
     Normal = 1,
@@ -901,7 +901,7 @@ pub(crate) enum Difficulty {
     strum_macros::Display,
     strum_macros::FromRepr,
 )]
-pub(crate) enum Rank {
+pub enum Rank {
     #[default]
     D = 0,
     C = 1,

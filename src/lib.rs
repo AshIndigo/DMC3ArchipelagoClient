@@ -2,6 +2,7 @@ use crate::archipelago::ArchipelagoCore;
 use crate::constants::{BasicNothingFunc, DMC3Config};
 use crate::utilities::DMC3_ADDRESS;
 use crate::utilities::{is_crimson_loaded, is_ddmk_loaded};
+use archipelago_rs::{Connection, ConnectionOptions, ItemHandling};
 use minhook::{MinHook, MH_STATUS};
 use randomizer_utilities::exception_handler;
 use randomizer_utilities::mapping_utilities::GameConfig;
@@ -19,14 +20,15 @@ mod config;
 mod constants;
 mod data;
 mod game_manager;
+mod hint_game;
 mod hook;
+mod item_sync;
 mod location_handler;
 mod mapping;
 mod save_handler;
 mod skill_manager;
 mod ui;
 mod utilities;
-mod item_sync;
 
 #[macro_export]
 /// Does not enable the hook, that needs to be done separately
@@ -134,7 +136,7 @@ fn main_loop_hook() {
         }
     }
 
-    if let Err(err) = AP_CORE
+    if let Ok(mut core) = AP_CORE
         .get_or_init(|| {
             ArchipelagoCore::new(
                 config::CONFIG.connections.get_url(),
@@ -144,10 +146,19 @@ fn main_loop_hook() {
             .unwrap()
         })
         .lock()
-        .unwrap()
-        .update()
+        && let Err(err) = core.update()
     {
         log::error!("{}", err);
+        log::debug!("Attempting to reconnect");
+        core.connection = Connection::new(
+            config::CONFIG.connections.get_url(),
+            DMC3Config::GAME_NAME,
+            "",
+            ConnectionOptions::new().receive_items(ItemHandling::OtherWorlds {
+                own_world: true,
+                starting_inventory: true,
+            }),
+        );
     }
 }
 

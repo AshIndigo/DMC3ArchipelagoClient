@@ -1,4 +1,4 @@
-use crate::archipelago::{CONNECTION_STATUS, TX_DEATHLINK};
+use crate::archipelago::TX_DEATHLINK;
 use crate::constants::ItemEntry;
 use crate::constants::*;
 use crate::data::generated_locations;
@@ -180,11 +180,8 @@ static HOOK_ADDRESSES: LazyLock<Vec<usize>> = LazyLock::new(|| {
 
 pub(crate) fn enable_hooks() {
     HOOK_ADDRESSES.iter().for_each(|addr| unsafe {
-        match MinHook::enable_hook((*DMC3_ADDRESS + addr) as *mut _) {
-            Ok(_) => {}
-            Err(err) => {
-                log::error!("Failed to enable {:#X} hook: {:?}", addr, err);
-            }
+        if let Err(err) = MinHook::enable_hook((*DMC3_ADDRESS + addr) as *mut _) {
+            log::error!("Failed to enable {:#X} hook: {:?}", addr, err);
         }
     })
 }
@@ -193,11 +190,8 @@ pub(crate) fn enable_hooks() {
 pub fn disable_hooks() -> Result<(), MH_STATUS> {
     let base_address = *DMC3_ADDRESS;
     HOOK_ADDRESSES.iter().for_each(|addr| unsafe {
-        match MinHook::disable_hook((base_address + *addr) as *mut _) {
-            Ok(_) => {}
-            Err(err) => {
-                log::error!("Failed to disable {:#X} hook: {:?}", addr, err);
-            }
+        if let Err(err) = MinHook::disable_hook((base_address + *addr) as *mut _) {
+            log::error!("Failed to disable {:#X} hook: {:?}", addr, err);
         }
     });
     Ok(())
@@ -595,10 +589,6 @@ fn dummy_replace(location_key: &&str, item_addr: *mut i32) -> bool {
 }
 
 fn set_relevant_key_items() {
-    if CONNECTION_STATUS.load(Ordering::Relaxed) != 1 {
-        return;
-    }
-
     if let Ok(data) = ARCHIPELAGO_DATA.read() {
         with_session(|s| {
             match MISSION_ITEM_MAP.get(&(s.mission)) {
@@ -678,7 +668,11 @@ pub fn load_new_room(param_1: usize) -> bool {
     set_relevant_key_items();
     check_handler::clear_high_roller();
     LAST_OBTAINED_ID.store(0, Ordering::SeqCst); // Should stop random item jumpscares
-    skill_manager::set_skills(&ARCHIPELAGO_DATA.read().unwrap());
+    if let Some(mapping) = MAPPING.read().unwrap().as_ref()
+        && mapping.randomize_skills
+    {
+        skill_manager::set_skills(&ARCHIPELAGO_DATA.read().unwrap());
+    }
     res
 }
 

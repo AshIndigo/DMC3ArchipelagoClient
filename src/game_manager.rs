@@ -236,7 +236,10 @@ pub fn get_difficulty() -> Difficulty {
     .unwrap()
 }
 
-#[repr(C)]
+const MISSION_CHARACTER_DATA: usize = 0xC90E30;
+
+// Note: MissionData struct here if needed
+/*#[repr(C)]
 pub struct MissionData {
     unknown1: [u8; 56],
     red_orbs: u32,
@@ -250,7 +253,7 @@ pub struct MissionData {
     kill_count: u32,
     unknown3: [u8; 4],
 }
-const MISSION_CHARACTER_DATA: usize = 0xC90E30;
+
 static MISSION_DATA_PTR: LazyLock<usize> = LazyLock::new(|| *DMC3_ADDRESS + MISSION_CHARACTER_DATA);
 
 pub fn with_mission_data_read<F, R>(f: F) -> Result<R, GameDataError>
@@ -283,7 +286,7 @@ where
         }
         Ok(f(s))
     }
-}
+}*/
 
 // TODO These offsets are wildly inaccurate
 pub(crate) fn give_magic(magic_val: f32, arch_data: &ArchipelagoData) {

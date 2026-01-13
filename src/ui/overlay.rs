@@ -1,7 +1,8 @@
-use crate::mapping::MAPPING;
+use crate::archipelago::CONNECTION_STATUS;
 use crate::ui::font_handler::{get_default_color, FontAtlas, FontColorCB, GREEN, RED, WHITE};
 use crate::ui::{dx11_hooks, font_handler};
-use crate::utilities;
+use crate::{mapping, utilities};
+use archipelago_rs::LocatedItem;
 use randomizer_utilities::ui_utilities::Status;
 use std::collections::VecDeque;
 use std::slice::from_raw_parts;
@@ -19,8 +20,6 @@ use windows::Win32::Graphics::Dxgi::Common::{
 };
 use windows::Win32::Graphics::Dxgi::*;
 use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
-use archipelago_rs::{LocatedItem};
-use crate::archipelago::CONNECTION_STATUS;
 
 pub(crate) struct D3D11State {
     device: ID3D11Device,
@@ -341,6 +340,7 @@ pub(crate) unsafe extern "system" fn present_hook(
                 draw_version_info(&state, screen_width, screen_height);
             }
             if CANT_PURCHASE.load(Ordering::SeqCst) && let Some(atlas) = &state.atlas {
+                // TODO Modify this text
                 const NO_PURCHASE: &str = "Cannot purchase upgrades";
                 const NO_PURCHASE_L2: &str = "due to world settings";
                 font_handler::draw_string(
@@ -397,13 +397,14 @@ fn draw_version_info(
     const MOD_VERSION: &str = "Mod Version:";
     const AP_VERSION: &str = "AP Client Version:";
     const ROOM_VERSION: &str = "Room Version:";
+    const MODE: &str = "Mode:";
     // TODO Maybe at some point I'd want to have the mod poke github on launch?
     font_handler::draw_string(
         state,
         &format!("{} {}", MOD_VERSION, env!("CARGO_PKG_VERSION")),
         0.0,
         //VERSION.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>(),
-        50.0,
+        100.0,
         screen_width,
         screen_height,
         get_default_color(),
@@ -411,15 +412,25 @@ fn draw_version_info(
 
     if (CONNECTION_STATUS.load(Ordering::SeqCst)
         == <Status as Into<isize>>::into(Status::Connected))
-        && let Some(mapping) = MAPPING.read().unwrap().as_ref()
+        && let Ok(mapping) = mapping::OVERLAY_INFO.read()
     {
+        font_handler::draw_string(
+            state,
+            &format!("{} {}", MODE, mapping.mode),
+            0.0,
+            //VERSION.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>(),
+            50.0,
+            screen_width,
+            screen_height,
+            get_default_color(),
+        );
         if let Some(cv) = &mapping.client_version {
             font_handler::draw_string(
                 state,
                 &format!("{} {}", AP_VERSION, cv),
                 0.0,
                 //VERSION.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>(),
-                100.0,
+                150.0,
                 screen_width,
                 screen_height,
                 get_default_color(),
@@ -431,7 +442,7 @@ fn draw_version_info(
                 &format!("{} {}", ROOM_VERSION, gv),
                 0.0,
                 //VERSION.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>(),
-                150.0,
+                200.0,
                 screen_width,
                 screen_height,
                 get_default_color(),
@@ -523,29 +534,11 @@ pub(crate) fn get_color_for_item(item: &LocatedItem) -> FontColorCB {
     const STATE_BLUE: FontColorCB = FontColorCB::new(0.427, 0.545, 0.91, 1.0);
     const SALMON: FontColorCB = FontColorCB::new(0.98, 0.502, 0.447, 1.0);
 
-    if item.is_trap() {
-        return SALMON;
-    }
-    if item.is_useful() && item.is_progression() || item.is_progression() {
-        return PLUM;
-    }
-    if item.is_useful() {
-        return STATE_BLUE;
-    }
-    if !item.is_trap() && !item.is_useful() && !item.is_progression() {
-        return CYAN;
+    match (item.is_trap(), item.is_useful(), item.is_progression()) {
+        (true,  _,     _)     => SALMON,
+        (false, _,     true)  => PLUM,
+        (false, true,  false) => STATE_BLUE,
+        (false, false, false) => CYAN,
     }
 
-    WHITE
-    // TODO Would maybe be nice to have the bits again
-    // match item.flags.bits() {
-    //     0b000 => CYAN,       // Cyan for regular/filler
-    //     0b001 => PLUM,       // Plum for progression
-    //     0b010 => STATE_BLUE, // 'Stateblue' for useful
-    //     0b100 => SALMON,     // Salmon for trap
-    //     0b101 => PLUM,       // Plum for progression
-    //     0b110 => STATE_BLUE, // 'Stateblue' for useful
-    //     0b011 => PLUM,       // Plum-gression (could be gold if I wanted to do proguseful)
-    //     _ => WHITE,
-    // }
 }
