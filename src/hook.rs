@@ -678,7 +678,11 @@ pub fn load_new_room(param_1: usize) -> bool {
     set_relevant_key_items();
     check_handler::clear_high_roller();
     LAST_OBTAINED_ID.store(0, Ordering::SeqCst); // Should stop random item jumpscares
-    skill_manager::set_skills(&ARCHIPELAGO_DATA.read().unwrap());
+    if let Some(mapping) = MAPPING.read().unwrap().as_ref()
+        && mapping.randomize_skills
+    {
+        skill_manager::set_skills(&ARCHIPELAGO_DATA.read().unwrap());
+    }
     res
 }
 
