@@ -389,6 +389,7 @@ pub fn handle_received_items_packet(
                 for item in client
                     .received_items()
                     .iter()
+                    // TODO Really don't know if I should have it be > or >=, it's probably >
                     .filter(|item| item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize)
                 {
                     // Display overlay text if we're not at the main menu

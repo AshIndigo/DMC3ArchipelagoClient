@@ -1000,6 +1000,8 @@ pub fn set_rando_session_data(ptr: usize) {
         }
     })
     .unwrap();
+    skill_manager::set_skills(&ARCHIPELAGO_DATA.read().unwrap());
+    set_weapons_in_inv();
     match AP_CORE.get().unwrap().lock() {
         Ok(mut core) => {
             CURRENT_INDEX.store(0, Ordering::SeqCst);

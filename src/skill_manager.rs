@@ -210,7 +210,7 @@ pub(crate) fn reset_expertise() {
     }
 }
 
-const EXPERTISE_OFFSET: usize = 0x400C;
+const EXPERTISE_OFFSET: usize = 0x3FEC; // 0x400c
 
 fn give_skill(skill_id: &usize) {
     // This works, might not update files? need to double-check
