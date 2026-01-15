@@ -1,21 +1,20 @@
-use std::collections::HashSet;
-use crate::constants::{BasicNothingFunc, ItemCategory};
+use crate::archipelago::CONNECTION_STATUS;
 use crate::compat::imgui_bindings::*;
+use crate::constants::{BasicNothingFunc, ItemCategory};
+use crate::ui::text_handler;
 use crate::utilities::read_data_from_address;
 use crate::{check_handler, config, constants, game_manager};
 use imgui_sys::{ImGuiCond, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
 use minhook::MinHook;
+use randomizer_utilities::get_base_address;
+use randomizer_utilities::ui_utilities::get_status_text;
+use std::collections::HashSet;
 use std::os::raw::c_char;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, OnceLock};
 use std::thread;
-use randomizer_utilities::get_base_address;
-use randomizer_utilities::ui_utilities::get_status_text;
-use crate::archipelago::CONNECTION_STATUS;
-use crate::ui::text_handler;
 
-pub static MARY_ADDRESS: LazyLock<usize> =
-    LazyLock::new(|| get_base_address("Mary.dll"));
+pub static MARY_ADDRESS: LazyLock<usize> = LazyLock::new(|| get_base_address("Mary.dll"));
 static SETUP: AtomicBool = AtomicBool::new(false);
 
 pub const USE_2022_DDMK: bool = true;
@@ -86,14 +85,8 @@ unsafe fn tracking_window() {
                         .join("  ");
                     text(format!("{}\0", row_text));
                 }
-                text(format!(
-                    "Blue Orbs: {}\0",
-                    data.blue_orbs
-                ));
-                text(format!(
-                    "Purple Orbs: {}\0",
-                    data.purple_orbs
-                ));
+                text(format!("Blue Orbs: {}\0", data.blue_orbs));
+                text(format!("Purple Orbs: {}\0", data.purple_orbs));
             }
             Err(err) => {
                 log::error!("Failed to read ArchipelagoData: {:?}", err);
@@ -121,7 +114,10 @@ pub unsafe fn archipelago_window() {
             flag as *mut bool,
             imgui_sys::ImGuiWindowFlags_AlwaysAutoResize as ImGuiWindowFlags,
         );
-        text(format!("Status: {}\0", get_status_text(CONNECTION_STATUS.load(Ordering::SeqCst))));
+        text(format!(
+            "Status: {}\0",
+            get_status_text(CONNECTION_STATUS.load(Ordering::SeqCst))
+        ));
         const DEBUG: bool = false;
         if DEBUG {
             if get_imgui_button()(

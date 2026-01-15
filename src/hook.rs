@@ -3,22 +3,23 @@ use crate::constants::ItemEntry;
 use crate::constants::*;
 use crate::data::generated_locations;
 use crate::game_manager::{
-    get_difficulty, get_mission, get_room, set_item, set_loc_chk_flg, set_weapons_in_inv, with_rankings_read,
-    with_session, Style, ARCHIPELAGO_DATA,
+    ARCHIPELAGO_DATA, Style, get_difficulty, get_mission, get_room, set_item, set_loc_chk_flg,
+    set_weapons_in_inv, with_rankings_read, with_session,
 };
 use crate::item_sync::CURRENT_INDEX;
 use crate::location_handler::in_key_item_room;
-use crate::mapping::{run_scouts_for_mission, Goal, Mapping, MAPPING};
+use crate::mapping::{Goal, MAPPING, Mapping, run_scouts_for_mission};
 use crate::ui::overlay::CANT_PURCHASE;
 use crate::ui::text_handler;
 use crate::ui::text_handler::LAST_OBTAINED_ID;
-use crate::utilities::{read_data_from_address, DMC3_ADDRESS};
+use crate::utilities::{DMC3_ADDRESS, read_data_from_address};
 use crate::{
-    check_handler, create_hook, game_manager, save_handler, skill_manager, utilities, AP_CORE,
+    AP_CORE, check_handler, create_hook, game_manager, save_handler, skill_manager,
+    utilities,
 };
 use archipelago_rs::CreateAsHint;
 use bitflags::bitflags;
-use minhook::{MinHook, MH_STATUS};
+use minhook::{MH_STATUS, MinHook};
 use randomizer_utilities::archipelago_utilities::DeathLinkData;
 use randomizer_utilities::replace_single_byte;
 use std::arch::asm;
@@ -612,10 +613,11 @@ fn set_relevant_key_items() {
                     }
                 }
             }
-            // Special case for Ignis Fatuus
-            // Needed so the Ignis Fatuus location can be reached even when the actual key item is acquired
+
             if let Ok(core) = AP_CORE.get().unwrap().lock().as_ref() {
                 let mut checked_locations = core.connection.client().unwrap().checked_locations();
+                // Special case for Ignis Fatuus
+                // Needed so the Ignis Fatuus location can be reached even when the actual key item is acquired
                 if get_room() == 302
                     && let Some(event_table_addr) = utilities::get_event_address()
                 {

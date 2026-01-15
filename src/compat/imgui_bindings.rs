@@ -1,11 +1,9 @@
 use crate::compat::ddmk_hook::MARY_ADDRESS;
 use crate::compat::ddmk_hook::USE_2022_DDMK;
-use imgui_sys::{
-    cty, ImGuiCond, ImGuiWindowFlags, ImVec2,
-};
+use crate::constants::BasicNothingFunc;
+use imgui_sys::{ImGuiCond, ImGuiWindowFlags, ImVec2, cty};
 use std::os::raw::c_char;
 use std::sync::OnceLock;
-use crate::constants::BasicNothingFunc;
 
 pub type ImGuiBegin =
     extern "C" fn(name: *const cty::c_char, p_open: *mut bool, flags: ImGuiWindowFlags) -> bool;

@@ -1,5 +1,5 @@
 use crate::archipelago::CONNECTION_STATUS;
-use crate::ui::font_handler::{get_default_color, FontAtlas, FontColorCB, GREEN, RED, WHITE};
+use crate::ui::font_handler::{FontAtlas, FontColorCB, GREEN, RED, WHITE, get_default_color};
 use crate::ui::{dx11_hooks, font_handler};
 use crate::{mapping, utilities};
 use archipelago_rs::LocatedItem;
@@ -9,17 +9,17 @@ use std::slice::from_raw_parts;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex, OnceLock, RwLock, RwLockReadGuard};
 use std::time::{Duration, Instant};
-use windows::core::PCSTR;
 use windows::Win32::Foundation::RECT;
 use windows::Win32::Graphics::Direct3D::Fxc::D3DCompile;
 use windows::Win32::Graphics::Direct3D::ID3DBlob;
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Direct3D11::{ID3D11Device, ID3D11Texture2D};
 use windows::Win32::Graphics::Dxgi::Common::{
-    DXGI_FORMAT_R32G32B32_FLOAT, DXGI_FORMAT_R32G32_FLOAT,
+    DXGI_FORMAT_R32G32_FLOAT, DXGI_FORMAT_R32G32B32_FLOAT,
 };
 use windows::Win32::Graphics::Dxgi::*;
 use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
+use windows::core::PCSTR;
 
 pub(crate) struct D3D11State {
     device: ID3D11Device,
@@ -339,14 +339,21 @@ pub(crate) unsafe extern "system" fn present_hook(
                 );
                 draw_version_info(&state, screen_width, screen_height);
             }
-            if CANT_PURCHASE.load(Ordering::SeqCst) && let Some(atlas) = &state.atlas {
+            if CANT_PURCHASE.load(Ordering::SeqCst)
+                && let Some(atlas) = &state.atlas
+            {
                 // TODO Modify this text
                 const NO_PURCHASE: &str = "Cannot purchase upgrades";
                 const NO_PURCHASE_L2: &str = "due to world settings";
                 font_handler::draw_string(
                     &state,
                     NO_PURCHASE,
-                    480.0+(NO_PURCHASE.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>()/2.0),
+                    480.0
+                        + (NO_PURCHASE
+                            .chars()
+                            .map(|c| atlas.glyph_advance(c))
+                            .sum::<f32>()
+                            / 2.0),
                     70.0,
                     screen_width,
                     screen_height,
@@ -355,7 +362,12 @@ pub(crate) unsafe extern "system" fn present_hook(
                 font_handler::draw_string(
                     &state,
                     NO_PURCHASE_L2,
-                    480.0+(NO_PURCHASE.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>()/2.0),
+                    480.0
+                        + (NO_PURCHASE
+                            .chars()
+                            .map(|c| atlas.glyph_advance(c))
+                            .sum::<f32>()
+                            / 2.0),
                     106.0,
                     screen_width,
                     screen_height,
@@ -389,11 +401,7 @@ pub(crate) unsafe extern "system" fn present_hook(
     unsafe { dx11_hooks::ORIGINAL_PRESENT.get().unwrap()(orig_swap_chain, sync_interval, flags) }
 }
 
-fn draw_version_info(
-    state: &RwLockReadGuard<D3D11State>,
-    screen_width: f32,
-    screen_height: f32,
-) {
+fn draw_version_info(state: &RwLockReadGuard<D3D11State>, screen_width: f32, screen_height: f32) {
     const MOD_VERSION: &str = "Mod Version:";
     const AP_VERSION: &str = "AP Client Version:";
     const ROOM_VERSION: &str = "Room Version:";
@@ -535,10 +543,9 @@ pub(crate) fn get_color_for_item(item: &LocatedItem) -> FontColorCB {
     const SALMON: FontColorCB = FontColorCB::new(0.98, 0.502, 0.447, 1.0);
 
     match (item.is_trap(), item.is_useful(), item.is_progression()) {
-        (true,  _,     _)     => SALMON,
-        (false, _,     true)  => PLUM,
-        (false, true,  false) => STATE_BLUE,
+        (true, _, _) => SALMON,
+        (false, _, true) => PLUM,
+        (false, true, false) => STATE_BLUE,
         (false, false, false) => CYAN,
     }
-
 }

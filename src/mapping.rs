@@ -1,18 +1,19 @@
+use crate::constants::{Difficulty, Rank};
 use crate::data::generated_locations;
+use archipelago_rs::{Client, CreateAsHint, Error, LocatedItem, Location};
+use oneshot::Receiver;
+use randomizer_utilities::APVersion;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use crate::constants::{Difficulty, Rank};
-use archipelago_rs::{Client, CreateAsHint, Error, LocatedItem, Location};
-use oneshot::Receiver;
-use randomizer_utilities::APVersion;
 use std::sync::{LazyLock, RwLock};
 use std::thread;
 
 pub static MAPPING: LazyLock<RwLock<Option<Mapping>>> = LazyLock::new(|| RwLock::new(None));
 
-pub static OVERLAY_INFO: LazyLock<RwLock<OverlayInfo>> = LazyLock::new(|| RwLock::new(OverlayInfo::default()));
+pub static OVERLAY_INFO: LazyLock<RwLock<OverlayInfo>> =
+    LazyLock::new(|| RwLock::new(OverlayInfo::default()));
 
 #[derive(Debug, Default)]
 pub struct OverlayInfo {
@@ -26,22 +27,26 @@ pub enum ModMode {
     Normal,
     HintGame,
     #[default]
-    Unknown
+    Unknown,
 }
 
 impl Display for ModMode {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", match self {
-            ModMode::Normal => {
-                "Randomizer"
+        write!(
+            f,
+            "{}",
+            match self {
+                ModMode::Normal => {
+                    "Randomizer"
+                }
+                ModMode::HintGame => {
+                    "Hint Game"
+                }
+                ModMode::Unknown => {
+                    "Unknown"
+                }
             }
-            ModMode::HintGame => {
-                "Hint Game"
-            }
-            ModMode::Unknown => {
-                "Unknown"
-            }
-        })
+        )
     }
 }
 

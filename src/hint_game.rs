@@ -1,11 +1,11 @@
+use crate::DMC3_ADDRESS;
+use crate::MinHook;
 use crate::game_manager::get_mission;
 use crate::mapping::ModModeData;
-use crate::MinHook;
-use crate::DMC3_ADDRESS;
-use crate::{create_hook, AP_CORE};
+use crate::{AP_CORE, create_hook};
 use archipelago_rs::{AsLocationId, Location};
 use minhook::MH_STATUS;
-use oneshot::{Receiver};
+use oneshot::Receiver;
 use rand::seq::IteratorRandom;
 use randomizer_utilities::read_data_from_address;
 use serde::Deserialize;

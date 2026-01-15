@@ -1,5 +1,5 @@
 use crate::check_handler::{Location, LocationType};
-use crate::constants::{EventCode, ItemCategory, DUMMY_ID, EVENT_TABLES, ITEM_MAP, REMOTE_ID};
+use crate::constants::{DUMMY_ID, EVENT_TABLES, EventCode, ITEM_MAP, ItemCategory, REMOTE_ID};
 use crate::data::generated_locations;
 use crate::game_manager::get_mission;
 use crate::{constants, game_manager, mapping, utilities};

@@ -4,7 +4,7 @@ use randomizer_utilities::mapping_utilities::GameConfig;
 use serde::{Deserialize, Serialize};
 use std::cmp::PartialEq;
 use std::collections::HashMap;
-use std::sync::{LazyLock};
+use std::sync::LazyLock;
 
 pub type BasicNothingFunc = unsafe extern "system" fn();
 
@@ -851,7 +851,7 @@ pub(crate) struct EventTable {
 #[derive(Debug)]
 pub struct ItemEntry {
     // Represents an item on the ground
-    pub _offset: usize,     // Offset for the item table
+    pub _offset: usize,    // Offset for the item table
     pub room_number: i32,  // Room number
     pub item_id: u32,      // Default Item ID
     pub mission: u32,      // Mission Number

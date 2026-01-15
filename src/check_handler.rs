@@ -1,17 +1,18 @@
-use crate::constants::{Coordinates, Difficulty, Rank, EMPTY_COORDINATES};
+use crate::constants::{Coordinates, Difficulty, EMPTY_COORDINATES, Rank};
 use crate::data::generated_locations;
-use crate::game_manager::{get_mission, set_item, with_session_read};
+use crate::game_manager::{ARCHIPELAGO_DATA, get_mission, get_room, set_item, with_session_read};
 use crate::mapping::MAPPING;
 use crate::ui::text_handler;
-use crate::utilities::{get_inv_address, DMC3_ADDRESS};
+use crate::utilities::{DMC3_ADDRESS, get_inv_address};
 use crate::{constants, create_hook, game_manager, location_handler};
-use minhook::{MinHook, MH_STATUS};
+use archipelago_rs::Client;
+use minhook::{MH_STATUS, MinHook};
+use randomizer_utilities::read_data_from_address;
 use std::cmp::PartialEq;
 use std::fmt::{Display, Formatter};
+use std::sync::OnceLock;
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::mpsc::Sender;
-use std::sync::OnceLock;
-use randomizer_utilities::read_data_from_address;
 
 pub const ITEM_HANDLE_PICKUP_ADDR: usize = 0x1b45a0;
 pub static ORIGINAL_HANDLE_PICKUP: OnceLock<unsafe extern "C" fn(item_struct: usize)> =
@@ -306,13 +307,16 @@ pub fn purchase_item_check(ptr: usize) {
             );
             log::debug!("Item {} Bought {}", bought_item_id, amt);
             // Now that we know what was bought and how many times. We need to send this off to AP
-            send_off_location_coords(Location {
-                location_type: LocationType::PurchaseItem,
-                item_id: bought_item_id as u32,
-                mission: amt as u32,
-                room: 0,
-                coordinates: EMPTY_COORDINATES
-            }, u32::MAX);
+            send_off_location_coords(
+                Location {
+                    location_type: LocationType::PurchaseItem,
+                    item_id: bought_item_id as u32,
+                    mission: amt as u32,
+                    room: 0,
+                    coordinates: EMPTY_COORDINATES,
+                },
+                u32::MAX,
+            );
         }
     }
 }
@@ -324,7 +328,7 @@ pub(crate) enum LocationType {
     Standard,
     MissionComplete,
     SSRank,
-    PurchaseItem
+    PurchaseItem,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -376,9 +380,24 @@ pub(crate) fn take_away_received_item(id: u32) {
         unsafe {
             randomizer_utilities::replace_single_byte(
                 current_inv_addr + offset as usize,
-                read_data_from_address::<u8>(current_inv_addr + offset as usize)
-                    .saturating_sub(1),
+                read_data_from_address::<u8>(current_inv_addr + offset as usize).saturating_sub(1),
             );
         }
     }
+}
+
+pub(crate) fn should_snatch_item(id: u32) -> bool {
+    // Haywire Neo Generator Case
+    // If we are attempting to take it away, but the item is in the AP Data, don't actually take it
+    if id == 0x32
+        && ARCHIPELAGO_DATA
+            .read()
+            .unwrap()
+            .items
+            .contains("Haywire Neo Generator")
+    {
+        return false;
+    }
+    // Otherwise just take it
+    true
 }

@@ -1,9 +1,9 @@
 use crate::archipelago::CONNECTION_STATUS;
-use crate::item_sync::{SlotSyncInfo, CURRENT_INDEX};
+use crate::item_sync::{CURRENT_INDEX, SlotSyncInfo};
 use crate::utilities::DMC3_ADDRESS;
-use crate::{create_hook, item_sync, utilities, AP_CORE};
-use minhook::MinHook;
+use crate::{AP_CORE, create_hook, item_sync, utilities};
 use minhook::MH_STATUS;
+use minhook::MinHook;
 use std::error::Error;
 use std::io::ErrorKind;
 use std::ptr::{write, write_unaligned};
@@ -206,13 +206,15 @@ fn save_to_slot(param_1: usize, save_index: i32) {
                             let mut sync_info = SlotSyncInfo::default();
                             sync_info.sync_index[save_index as usize] =
                                 CURRENT_INDEX.load(Ordering::SeqCst);
-                            sync_info.offline_checks = item_sync::OFFLINE_CHECKS.lock().unwrap().clone();
+                            sync_info.offline_checks =
+                                item_sync::OFFLINE_CHECKS.lock().unwrap().clone();
                             sync_data.room_sync_info.insert(key, sync_info);
                         }
                         Some(sync_info) => {
                             sync_info.sync_index[save_index as usize] =
                                 CURRENT_INDEX.load(Ordering::SeqCst);
-                            sync_info.offline_checks = item_sync::OFFLINE_CHECKS.lock().unwrap().clone();
+                            sync_info.offline_checks =
+                                item_sync::OFFLINE_CHECKS.lock().unwrap().clone();
                         }
                     }
                     item_sync::OFFLINE_CHECKS.lock().unwrap().clear();

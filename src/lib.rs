@@ -3,15 +3,15 @@ use crate::constants::{BasicNothingFunc, DMC3Config};
 use crate::utilities::DMC3_ADDRESS;
 use crate::utilities::{is_crimson_loaded, is_ddmk_loaded};
 use archipelago_rs::{Connection, ConnectionOptions, ItemHandling};
-use minhook::{MinHook, MH_STATUS};
+use minhook::{MH_STATUS, MinHook};
 use randomizer_utilities::exception_handler;
 use randomizer_utilities::mapping_utilities::GameConfig;
 use std::fmt::{Display, Formatter};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
-use windows::core::{BOOL, PCSTR};
 use windows::Win32::Foundation::*;
 use windows::Win32::System::LibraryLoader;
+use windows::core::{BOOL, PCSTR};
 
 mod archipelago;
 mod check_handler;

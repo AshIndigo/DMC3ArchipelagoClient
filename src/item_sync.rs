@@ -1,13 +1,13 @@
+use crate::mapping::ModModeData;
+use archipelago_rs::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::{BufReader, Write};
 use std::path::Path;
-use std::sync::atomic::AtomicI64;
 use std::sync::Mutex;
-use archipelago_rs::Client;
-use crate::mapping::ModModeData;
+use std::sync::atomic::AtomicI64;
 
 const SYNC_FILE: &str = "archipelago.json";
 pub static CURRENT_INDEX: AtomicI64 = AtomicI64::new(0);
@@ -28,10 +28,7 @@ pub struct SlotSyncInfo {
 pub fn write_sync_data_file(data: SyncData) -> Result<(), Box<dyn Error>> {
     let mut file = File::create(SYNC_FILE)?;
     log::debug!("Writing sync file");
-    file.write_all(
-        serde_json::to_string_pretty(&data)?
-            .as_bytes(),
-    )?;
+    file.write_all(serde_json::to_string_pretty(&data)?.as_bytes())?;
     file.flush()?;
     Ok(())
 }

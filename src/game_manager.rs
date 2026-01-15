@@ -1,11 +1,11 @@
 use crate::constants::{
-    get_items_by_category, get_weapon_id, Difficulty, ItemCategory, BASE_HP, GUN_NAMES, ITEM_MAP, ITEM_OFFSET_MAP,
-    MAX_HP, MAX_MAGIC, MELEE_NAMES, ONE_ORB,
+    BASE_HP, Difficulty, GUN_NAMES, ITEM_MAP, ITEM_OFFSET_MAP, ItemCategory, MAX_HP, MAX_MAGIC,
+    MELEE_NAMES, ONE_ORB, get_items_by_category, get_weapon_id,
 };
 use crate::hook::ORIGINAL_GIVE_STYLE_XP;
 use crate::mapping::MAPPING;
 use crate::utilities;
-use crate::utilities::{get_inv_address, read_data_from_address, DMC3_ADDRESS};
+use crate::utilities::{DMC3_ADDRESS, get_inv_address, read_data_from_address};
 use archipelago_rs::Item;
 use randomizer_utilities::replace_single_byte;
 use std::collections::HashSet;

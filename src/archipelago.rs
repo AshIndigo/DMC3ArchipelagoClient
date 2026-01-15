@@ -1,26 +1,32 @@
-use crate::check_handler::{Location, LocationType, TX_LOCATION};
+use crate::check_handler::{Location, LocationType, TX_LOCATION, take_away_received_item};
 use crate::constants::{MISSION_ITEM_MAP, REMOTE_ID};
-use crate::game_manager::{get_mission, ArchipelagoData, Style, ARCHIPELAGO_DATA};
+use crate::game_manager::{ARCHIPELAGO_DATA, ArchipelagoData, Style, get_mission};
 use crate::mapping::{
-    DeathlinkSetting, Goal, ModMode, ModModeData, OverlayInfo, MAPPING, OVERLAY_INFO,
+    DeathlinkSetting, Goal, MAPPING, ModMode, ModModeData, OVERLAY_INFO, OverlayInfo,
 };
 use crate::ui::font_handler::{WHITE, YELLOW};
 use crate::ui::overlay::{MessageSegment, MessageType, OverlayMessage};
 use crate::ui::{overlay, text_handler};
-use crate::{constants, game_manager, hint_game, hook, item_sync, location_handler, mapping, skill_manager, utilities};
+use crate::{
+    check_handler, constants, game_manager, hint_game, hook, item_sync, location_handler, mapping,
+    skill_manager, utilities,
+};
 
 use randomizer_utilities::ui_utilities::Status;
 
+use crate::hint_game::TX_HINT;
 use crate::item_sync::CURRENT_INDEX;
-use archipelago_rs::{AsItemId, Client, ClientStatus, Connection, ConnectionOptions, ConnectionState, CreateAsHint, DeathLinkOptions, Event, HintStatus, ItemHandling};
-use randomizer_utilities::archipelago_utilities::{handle_print, DeathLinkData};
+use archipelago_rs::{
+    AsItemId, Client, ClientStatus, Connection, ConnectionOptions, ConnectionState, CreateAsHint,
+    DeathLinkOptions, Event, HintStatus, ItemHandling,
+};
+use randomizer_utilities::archipelago_utilities::{DeathLinkData, handle_print};
 use randomizer_utilities::{archipelago_utilities, setup_channel_pair};
 use std::error::Error;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
-use std::sync::OnceLock;
 use std::time::Duration;
-use crate::hint_game::TX_HINT;
 
 pub(crate) static CONNECTION_STATUS: AtomicIsize = AtomicIsize::new(0);
 pub static TX_DEATHLINK: OnceLock<Sender<DeathLinkData>> = OnceLock::new();
@@ -231,7 +237,7 @@ impl ArchipelagoCore {
                 }
             }
         }
-        
+
         match self.hint_receiver.try_recv() {
             Ok(hint_data) => {
                 let client = self.connection.client_mut().unwrap();
@@ -297,8 +303,11 @@ fn handle_item_receive(
 ) -> Result<(), Box<dyn Error>> {
     // See if there's an item!
     log::info!("Processing item: {}", received_item);
-    if received_item.location_type == LocationType::Standard && received_item.item_id <= 0x39 {
-        crate::check_handler::take_away_received_item(received_item.item_id);
+    if received_item.location_type == LocationType::Standard
+        && received_item.item_id <= 0x39
+        && check_handler::should_snatch_item(received_item.item_id)
+    {
+        take_away_received_item(received_item.item_id);
     }
     let location_key = location_handler::get_location_name_by_data(&received_item)?;
     // Then see if the item picked up matches the specified in the map

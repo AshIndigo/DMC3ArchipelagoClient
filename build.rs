@@ -15,7 +15,8 @@ fn main() {
     let mut output = String::from("// Auto-generated constants file\n\n");
     output.push_str("use std::collections::HashMap;\n");
     output.push_str("use crate::constants::ItemEntry;\nuse std::sync::LazyLock;\n\n");
-    output.push_str("use crate::constants::Coordinates;\nuse crate::constants::EMPTY_COORDINATES;\n");
+    output
+        .push_str("use crate::constants::Coordinates;\nuse crate::constants::EMPTY_COORDINATES;\n");
 
     output.push_str("pub static ITEM_MISSION_MAP: LazyLock<HashMap<&'static str, ItemEntry>> = LazyLock::new(|| {
     HashMap::from([\n");
