@@ -1,6 +1,6 @@
 use crate::constants::{Coordinates, Difficulty, Rank, EMPTY_COORDINATES};
 use crate::data::generated_locations;
-use crate::game_manager::{get_mission, set_item, with_session_read};
+use crate::game_manager::{get_mission, set_item, with_session_read, ARCHIPELAGO_DATA};
 use crate::mapping::MAPPING;
 use crate::ui::text_handler;
 use crate::utilities::{get_inv_address, DMC3_ADDRESS};
@@ -315,4 +315,14 @@ pub(crate) fn take_away_received_item(id: u32) {
             );
         }
     }
+}
+
+pub(crate) fn should_snatch_item(id: u32) -> bool {
+    // Haywire Neo Generator Case
+    // If we are attempting to take it away, but the item is in the AP Data, don't actually take it
+    if id == 0x32 && ARCHIPELAGO_DATA.read().unwrap().items.contains("Haywire Neo Generator") {
+        return false;
+    }
+    // Otherwise just take it
+    true
 }

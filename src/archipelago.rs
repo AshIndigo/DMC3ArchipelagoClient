@@ -278,7 +278,10 @@ async fn handle_bounced(bounced: Bounced) -> Result<(), Box<dyn Error>> {
         match bounced.data {
             BounceData::DeathLink(dl) => {
                 overlay::add_message(OverlayMessage::new(
-                    vec![MessageSegment::new(format!("{}: {}", dl.source, dl.cause.unwrap_or_default()), WHITE)],
+                    vec![MessageSegment::new(
+                        format!("{}: {}", dl.source, dl.cause.unwrap_or_default()),
+                        WHITE,
+                    )],
                     Duration::from_secs(3),
                     // TODO May want to adjust position, currently added to the 'notification list' so it's in the upper right queue
                     0.0,
@@ -323,8 +326,10 @@ async fn handle_item_receive(
 ) -> Result<(), Box<dyn Error>> {
     // See if there's an item!
     log::info!("Processing item: {}", received_item);
-    if let Some(mapping_data) = MAPPING.read()?.as_ref() && let Some(data_package) = DATA_PACKAGE.read()?.as_ref() {
-        if received_item.item_id <= 0x39 {
+    if let Some(mapping_data) = MAPPING.read()?.as_ref()
+        && let Some(data_package) = DATA_PACKAGE.read()?.as_ref()
+    {
+        if received_item.item_id <= 0x39  && crate::check_handler::should_snatch_item(received_item.item_id) {
             crate::check_handler::take_away_received_item(received_item.item_id);
         }
         let location_key = location_handler::get_location_name_by_data(&received_item)?;
