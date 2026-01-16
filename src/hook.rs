@@ -3,23 +3,22 @@ use crate::constants::ItemEntry;
 use crate::constants::*;
 use crate::data::generated_locations;
 use crate::game_manager::{
-    ARCHIPELAGO_DATA, Style, get_difficulty, get_mission, get_room, set_item, set_loc_chk_flg,
-    set_weapons_in_inv, with_rankings_read, with_session,
+    get_difficulty, get_mission, get_room, set_item, set_loc_chk_flg, set_weapons_in_inv, with_rankings_read,
+    with_session, Style, ARCHIPELAGO_DATA,
 };
 use crate::item_sync::CURRENT_INDEX;
 use crate::location_handler::in_key_item_room;
-use crate::mapping::{Goal, MAPPING, Mapping, run_scouts_for_mission};
+use crate::mapping::{run_scouts_for_mission, Goal, Mapping, MAPPING};
 use crate::ui::overlay::CANT_PURCHASE;
 use crate::ui::text_handler;
 use crate::ui::text_handler::LAST_OBTAINED_ID;
-use crate::utilities::{DMC3_ADDRESS, read_data_from_address};
+use crate::utilities::{read_data_from_address, DMC3_ADDRESS};
 use crate::{
-    AP_CORE, check_handler, create_hook, game_manager, save_handler, skill_manager,
-    utilities,
+    check_handler, create_hook, game_manager, save_handler, skill_manager, utilities, AP_CORE,
 };
 use archipelago_rs::CreateAsHint;
 use bitflags::bitflags;
-use minhook::{MH_STATUS, MinHook};
+use minhook::{MinHook, MH_STATUS};
 use randomizer_utilities::archipelago_utilities::DeathLinkData;
 use randomizer_utilities::replace_single_byte;
 use std::arch::asm;
@@ -83,7 +82,7 @@ pub(crate) unsafe fn create_hooks() -> Result<(), MH_STATUS> {
         );
         create_hook!(
             GUN_SHOP_ADDR,
-            deny_gun_upgrade,
+            gun_upgrade,
             ORIGINAL_GUN_SHOP,
             "Deny purchasing gun upgrades"
         );
@@ -760,13 +759,15 @@ pub fn deny_skill_purchasing(custom_skill: usize) {
 
 pub const GUN_SHOP_ADDR: usize = 0x283d60;
 pub static ORIGINAL_GUN_SHOP: OnceLock<unsafe extern "C" fn(custom_gun: usize)> = OnceLock::new();
-pub fn deny_gun_upgrade(custom_gun: usize) {
+pub fn gun_upgrade(custom_gun: usize) {
     if let Some(mapping) = MAPPING.read().unwrap().as_ref()
         && mapping.randomize_gun_levels
     {
         CANT_PURCHASE.store(true, Ordering::SeqCst);
         if read_data_from_address::<u8>(custom_gun + 0x08) == 0x03 {
-            //unsafe { replace_single_byte(custom_gun + 0x08, 0x01) }
+            if false { // TODO If gun level purchases are checks is off
+                //unsafe { replace_single_byte(custom_gun + 0x08, 0x01) }
+            }
         }
     }
 
@@ -992,7 +993,7 @@ pub fn set_rando_session_data(ptr: usize) {
             /* Should see if I can change unlocked files? Or unlock them all.
             Game seemed to just auto unlock them though when the weapon is used
             Overall, not too important */
-            s.red_orbs = u32::MAX;
+            //s.red_orbs = u32::MAX;
             // 29A5E8
             // 0x45FECCA
             if mapping.goal == Goal::RandomOrder {

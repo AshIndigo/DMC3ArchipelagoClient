@@ -27,6 +27,7 @@ pub fn get_location_name_by_data(location_data: &Location) -> Result<&'static st
     if location_data.location_type != LocationType::Standard {
         let mission_loc: Vec<_> = generated_locations::ITEM_MISSION_MAP
             .iter()
+            // TODO Swap to find?
             .filter(|(key, _item_entry)| match location_data.location_type {
                 LocationType::Standard => unreachable!(),
                 LocationType::MissionComplete => {
@@ -37,11 +38,11 @@ pub fn get_location_name_by_data(location_data: &Location) -> Result<&'static st
                 }
                 LocationType::PurchaseItem => {
                     *(*key)
-                        == match location_data.item_id {
+                        == format!("Purchase {}", match location_data.item_id {
                             0x07 => format!("Blue Orb #{}", location_data.mission),
                             0x08 => format!("Purple Orb #{}", location_data.mission),
                             _ => unreachable!(),
-                        }
+                        })
                 }
             })
             .collect();
