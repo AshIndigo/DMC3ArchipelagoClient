@@ -1,8 +1,8 @@
-use crate::check_handler::{Location, LocationType, TX_LOCATION, take_away_received_item};
+use crate::check_handler::{take_away_received_item, Location, LocationType, TX_LOCATION};
 use crate::constants::{MISSION_ITEM_MAP, REMOTE_ID};
-use crate::game_manager::{ARCHIPELAGO_DATA, ArchipelagoData, Style, get_mission};
+use crate::game_manager::{get_mission, ArchipelagoData, Style, ARCHIPELAGO_DATA};
 use crate::mapping::{
-    DeathlinkSetting, Goal, MAPPING, ModMode, ModModeData, OVERLAY_INFO, OverlayInfo,
+    DeathlinkSetting, Goal, ModMode, ModModeData, OverlayInfo, MAPPING, OVERLAY_INFO,
 };
 use crate::ui::font_handler::{WHITE, YELLOW};
 use crate::ui::overlay::{MessageSegment, MessageType, OverlayMessage};
@@ -12,23 +12,21 @@ use crate::{
     skill_manager, utilities,
 };
 
-use randomizer_utilities::ui_utilities::Status;
-
 use crate::hint_game::TX_HINT;
 use crate::item_sync::CURRENT_INDEX;
 use archipelago_rs::{
     AsItemId, Client, ClientStatus, Connection, ConnectionOptions, ConnectionState, CreateAsHint,
-    DeathLinkOptions, Event, HintStatus, ItemHandling,
+    DeathLinkOptions, Event, ItemHandling,
 };
-use randomizer_utilities::archipelago_utilities::{DeathLinkData, handle_print};
+use randomizer_utilities::archipelago_utilities::{handle_print, DeathLinkData};
 use randomizer_utilities::{archipelago_utilities, setup_channel_pair};
 use std::error::Error;
-use std::sync::OnceLock;
-use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
+use std::sync::OnceLock;
 use std::time::Duration;
 
-pub(crate) static CONNECTION_STATUS: AtomicIsize = AtomicIsize::new(0);
+pub(crate) static CONNECTED: AtomicBool = AtomicBool::new(false);
 pub static TX_DEATHLINK: OnceLock<Sender<DeathLinkData>> = OnceLock::new();
 
 pub struct ArchipelagoCore {
@@ -98,6 +96,8 @@ impl ArchipelagoCore {
                                     self.hint_hooks_enabled = true;
                                 }
                             }
+                            hint_game::FLOORS_PER_HINT
+                                .store(mapping.floors_per_hint, Ordering::Relaxed);
                         }
                         ModModeData::Normal(mapping) => {
                             log::info!("Running in randomizer mode");
@@ -156,7 +156,23 @@ impl ArchipelagoCore {
                     handle_received_items_packet(idx, self.connection.client_mut().unwrap())?;
                 }
                 Event::Error(err) => log::error!("{}", err),
-                Event::Bounce { .. } => {}
+                Event::Bounce {
+                    games: _,
+                    slots: _,
+                    tags: _,
+                    data,
+                } => {
+                    if let ModModeData::HintGame(_) =
+                        self.connection.client_mut().unwrap().slot_data()
+                        && let Some(data) = data
+                    {
+                        let val = data["floors_per_hint"]
+                            .as_str()
+                            .and_then(|s| s.parse::<u16>().ok())
+                            .unwrap_or(80);
+                        hint_game::FLOORS_PER_HINT.store(val, Ordering::SeqCst);
+                    }
+                }
                 Event::DeathLink {
                     games: _,
                     slots: _,
@@ -200,10 +216,10 @@ impl ArchipelagoCore {
         match self.connection.state() {
             ConnectionState::Connecting(_) => {}
             ConnectionState::Connected(_) => {
-                CONNECTION_STATUS.store(Status::Connected.into(), Ordering::SeqCst);
+                CONNECTED.store(true, Ordering::SeqCst);
             }
             ConnectionState::Disconnected(state) => {
-                CONNECTION_STATUS.store(Status::Disconnected.into(), Ordering::SeqCst);
+                CONNECTED.store(false, Ordering::SeqCst);
                 *OVERLAY_INFO.write()? = OverlayInfo::default();
                 disconnect(&mut self.hooks_enabled, &mut self.hint_hooks_enabled);
                 return Err(format!("Disconnected from server: {:?}", state).into());
@@ -241,11 +257,7 @@ impl ArchipelagoCore {
         match self.hint_receiver.try_recv() {
             Ok(hint_data) => {
                 let client = self.connection.client_mut().unwrap();
-                client.create_hints(
-                    hint_data,
-                    client.this_player().slot(),
-                    HintStatus::HintUnspecified,
-                )?
+                client.create_hints(hint_data)?
             }
             Err(err) => {
                 if err == TryRecvError::Disconnected {
@@ -398,8 +410,7 @@ pub fn handle_received_items_packet(
                 for item in client
                     .received_items()
                     .iter()
-                    // TODO Really don't know if I should have it be > or >=, it's probably >
-                    .filter(|item| item.index() > CURRENT_INDEX.load(Ordering::SeqCst) as usize)
+                    .filter(|item| item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize)
                 {
                     // Display overlay text if we're not at the main menu
                     if !utilities::is_on_main_menu() {
@@ -512,7 +523,7 @@ pub fn handle_received_items_packet(
                     }
 
                     data.add_item(item.item().name().into());
-                    CURRENT_INDEX.store(item.index() as i64, Ordering::SeqCst);
+                    CURRENT_INDEX.store((item.index() + 1) as i64, Ordering::SeqCst);
                 }
             }
             Err(err) => {

@@ -1,11 +1,10 @@
 use crate::constants::{Coordinates, Difficulty, EMPTY_COORDINATES, Rank};
 use crate::data::generated_locations;
-use crate::game_manager::{ARCHIPELAGO_DATA, get_mission, get_room, set_item, with_session_read};
+use crate::game_manager::{ARCHIPELAGO_DATA, get_mission, set_item, with_session_read};
 use crate::mapping::MAPPING;
 use crate::ui::text_handler;
 use crate::utilities::{DMC3_ADDRESS, get_inv_address};
 use crate::{constants, create_hook, game_manager, location_handler};
-use archipelago_rs::Client;
 use minhook::{MH_STATUS, MinHook};
 use randomizer_utilities::read_data_from_address;
 use std::cmp::PartialEq;
@@ -56,7 +55,7 @@ pub fn setup_check_hooks() -> Result<(), MH_STATUS> {
             "Purchase item from store"
         );
         // TODO Gun purchase upgrades
-        
+
     }
     Ok(())
 }
@@ -363,7 +362,7 @@ pub(crate) fn clear_high_roller() {
     set_item("Dummy", false, true);
 }
 
-fn send_off_location_coords(loc: Location, to_display: u32) {
+pub(crate) fn send_off_location_coords(loc: Location, to_display: u32) {
     if let Some(tx) = TX_LOCATION.get() {
         tx.send(loc).expect("Failed to send Location!");
         if to_display != u32::MAX {

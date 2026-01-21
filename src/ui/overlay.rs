@@ -1,9 +1,8 @@
-use crate::archipelago::CONNECTION_STATUS;
+use crate::archipelago::CONNECTED;
 use crate::ui::font_handler::{FontAtlas, FontColorCB, GREEN, RED, WHITE, get_default_color};
 use crate::ui::{dx11_hooks, font_handler};
 use crate::{mapping, utilities};
 use archipelago_rs::LocatedItem;
-use randomizer_utilities::ui_utilities::Status;
 use std::collections::VecDeque;
 use std::slice::from_raw_parts;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -323,19 +322,15 @@ pub(crate) unsafe extern "system" fn present_hook(
                     screen_height,
                     get_default_color(),
                 );
-                let status =
-                    Status::from_repr(CONNECTION_STATUS.load(Ordering::SeqCst) as usize).unwrap();
+                let connected = CONNECTED.load(Ordering::SeqCst);
                 font_handler::draw_string(
                     &state,
-                    &format!("{}", status),
+                    &format!("{}", if connected { "Connected" } else { "Disconnected" }),
                     STATUS.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>(),
                     0.0,
                     screen_width,
                     screen_height,
-                    &match status {
-                        Status::Connected => GREEN,
-                        _ => RED,
-                    },
+                    &if connected { GREEN } else { RED },
                 );
                 draw_version_info(&state, screen_width, screen_height);
             }
@@ -418,8 +413,7 @@ fn draw_version_info(state: &RwLockReadGuard<D3D11State>, screen_width: f32, scr
         get_default_color(),
     );
 
-    if (CONNECTION_STATUS.load(Ordering::SeqCst)
-        == <Status as Into<isize>>::into(Status::Connected))
+    if CONNECTED.load(Ordering::SeqCst)
         && let Ok(mapping) = mapping::OVERLAY_INFO.read()
     {
         font_handler::draw_string(

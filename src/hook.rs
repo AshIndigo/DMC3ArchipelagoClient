@@ -14,7 +14,8 @@ use crate::ui::text_handler;
 use crate::ui::text_handler::LAST_OBTAINED_ID;
 use crate::utilities::{read_data_from_address, DMC3_ADDRESS};
 use crate::{
-    check_handler, create_hook, game_manager, save_handler, skill_manager, utilities, AP_CORE,
+    archipelago, check_handler, create_hook, game_manager, save_handler, skill_manager, utilities,
+    AP_CORE,
 };
 use archipelago_rs::CreateAsHint;
 use bitflags::bitflags;
@@ -27,6 +28,7 @@ use std::ptr::{read_unaligned, write};
 use std::sync::atomic::Ordering;
 use std::sync::{LazyLock, OnceLock};
 use std::{ptr, slice};
+use crate::check_handler::{Location, LocationType};
 
 // 23d680 - Pause menu event? Hook in here to do rendering
 pub(crate) unsafe fn create_hooks() -> Result<(), MH_STATUS> {
@@ -760,20 +762,51 @@ pub fn deny_skill_purchasing(custom_skill: usize) {
 pub const GUN_SHOP_ADDR: usize = 0x283d60;
 pub static ORIGINAL_GUN_SHOP: OnceLock<unsafe extern "C" fn(custom_gun: usize)> = OnceLock::new();
 pub fn gun_upgrade(custom_gun: usize) {
-    if let Some(mapping) = MAPPING.read().unwrap().as_ref()
-        && mapping.randomize_gun_levels
-    {
-        CANT_PURCHASE.store(true, Ordering::SeqCst);
-        if read_data_from_address::<u8>(custom_gun + 0x08) == 0x03 {
-            if false { // TODO If gun level purchases are checks is off
-                //unsafe { replace_single_byte(custom_gun + 0x08, 0x01) }
+    // Get all current gun levels
+    if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
+        let gun_levels = read_data_from_address::<[u8; 5]>(custom_gun + 0x3D10);
+        // If randomize gun levels and no checks for them, deny purchasing
+        if mapping.randomize_gun_levels && !(mapping.shop_gun_checks || mapping.shop_checks) {
+            CANT_PURCHASE.store(true, Ordering::SeqCst);
+            if read_data_from_address::<u8>(custom_gun + 0x08) == 0x03 {
+                unsafe { replace_single_byte(custom_gun + 0x08, 0x01) }
             }
         }
-    }
-
-    if let Some(orig) = ORIGINAL_GUN_SHOP.get() {
-        unsafe {
-            orig(custom_gun);
+        if let Some(orig) = ORIGINAL_GUN_SHOP.get() {
+            unsafe {
+                orig(custom_gun);
+            }
+        }
+        let gun_levels_new = read_data_from_address::<[u8; 5]>(custom_gun + 0x3D10);
+        for gun_idx in 0..5 {
+            if gun_levels_new[gun_idx] > gun_levels[gun_idx] {
+                log::debug!(
+                    "Attempting to purchase gun upgrade: {} - LV{}",
+                    gun_idx,
+                    gun_levels_new[gun_idx]
+                );
+                if mapping.shop_gun_checks || mapping.shop_checks {
+                    // Send out check for purchasing gun upgrade
+                    // Small issue, progressive upgrades will also get it to send out a check
+                    check_handler::send_off_location_coords(
+                        Location {
+                            location_type: LocationType::PurchaseItem,
+                            item_id: match gun_idx {
+                                0 => 0x1C,
+                                1 => 0x1D,
+                                2 => 0x1E,
+                                3 => 0x1F,
+                                4 => 0x21,
+                                _ => unreachable!(),
+                            },
+                            mission: 1 + gun_levels_new[gun_idx] as u32,
+                            room: 0,
+                            coordinates: EMPTY_COORDINATES,
+                        },
+                        u32::MAX,
+                    );
+                }
+            }
         }
     }
 }
@@ -993,7 +1026,8 @@ pub fn set_rando_session_data(ptr: usize) {
             /* Should see if I can change unlocked files? Or unlock them all.
             Game seemed to just auto unlock them though when the weapon is used
             Overall, not too important */
-            //s.red_orbs = u32::MAX;
+            // TODO Red Orb Note
+            s.red_orbs = i32::MAX as u32;
             // 29A5E8
             // 0x45FECCA
             if mapping.goal == Goal::RandomOrder {
@@ -1008,8 +1042,10 @@ pub fn set_rando_session_data(ptr: usize) {
     match AP_CORE.get().unwrap().lock() {
         Ok(mut core) => {
             CURRENT_INDEX.store(0, Ordering::SeqCst);
-            if let Err(e) = core.connection.client_mut().unwrap().sync() {
-                log::error!("Error syncing game: {}", e);
+            if let Err(e) =
+                archipelago::handle_received_items_packet(0, core.connection.client_mut().unwrap())
+            {
+                log::error!("Failed to handle received items: {:?}", e);
             }
         }
         Err(err) => {

@@ -59,7 +59,7 @@ pub enum ModModeData {
 
 #[derive(Debug, Deserialize)]
 pub struct HintGame {
-    pub floors_per_hint: i32,
+    pub floors_per_hint: u16,
     pub client_version: Option<APVersion>,
 }
 
@@ -174,7 +174,13 @@ pub struct Mapping {
     pub purple_orb_mode: bool,
     pub devil_trigger_mode: bool,
     pub check_ss_difficulty: bool,
+    // TODO Deprecated
     pub shop_checks: bool,
+    // TODO Remove the defaults
+    #[serde(default)]
+    pub shop_orb_checks: bool,
+    #[serde(default)]
+    pub shop_gun_checks: bool,
     #[serde(deserialize_with = "parse_death_link")]
     pub death_link: DeathlinkSetting,
     #[serde(default = "default_goal")]

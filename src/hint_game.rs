@@ -1,7 +1,6 @@
 use crate::DMC3_ADDRESS;
 use crate::MinHook;
 use crate::game_manager::get_mission;
-use crate::mapping::ModModeData;
 use crate::{AP_CORE, create_hook};
 use archipelago_rs::{AsLocationId, Location};
 use minhook::MH_STATUS;
@@ -12,9 +11,11 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::mpsc::Sender;
 use std::sync::{LazyLock, OnceLock};
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::thread;
 
 pub static TX_HINT: OnceLock<Sender<Vec<i64>>> = OnceLock::new();
+pub static FLOORS_PER_HINT: AtomicU16 = AtomicU16::new(0);
 
 pub unsafe fn create_hint_hooks() -> Result<(), MH_STATUS> {
     unsafe {
@@ -100,9 +101,8 @@ fn on_bp_floor_change(param_1: usize, event_data_ptr: usize) -> i32 {
                     .unwrap()
                     .connection
                     .client_mut()
-                && let ModModeData::HintGame(hint_game) = client.slot_data()
             {
-                let floors_per_hint: u16 = hint_game.floors_per_hint as u16;
+                let floors_per_hint: u16 = FLOORS_PER_HINT.load(Ordering::SeqCst);
                 let key = format!(
                     "_read_hints_{}_{}",
                     client.this_player().team(),

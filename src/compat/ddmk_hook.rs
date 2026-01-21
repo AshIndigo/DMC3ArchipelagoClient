@@ -1,4 +1,4 @@
-use crate::archipelago::CONNECTION_STATUS;
+use crate::archipelago::CONNECTED;
 use crate::compat::imgui_bindings::*;
 use crate::constants::{BasicNothingFunc, ItemCategory};
 use crate::ui::text_handler;
@@ -7,7 +7,6 @@ use crate::{check_handler, config, constants, game_manager};
 use imgui_sys::{ImGuiCond, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
 use minhook::MinHook;
 use randomizer_utilities::get_base_address;
-use randomizer_utilities::ui_utilities::get_status_text;
 use std::collections::HashSet;
 use std::os::raw::c_char;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -116,7 +115,7 @@ pub unsafe fn archipelago_window() {
         );
         text(format!(
             "Status: {}\0",
-            get_status_text(CONNECTION_STATUS.load(Ordering::SeqCst))
+            if CONNECTED.load(Ordering::SeqCst) { "Connected" } else { "Disconnected" }
         ));
         const DEBUG: bool = false;
         if DEBUG {
