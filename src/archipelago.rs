@@ -410,10 +410,9 @@ pub fn handle_received_items_packet(
                 for item in client
                     .received_items()
                     .iter()
-                    .filter(|item| item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize)
                 {
                     // Display overlay text if we're not at the main menu
-                    if !utilities::is_on_main_menu() {
+                    if !utilities::is_on_main_menu() && item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize {
                         let rec_msg: Vec<MessageSegment> = vec![
                             MessageSegment::new("Received ".to_string(), WHITE),
                             MessageSegment::new(
@@ -442,7 +441,10 @@ pub fn handle_received_items_packet(
                             game_manager::give_magic(constants::ONE_ORB, &data);
                         }
                         0x10..0x14 => {
-                            game_manager::add_consumable(item.item());
+                            // Don't add duplicate consumables
+                            if item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize {
+                                game_manager::add_consumable(item.item());
+                            }
                         }
                         0x19 => {
                             // Awakened Rebellion
