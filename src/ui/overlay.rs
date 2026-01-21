@@ -325,7 +325,14 @@ pub(crate) unsafe extern "system" fn present_hook(
                 let connected = CONNECTED.load(Ordering::SeqCst);
                 font_handler::draw_string(
                     &state,
-                    &format!("{}", if connected { "Connected" } else { "Disconnected" }),
+                    &format!(
+                        "{}",
+                        if connected {
+                            "Connected"
+                        } else {
+                            "Disconnected"
+                        }
+                    ),
                     STATUS.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>(),
                     0.0,
                     screen_width,

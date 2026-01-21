@@ -1,5 +1,5 @@
 use crate::check_handler::{Location, LocationType};
-use crate::constants::{EventCode, ItemCategory, DUMMY_ID, EVENT_TABLES, ITEM_MAP, REMOTE_ID};
+use crate::constants::{DUMMY_ID, EVENT_TABLES, EventCode, ITEM_MAP, ItemCategory, REMOTE_ID};
 use crate::data::generated_locations;
 use crate::game_manager::get_mission;
 use crate::{constants, game_manager, mapping, utilities};
@@ -25,33 +25,35 @@ pub fn in_key_item_room() -> Result<&'static str, Box<dyn Error>> {
 
 pub fn get_location_name_by_data(location_data: &Location) -> Result<&'static str, Box<dyn Error>> {
     if location_data.location_type != LocationType::Standard
-        && let Some(location) = generated_locations::ITEM_MISSION_MAP
-            .iter()
-            .find(|(key, _item_entry)| match location_data.location_type {
-                LocationType::Standard => unreachable!(),
-                LocationType::MissionComplete => {
-                    *(*key) == format!("Mission #{} Complete", location_data.mission).as_str()
-                }
-                LocationType::SSRank => {
-                    *(*key) == format!("Mission #{} SS Rank", location_data.mission).as_str()
-                }
-                LocationType::PurchaseItem => {
-                    *(*key)
-                        == format!(
-                            "Purchase {}",
-                            match location_data.item_id {
-                                0x07 => format!("Blue Orb #{}", location_data.mission),
-                                0x08 => format!("Purple Orb #{}", location_data.mission),
-                                0x1C => format!("Ebony & Ivory Level {}", location_data.mission),
-                                0x1D => format!("Shotgun Level {}", location_data.mission),
-                                0x1E => format!("Artemis Level {}", location_data.mission),
-                                0x1F => format!("Spiral Level {}", location_data.mission),
-                                0x21 => format!("Kalina Ann Level {}", location_data.mission),
-                                _ => unreachable!(),
-                            }
-                        )
-                }
-            })
+        && let Some(location) =
+            generated_locations::ITEM_MISSION_MAP
+                .iter()
+                .find(|(key, _item_entry)| match location_data.location_type {
+                    LocationType::Standard => unreachable!(),
+                    LocationType::MissionComplete => {
+                        *(*key) == format!("Mission #{} Complete", location_data.mission).as_str()
+                    }
+                    LocationType::SSRank => {
+                        *(*key) == format!("Mission #{} SS Rank", location_data.mission).as_str()
+                    }
+                    LocationType::PurchaseItem => {
+                        *(*key)
+                            == format!(
+                                "Purchase {}",
+                                match location_data.item_id {
+                                    0x07 => format!("Blue Orb #{}", location_data.mission),
+                                    0x08 => format!("Purple Orb #{}", location_data.mission),
+                                    0x1C =>
+                                        format!("Ebony & Ivory Level {}", location_data.mission),
+                                    0x1D => format!("Shotgun Level {}", location_data.mission),
+                                    0x1E => format!("Artemis Level {}", location_data.mission),
+                                    0x1F => format!("Spiral Level {}", location_data.mission),
+                                    0x21 => format!("Kalina Ann Level {}", location_data.mission),
+                                    _ => unreachable!(),
+                                }
+                            )
+                    }
+                })
     {
         return Ok(location.0);
     }

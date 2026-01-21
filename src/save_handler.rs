@@ -1,7 +1,8 @@
 use crate::archipelago::CONNECTED;
+use crate::game_manager::{ARCHIPELAGO_DATA, ArchipelagoData};
 use crate::item_sync::{CURRENT_INDEX, SlotSyncInfo};
 use crate::utilities::DMC3_ADDRESS;
-use crate::{AP_CORE, create_hook, item_sync, utilities, archipelago};
+use crate::{AP_CORE, archipelago, create_hook, item_sync, utilities};
 use minhook::MH_STATUS;
 use minhook::MinHook;
 use std::error::Error;
@@ -10,7 +11,6 @@ use std::ptr::{write, write_unaligned};
 use std::sync::atomic::Ordering;
 use std::sync::{OnceLock, RwLock};
 use std::{fs, io};
-use crate::game_manager::{ArchipelagoData, ARCHIPELAGO_DATA};
 
 /// Pointer to where save file is in memory
 const SAVE_FILE_PTR: usize = 0x5EAE78;
@@ -167,7 +167,10 @@ fn load_slot(param_1: usize, save_index: i32) {
                             CURRENT_INDEX
                                 .store(arr.sync_index[save_index as usize], Ordering::SeqCst);
                             *ARCHIPELAGO_DATA.write().unwrap() = ArchipelagoData::default();
-                            if let Err(e) = archipelago::handle_received_items_packet(arr.sync_index[save_index as usize] as usize, client) {
+                            if let Err(e) = archipelago::handle_received_items_packet(
+                                arr.sync_index[save_index as usize] as usize,
+                                client,
+                            ) {
                                 log::error!("Failed to handle received items: {:?}", e);
                             }
                         }

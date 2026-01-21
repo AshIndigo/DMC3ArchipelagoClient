@@ -9,9 +9,9 @@ use rand::seq::IteratorRandom;
 use randomizer_utilities::read_data_from_address;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{LazyLock, OnceLock};
-use std::sync::atomic::{AtomicU16, Ordering};
 use std::thread;
 
 pub static TX_HINT: OnceLock<Sender<Vec<i64>>> = OnceLock::new();

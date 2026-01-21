@@ -55,7 +55,6 @@ pub fn setup_check_hooks() -> Result<(), MH_STATUS> {
             "Purchase item from store"
         );
         // TODO Gun purchase upgrades
-
     }
     Ok(())
 }

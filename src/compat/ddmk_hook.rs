@@ -115,7 +115,11 @@ pub unsafe fn archipelago_window() {
         );
         text(format!(
             "Status: {}\0",
-            if CONNECTED.load(Ordering::SeqCst) { "Connected" } else { "Disconnected" }
+            if CONNECTED.load(Ordering::SeqCst) {
+                "Connected"
+            } else {
+                "Disconnected"
+            }
         ));
         const DEBUG: bool = false;
         if DEBUG {

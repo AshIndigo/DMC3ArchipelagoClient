@@ -1,8 +1,8 @@
-use crate::check_handler::{take_away_received_item, Location, LocationType, TX_LOCATION};
+use crate::check_handler::{Location, LocationType, TX_LOCATION, take_away_received_item};
 use crate::constants::{MISSION_ITEM_MAP, REMOTE_ID};
-use crate::game_manager::{get_mission, ArchipelagoData, Style, ARCHIPELAGO_DATA};
+use crate::game_manager::{ARCHIPELAGO_DATA, ArchipelagoData, Style, get_mission};
 use crate::mapping::{
-    DeathlinkSetting, Goal, ModMode, ModModeData, OverlayInfo, MAPPING, OVERLAY_INFO,
+    DeathlinkSetting, Goal, MAPPING, ModMode, ModModeData, OVERLAY_INFO, OverlayInfo,
 };
 use crate::ui::font_handler::{WHITE, YELLOW};
 use crate::ui::overlay::{MessageSegment, MessageType, OverlayMessage};
@@ -18,12 +18,12 @@ use archipelago_rs::{
     AsItemId, Client, ClientStatus, Connection, ConnectionOptions, ConnectionState, CreateAsHint,
     DeathLinkOptions, Event, ItemHandling,
 };
-use randomizer_utilities::archipelago_utilities::{handle_print, DeathLinkData};
+use randomizer_utilities::archipelago_utilities::{DeathLinkData, handle_print};
 use randomizer_utilities::{archipelago_utilities, setup_channel_pair};
 use std::error::Error;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
-use std::sync::OnceLock;
 use std::time::Duration;
 
 pub(crate) static CONNECTED: AtomicBool = AtomicBool::new(false);

@@ -1,25 +1,26 @@
 use crate::archipelago::TX_DEATHLINK;
+use crate::check_handler::{Location, LocationType};
 use crate::constants::ItemEntry;
 use crate::constants::*;
 use crate::data::generated_locations;
 use crate::game_manager::{
-    get_difficulty, get_mission, get_room, set_item, set_loc_chk_flg, set_weapons_in_inv, with_rankings_read,
-    with_session, Style, ARCHIPELAGO_DATA,
+    ARCHIPELAGO_DATA, Style, get_difficulty, get_mission, get_room, set_item, set_loc_chk_flg,
+    set_weapons_in_inv, with_rankings_read, with_session,
 };
 use crate::item_sync::CURRENT_INDEX;
 use crate::location_handler::in_key_item_room;
-use crate::mapping::{run_scouts_for_mission, Goal, Mapping, MAPPING};
+use crate::mapping::{Goal, MAPPING, Mapping, run_scouts_for_mission};
 use crate::ui::overlay::CANT_PURCHASE;
 use crate::ui::text_handler;
 use crate::ui::text_handler::LAST_OBTAINED_ID;
-use crate::utilities::{read_data_from_address, DMC3_ADDRESS};
+use crate::utilities::{DMC3_ADDRESS, read_data_from_address};
 use crate::{
-    archipelago, check_handler, create_hook, game_manager, save_handler, skill_manager, utilities,
-    AP_CORE,
+    AP_CORE, archipelago, check_handler, create_hook, game_manager, save_handler, skill_manager,
+    utilities,
 };
 use archipelago_rs::CreateAsHint;
 use bitflags::bitflags;
-use minhook::{MinHook, MH_STATUS};
+use minhook::{MH_STATUS, MinHook};
 use randomizer_utilities::archipelago_utilities::DeathLinkData;
 use randomizer_utilities::replace_single_byte;
 use std::arch::asm;
@@ -28,7 +29,6 @@ use std::ptr::{read_unaligned, write};
 use std::sync::atomic::Ordering;
 use std::sync::{LazyLock, OnceLock};
 use std::{ptr, slice};
-use crate::check_handler::{Location, LocationType};
 
 // 23d680 - Pause menu event? Hook in here to do rendering
 pub(crate) unsafe fn create_hooks() -> Result<(), MH_STATUS> {
