@@ -1,10 +1,11 @@
 use crate::archipelago::CONNECTED;
 use crate::game_manager::{ARCHIPELAGO_DATA, ArchipelagoData};
-use crate::item_sync::{CURRENT_INDEX, SlotSyncInfo};
 use crate::utilities::DMC3_ADDRESS;
-use crate::{AP_CORE, archipelago, create_hook, item_sync, utilities};
+use crate::{AP_CORE, archipelago, create_hook, utilities};
 use minhook::MH_STATUS;
 use minhook::MinHook;
+use randomizer_utilities::item_sync;
+use randomizer_utilities::item_sync::{CURRENT_INDEX, SlotSyncInfo};
 use std::error::Error;
 use std::io::ErrorKind;
 use std::ptr::{write, write_unaligned};
@@ -25,8 +26,9 @@ pub static ORIGINAL_LOAD_GAME: OnceLock<
 static SAVE_DATA: RwLock<Vec<u8>> = RwLock::new(vec![]);
 
 pub fn get_new_save_path() -> Result<String, Box<dyn Error>> {
-    if let Ok(core) = AP_CORE.get().unwrap().as_ref().lock() {
-        let client = core.connection.client().unwrap();
+    if let Ok(core) = AP_CORE.get().unwrap().as_ref().lock()
+        && let Some(client) = core.connection.client()
+    {
         Ok(format!(
             "archipelago/dmc3_{}_{}.sav",
             client.seed_name(),

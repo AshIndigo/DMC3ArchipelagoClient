@@ -8,18 +8,19 @@ use crate::ui::font_handler::{WHITE, YELLOW};
 use crate::ui::overlay::{MessageSegment, MessageType, OverlayMessage};
 use crate::ui::{overlay, text_handler};
 use crate::{
-    check_handler, constants, game_manager, hint_game, hook, item_sync, location_handler, mapping,
+    check_handler, constants, game_manager, hint_game, hook, location_handler, mapping,
     skill_manager, utilities,
 };
+use std::env;
 
 use crate::hint_game::TX_HINT;
-use crate::item_sync::CURRENT_INDEX;
 use archipelago_rs::{
     AsItemId, Client, ClientStatus, Connection, ConnectionOptions, ConnectionState, CreateAsHint,
     DeathLinkOptions, Event, ItemHandling,
 };
 use randomizer_utilities::archipelago_utilities::{DeathLinkData, handle_print};
-use randomizer_utilities::{archipelago_utilities, setup_channel_pair};
+use randomizer_utilities::item_sync::CURRENT_INDEX;
+use randomizer_utilities::{archipelago_utilities, item_sync, setup_channel_pair};
 use std::error::Error;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -407,12 +408,11 @@ pub fn handle_received_items_packet(
         }
         match ARCHIPELAGO_DATA.write() {
             Ok(mut data) => {
-                for item in client
-                    .received_items()
-                    .iter()
-                {
+                for item in client.received_items().iter() {
                     // Display overlay text if we're not at the main menu
-                    if !utilities::is_on_main_menu() && item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize {
+                    if !utilities::is_on_main_menu()
+                        && item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize
+                    {
                         let rec_msg: Vec<MessageSegment> = vec![
                             MessageSegment::new("Received ".to_string(), WHITE),
                             MessageSegment::new(

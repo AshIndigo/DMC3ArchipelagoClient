@@ -124,14 +124,21 @@ fn on_bp_floor_change(param_1: usize, event_data_ptr: usize) -> i32 {
 
 #[derive(Deserialize, Debug)]
 struct Hint {
-    receiving_player: u32,
-    finding_player: u32,
+    #[serde(rename = "receiving_player")]
+    _receiving_player: u32,
+    #[serde(rename = "finding_player")]
+    _finding_player: u32,
     location: i64,
-    item: i64,
-    found: bool,
-    entrance: String,
-    item_flags: i32,
-    status: i32, // HintStatus
+    #[serde(rename = "item")]
+    _item: i64,
+    #[serde(rename = "found")]
+    _found: bool,
+    #[serde(rename = "entrance")]
+    _entrance: String,
+    #[serde(rename = "item_flags")]
+    _item_flags: i32,
+    #[serde(rename = "status")]
+    _status: i32, // HintStatus
 }
 
 fn fire_off_hints(

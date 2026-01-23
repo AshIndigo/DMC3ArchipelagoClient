@@ -7,7 +7,6 @@ use crate::game_manager::{
     ARCHIPELAGO_DATA, Style, get_difficulty, get_mission, get_room, set_item, set_loc_chk_flg,
     set_weapons_in_inv, with_rankings_read, with_session,
 };
-use crate::item_sync::CURRENT_INDEX;
 use crate::location_handler::in_key_item_room;
 use crate::mapping::{Goal, MAPPING, Mapping, run_scouts_for_mission};
 use crate::ui::overlay::CANT_PURCHASE;
@@ -22,6 +21,7 @@ use archipelago_rs::CreateAsHint;
 use bitflags::bitflags;
 use minhook::{MH_STATUS, MinHook};
 use randomizer_utilities::archipelago_utilities::DeathLinkData;
+use randomizer_utilities::item_sync::CURRENT_INDEX;
 use randomizer_utilities::replace_single_byte;
 use std::arch::asm;
 use std::cmp::min;

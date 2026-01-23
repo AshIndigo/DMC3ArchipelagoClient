@@ -91,9 +91,9 @@ impl MessageSegment {
 pub struct OverlayMessage {
     segments: Vec<MessageSegment>,
     duration: Duration,
-    x: f32,
-    y: f32,
-    msg_type: MessageType,
+    _x: f32,
+    _y: f32,
+    _msg_type: MessageType,
 }
 
 impl OverlayMessage {
@@ -107,15 +107,15 @@ impl OverlayMessage {
         OverlayMessage {
             segments,
             duration,
-            x,
-            y,
-            msg_type,
+            _x: x,
+            _y: y,
+            _msg_type: msg_type,
         }
     }
 }
 // TODO This doesn't matter right now, but it could be used later
 pub(crate) enum MessageType {
-    Default,      // Take the X and Y values as they are given
+    _Default,     // Take the X and Y values as they are given
     Notification, // Disregard coordinates, automatically align to upper right (Used for newly received items+DL)
 }
 

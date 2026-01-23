@@ -22,7 +22,6 @@ mod data;
 mod game_manager;
 mod hint_game;
 mod hook;
-mod item_sync;
 mod location_handler;
 mod mapping;
 mod save_handler;
