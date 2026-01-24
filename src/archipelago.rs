@@ -451,6 +451,9 @@ pub fn handle_received_items_packet(
                             data.add_dt();
                             game_manager::give_magic(constants::ONE_ORB * 3.0, &data);
                         }
+                        0x22..0x24 => {
+                            // Quicksilver and Doppel
+                        }
                         0x24..0x3A => {
                             // For key items
                             log::debug!("Setting newly acquired key items");

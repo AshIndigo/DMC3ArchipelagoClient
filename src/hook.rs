@@ -29,7 +29,6 @@ use std::ptr::{read_unaligned, write};
 use std::sync::atomic::Ordering;
 use std::sync::{LazyLock, OnceLock};
 use std::{ptr, slice};
-
 // 23d680 - Pause menu event? Hook in here to do rendering
 pub(crate) unsafe fn create_hooks() -> Result<(), MH_STATUS> {
     unsafe {
@@ -667,6 +666,8 @@ pub fn load_new_room(param_1: usize) -> bool {
             res = original(param_1);
         }
     }
+    // Note: May be unneeded
+    set_item("Red Orb - 1", true, true);
     set_weapons_in_inv();
     set_relevant_key_items();
     check_handler::clear_high_roller();
@@ -764,7 +765,12 @@ pub static ORIGINAL_GUN_SHOP: OnceLock<unsafe extern "C" fn(custom_gun: usize)> 
 pub fn gun_upgrade(custom_gun: usize) {
     // Get all current gun levels
     if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
-        let gun_levels = read_data_from_address::<[u8; 5]>(custom_gun + 0x3D10);
+        let backup_gun_levels = read_data_from_address::<[u8; 5]>(custom_gun + 0x3D10);
+        let purchased_gun_levels: [u8; 5] = get_purchased_levels();
+        // The shop will display the last purchased gun level check
+        unsafe {
+            write((custom_gun + 0x3D10) as *mut [u8; 5], purchased_gun_levels);
+        }
         // If randomize gun levels and no checks for them, deny purchasing
         if mapping.randomize_gun_levels && !(mapping.shop_gun_checks || mapping.shop_checks) {
             CANT_PURCHASE.store(true, Ordering::SeqCst);
@@ -777,9 +783,11 @@ pub fn gun_upgrade(custom_gun: usize) {
                 orig(custom_gun);
             }
         }
+        // TODO Overlay to show actual gun levels as well
+
         let gun_levels_new = read_data_from_address::<[u8; 5]>(custom_gun + 0x3D10);
         for gun_idx in 0..5 {
-            if gun_levels_new[gun_idx] > gun_levels[gun_idx] {
+            if gun_levels_new[gun_idx] > purchased_gun_levels[gun_idx] {
                 log::debug!(
                     "Attempting to purchase gun upgrade: {} - LV{}",
                     gun_idx,
@@ -787,7 +795,6 @@ pub fn gun_upgrade(custom_gun: usize) {
                 );
                 if mapping.shop_gun_checks || mapping.shop_checks {
                     // Send out check for purchasing gun upgrade
-                    // Small issue, progressive upgrades will also get it to send out a check
                     check_handler::send_off_location_coords(
                         Location {
                             location_type: LocationType::PurchaseItem,
@@ -808,7 +815,35 @@ pub fn gun_upgrade(custom_gun: usize) {
                 }
             }
         }
+        unsafe {
+            write((custom_gun + 0x3D10) as *mut [u8; 5], backup_gun_levels);
+        }
     }
+}
+
+/// Returns the number of purchased gun upgrades checks per gun.
+fn get_purchased_levels() -> [u8; 5] {
+    let mut res = [0u8; 5];
+
+    if let Some(client) = AP_CORE.get().unwrap().lock().unwrap().connection.client() {
+        let checked = client.checked_locations().collect::<Vec<_>>();
+
+        for (i, gun) in GUN_NAMES.iter().enumerate() {
+            let level_2 = format!("Purchase {} Level 2", gun);
+            let level_3 = format!("Purchase {} Level 3", gun);
+
+            let has_level_2 = checked.iter().any(|loc| loc.name() == level_2);
+            let has_level_3 = checked.iter().any(|loc| loc.name() == level_3);
+
+            res[i] = match (has_level_2, has_level_3) {
+                (true, true) => 2,
+                (true, false) => 1,
+                _ => 0,
+            };
+        }
+    }
+
+    res
 }
 
 pub const ADD_SHOTGUN_OR_CERBERUS_ADDR: usize = 0x1fcfa0;
@@ -1026,8 +1061,11 @@ pub fn set_rando_session_data(ptr: usize) {
             /* Should see if I can change unlocked files? Or unlock them all.
             Game seemed to just auto unlock them though when the weapon is used
             Overall, not too important */
-            // TODO Red Orb Note
-            s.red_orbs = i32::MAX as u32;
+            #[cfg(debug_assertions)]
+            {
+                // Give max red orbs if we are using a debug build
+                s.red_orbs = i32::MAX as u32;
+            }
             // 29A5E8
             // 0x45FECCA
             if mapping.goal == Goal::RandomOrder {

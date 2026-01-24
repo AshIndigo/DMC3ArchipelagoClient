@@ -175,6 +175,7 @@ pub struct Mapping {
     pub devil_trigger_mode: bool,
     pub check_ss_difficulty: bool,
     // TODO Deprecated
+    #[serde(default)]
     pub shop_checks: bool,
     // TODO Remove the defaults
     #[serde(default)]

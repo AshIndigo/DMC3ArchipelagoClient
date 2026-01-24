@@ -8,7 +8,6 @@ use std::slice::from_raw_parts;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex, OnceLock, RwLock, RwLockReadGuard};
 use std::time::{Duration, Instant};
-use windows::Win32::Foundation::RECT;
 use windows::Win32::Graphics::Direct3D::Fxc::D3DCompile;
 use windows::Win32::Graphics::Direct3D::ID3DBlob;
 use windows::Win32::Graphics::Direct3D11::*;
@@ -17,8 +16,7 @@ use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_FORMAT_R32G32_FLOAT, DXGI_FORMAT_R32G32B32_FLOAT,
 };
 use windows::Win32::Graphics::Dxgi::*;
-use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
-use windows::core::PCSTR;
+use windows::core::{Interface, PCSTR};
 
 pub(crate) struct D3D11State {
     device: ID3D11Device,
@@ -278,20 +276,27 @@ pub(crate) unsafe extern "system" fn resize_hook(
 
 pub(crate) static CANT_PURCHASE: AtomicBool = AtomicBool::new(false);
 
+unsafe fn update_screen_size(swap_chain: &IDXGISwapChain) -> (f32, f32) {
+    let back_buffer: ID3D11Texture2D = {
+        let ptr: ID3D11Texture2D =
+            unsafe { swap_chain.GetBuffer(0) }.expect("Failed to get back buffer");
+        ptr.cast().unwrap()
+    };
+
+    let mut desc = D3D11_TEXTURE2D_DESC::default();
+    unsafe {
+        back_buffer.GetDesc(&mut desc);
+    }
+
+    (desc.Width as f32, desc.Height as f32)
+}
+
 pub(crate) unsafe extern "system" fn present_hook(
     orig_swap_chain: IDXGISwapChain,
     sync_interval: u32,
     flags: u32,
 ) -> i32 {
-    let (screen_width, screen_height) = {
-        let mut rect = RECT::default();
-        unsafe { GetClientRect(orig_swap_chain.GetDesc().unwrap().OutputWindow, &mut rect) }
-            .expect("Failed to get ClientRect");
-        (
-            (rect.right - rect.left) as f32,
-            (rect.bottom - rect.top) as f32,
-        )
-    };
+    let (screen_width, screen_height) = unsafe { update_screen_size(&orig_swap_chain) };
     let state = get_resources(&orig_swap_chain);
     match state.read() {
         Ok(state) => {
@@ -325,14 +330,11 @@ pub(crate) unsafe extern "system" fn present_hook(
                 let connected = CONNECTED.load(Ordering::SeqCst);
                 font_handler::draw_string(
                     &state,
-                    &format!(
-                        "{}",
-                        if connected {
-                            "Connected"
-                        } else {
-                            "Disconnected"
-                        }
-                    ),
+                    if connected {
+                        "Connected"
+                    } else {
+                        "Disconnected"
+                    },
                     STATUS.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>(),
                     0.0,
                     screen_width,
