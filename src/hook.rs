@@ -666,8 +666,6 @@ pub fn load_new_room(param_1: usize) -> bool {
             res = original(param_1);
         }
     }
-    // Note: May be unneeded
-    set_item("Red Orb - 1", true, true);
     set_weapons_in_inv();
     set_relevant_key_items();
     check_handler::clear_high_roller();
@@ -1061,10 +1059,11 @@ pub fn set_rando_session_data(ptr: usize) {
             /* Should see if I can change unlocked files? Or unlock them all.
             Game seemed to just auto unlock them though when the weapon is used
             Overall, not too important */
+            s.red_orbs = 0;
             #[cfg(debug_assertions)]
             {
                 // Give max red orbs if we are using a debug build
-                s.red_orbs = i32::MAX as u32;
+                //s.red_orbs = i32::MAX;
             }
             // 29A5E8
             // 0x45FECCA

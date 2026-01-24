@@ -55,7 +55,7 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x00,
         name: "Red Orb - 1",
-        offset: Some(0x38),
+        offset: Some(0x38), // Note: I think this offset is wrong
         category: ItemCategory::RedOrb,
         mission: None,
         _max_amount: Some(999999), // Is what fits on screen, could theoretically go up to MAX_INT

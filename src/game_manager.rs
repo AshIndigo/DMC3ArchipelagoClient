@@ -155,7 +155,7 @@ pub struct SessionData {
     pub(crate) _unknown3: [u8; 7],
     bloody_palace: bool,
     _unknown4: [u8; 15],
-    pub(crate) red_orbs: u32,
+    pub(crate) red_orbs: i32,
     pub(crate) items: [u8; 20],
     unknown5: [u8; 2],
     unlocks: [bool; 14],
@@ -238,11 +238,10 @@ pub fn get_difficulty() -> Difficulty {
 
 const MISSION_CHARACTER_DATA: usize = 0xC90E30;
 
-// Note: MissionData struct here if needed
-/*#[repr(C)]
+#[repr(C)]
 pub struct MissionData {
     unknown1: [u8; 56],
-    red_orbs: u32,
+    red_orbs: i32,
     items: [u8; 62],
     bought_items: [u8; 8],
     unknown2: [u8; 38],
@@ -256,7 +255,7 @@ pub struct MissionData {
 
 static MISSION_DATA_PTR: LazyLock<usize> = LazyLock::new(|| *DMC3_ADDRESS + MISSION_CHARACTER_DATA);
 
-pub fn with_mission_data_read<F, R>(f: F) -> Result<R, GameDataError>
+pub fn _with_mission_data_read<F, R>(f: F) -> Result<R, GameDataError>
 where
     F: FnOnce(&MissionData) -> R,
 {
@@ -286,7 +285,7 @@ where
         }
         Ok(f(s))
     }
-}*/
+}
 
 // TODO These offsets are wildly inaccurate
 pub(crate) fn give_magic(magic_val: f32, arch_data: &ArchipelagoData) {
@@ -623,4 +622,10 @@ pub(crate) fn add_consumable(item: Item) {
         session.items[item.id() as usize] += 1;
     })
     .unwrap();
+}
+
+pub(crate) fn give_red_orbs(orbs: i32) {
+    log::debug!("Giving {} orbs", orbs);
+    with_session(|session| session.red_orbs += orbs).unwrap();
+    if with_mission_data(|m| m.red_orbs += orbs).is_err() {}
 }

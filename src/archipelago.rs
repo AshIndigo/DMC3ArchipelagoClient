@@ -432,6 +432,17 @@ pub fn handle_received_items_packet(
                     }
 
                     match item.item().as_item_id() {
+                        0x01..0x04 => {
+                            if item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize {
+                                let orbs = match item.item().as_item_id() {
+                                    1 => 1000,
+                                    2 => 2500,
+                                    3 => 5000,
+                                    _ => unreachable!(),
+                                };
+                                game_manager::give_red_orbs(orbs);
+                            }
+                        }
                         0x07 => {
                             data.add_blue_orb();
                             game_manager::give_hp(constants::ONE_ORB);
@@ -528,7 +539,9 @@ pub fn handle_received_items_packet(
                     }
 
                     data.add_item(item.item().name().into());
-                    CURRENT_INDEX.store((item.index() + 1) as i64, Ordering::SeqCst);
+                    if item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize {
+                        CURRENT_INDEX.store((item.index() + 1) as i64, Ordering::SeqCst);
+                    }
                 }
             }
             Err(err) => {
