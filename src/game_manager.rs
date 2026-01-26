@@ -568,10 +568,10 @@ pub(crate) fn apply_style_levels(style: Style) {
                             ORIGINAL_GIVE_STYLE_XP.get().unwrap()(char_data_ptr, LEVEL_2_XP);
                         }
                         2 => {
-                            log::debug!("Style {} is max level", style);
+                            log::debug!("Style {style} is max level");
                         }
                         _ => {
-                            log::error!("Unknown level: {}", level);
+                            log::error!("Unknown {style} level: {level}");
                         }
                     }
                 }

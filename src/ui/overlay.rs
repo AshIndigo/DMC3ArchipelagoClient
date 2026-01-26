@@ -3,6 +3,7 @@ use crate::ui::font_handler::{FontAtlas, FontColorCB, GREEN, RED, WHITE, get_def
 use crate::ui::{dx11_hooks, font_handler};
 use crate::{mapping, utilities};
 use archipelago_rs::LocatedItem;
+use randomizer_utilities::loader_parser::LOADER_STATUS;
 use std::collections::VecDeque;
 use std::slice::from_raw_parts;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -341,7 +342,7 @@ pub(crate) unsafe extern "system" fn present_hook(
                     screen_height,
                     &if connected { GREEN } else { RED },
                 );
-                draw_version_info(&state, screen_width, screen_height);
+                draw_version_info(&state, screen_width, screen_height, atlas);
             }
             if CANT_PURCHASE.load(Ordering::SeqCst)
                 && let Some(atlas) = &state.atlas
@@ -405,11 +406,18 @@ pub(crate) unsafe extern "system" fn present_hook(
     unsafe { dx11_hooks::ORIGINAL_PRESENT.get().unwrap()(orig_swap_chain, sync_interval, flags) }
 }
 
-fn draw_version_info(state: &RwLockReadGuard<D3D11State>, screen_width: f32, screen_height: f32) {
+fn draw_version_info(
+    state: &RwLockReadGuard<D3D11State>,
+    screen_width: f32,
+    screen_height: f32,
+    atlas: &FontAtlas,
+) {
     const MOD_VERSION: &str = "Mod Version:";
     const AP_VERSION: &str = "AP Client Version:";
     const ROOM_VERSION: &str = "Room Version:";
     const MODE: &str = "Mode:";
+    const GAME_VERSION: &str = "Game Version:";
+    const ADDITIONAL_MODS: &str = "Additional Mods:";
     // TODO Maybe at some point I'd want to have the mod poke github on launch?
     font_handler::draw_string(
         state,
@@ -457,6 +465,54 @@ fn draw_version_info(state: &RwLockReadGuard<D3D11State>, screen_width: f32, scr
                 screen_width,
                 screen_height,
                 get_default_color(),
+            );
+        }
+    }
+    if let Some(status) = LOADER_STATUS.get() {
+        font_handler::draw_string(
+            state,
+            GAME_VERSION,
+            0.0,
+            250.0,
+            screen_width,
+            screen_height,
+            &WHITE,
+        );
+        font_handler::draw_string(
+            state,
+            &format!(" {}", status.game_information.description),
+            GAME_VERSION
+                .chars()
+                .map(|c| atlas.glyph_advance(c))
+                .sum::<f32>(),
+            250.0,
+            screen_width,
+            screen_height,
+            if status.game_information.valid_for_use {
+                &GREEN
+            } else {
+                &RED
+            },
+        );
+        font_handler::draw_string(
+            state,
+            ADDITIONAL_MODS,
+            0.0,
+            300.0,
+            screen_width,
+            screen_height,
+            &WHITE,
+        );
+        for (i, mod_info) in status.mod_information.iter().enumerate() {
+            let base = 350;
+            font_handler::draw_string(
+                state,
+                mod_info.description,
+                0.0,
+                (base + (i * 50)) as f32,
+                screen_width,
+                screen_height,
+                if mod_info.valid_for_use { &GREEN } else { &RED },
             );
         }
     }

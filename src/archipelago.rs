@@ -243,11 +243,11 @@ impl ArchipelagoCore {
         }
 
         match self.deathlink_receiver.try_recv() {
-            Ok(dl_data) => self
-                .connection
-                .client_mut()
-                .unwrap()
-                .death_link(DeathLinkOptions::new().cause(dl_data.cause))?,
+            Ok(dl_data) => {
+                if let Some(client) = self.connection.client_mut() {
+                    client.death_link(DeathLinkOptions::new().cause(dl_data.cause))?
+                }
+            }
             Err(err) => {
                 if err == TryRecvError::Disconnected {
                     return Err("Disconnected from DeathLink receiver".into());
@@ -486,41 +486,23 @@ pub fn handle_received_items_packet(
                                 skill_manager::set_skills(&data); // Hacky...
                             }
                         }
-                        0x53 => {
-                            // Ebony & Ivory
-                            data.add_gun_level(0);
+                        0x53..0x58 => {
+                            // Gun Levels
+                            data.add_gun_level((item.item().id() - 0x53) as usize);
                         }
-                        0x54 => {
-                            // Shotgun
-                            data.add_gun_level(1);
-                        }
-                        0x55 => {
-                            // Artemis
-                            data.add_gun_level(2);
-                        }
-                        0x56 => {
-                            // Spiral
-                            data.add_gun_level(3);
-                        }
-                        0x57 => {
-                            // Kalina Ann
-                            data.add_gun_level(4);
-                        }
-                        0x60 => {
-                            data.add_style_level(Style::Trickster);
-                            game_manager::apply_style_levels(Style::Trickster)
-                        }
-                        0x61 => {
-                            data.add_style_level(Style::Swordmaster);
-                            game_manager::apply_style_levels(Style::Swordmaster)
-                        }
-                        0x62 => {
-                            data.add_style_level(Style::Gunslinger);
-                            game_manager::apply_style_levels(Style::Gunslinger)
-                        }
-                        0x63 => {
-                            data.add_style_level(Style::Royalguard);
-                            game_manager::apply_style_levels(Style::Royalguard)
+                        0x60..0x64 => {
+                            // Style Handling
+                            let style = match item.item().id() {
+                                0x60 => Style::Trickster,
+                                0x61 => Style::Swordmaster,
+                                0x62 => Style::Gunslinger,
+                                0x63 => Style::Royalguard,
+                                _ => unreachable!(),
+                            };
+                            data.add_style_level(style);
+                            if item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize {
+                                game_manager::apply_style_levels(style);
+                            }
                         }
                         // Weapons
                         0x16..0x19 => {
