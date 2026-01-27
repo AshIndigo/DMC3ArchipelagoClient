@@ -3,7 +3,7 @@ use crate::ui::font_handler::{FontAtlas, FontColorCB, GREEN, RED, WHITE, get_def
 use crate::ui::{dx11_hooks, font_handler};
 use crate::{mapping, utilities};
 use archipelago_rs::LocatedItem;
-use randomizer_utilities::loader_parser::LOADER_STATUS;
+use randomizer_utilities::dmc::loader_parser::LOADER_STATUS;
 use std::collections::VecDeque;
 use std::slice::from_raw_parts;
 use std::sync::atomic::{AtomicBool, Ordering};

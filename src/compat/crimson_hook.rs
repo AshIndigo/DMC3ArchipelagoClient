@@ -1,7 +1,7 @@
 use crate::config;
-use crate::constants::BasicNothingFunc;
 use core::sync::atomic::Ordering;
 use minhook::MinHook;
+use randomizer_utilities::BasicNothingFunc;
 use randomizer_utilities::get_base_address;
 use std::sync::atomic::AtomicBool;
 use std::sync::{LazyLock, OnceLock};

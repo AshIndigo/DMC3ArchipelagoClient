@@ -1,12 +1,10 @@
 use crate::skill_manager::ID_SKILL_MAP;
 use bimap::BiMap;
-use randomizer_utilities::mapping_utilities::GameConfig;
+use randomizer_utilities::dmc::dmc_constants::GameConfig;
 use serde::{Deserialize, Serialize};
 use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::sync::LazyLock;
-
-pub type BasicNothingFunc = unsafe extern "system" fn();
 
 pub(crate) static DUMMY_ID: LazyLock<u32> =
     LazyLock::new(|| *ITEM_MAP.get_by_left("Dummy").unwrap());
