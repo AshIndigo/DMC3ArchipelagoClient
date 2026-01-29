@@ -1,75 +1,24 @@
 use crate::archipelago::CONNECTED;
-use crate::ui::font_handler::{FontAtlas, FontColorCB, GREEN, RED, WHITE, get_default_color};
-use crate::ui::{dx11_hooks, font_handler};
+use randomizer_utilities::ui::font_handler::{FontAtlas, FontColorCB, BLACK, GREEN, RED, WHITE};
 use crate::{mapping, utilities};
 use archipelago_rs::LocatedItem;
 use randomizer_utilities::dmc::loader_parser::LOADER_STATUS;
 use std::collections::VecDeque;
 use std::slice::from_raw_parts;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{LazyLock, Mutex, OnceLock, RwLock, RwLockReadGuard};
+use std::sync::{LazyLock, Mutex, RwLock, RwLockReadGuard};
 use std::time::{Duration, Instant};
-use windows::Win32::Graphics::Direct3D::Fxc::D3DCompile;
-use windows::Win32::Graphics::Direct3D::ID3DBlob;
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Direct3D11::{ID3D11Device, ID3D11Texture2D};
 use windows::Win32::Graphics::Dxgi::Common::{
-    DXGI_FORMAT_R32G32_FLOAT, DXGI_FORMAT_R32G32B32_FLOAT,
+    DXGI_FORMAT_R32G32B32_FLOAT, DXGI_FORMAT_R32G32_FLOAT,
 };
 use windows::Win32::Graphics::Dxgi::*;
 use windows::core::{Interface, PCSTR};
-
-pub(crate) struct D3D11State {
-    device: ID3D11Device,
-    pub(crate) context: ID3D11DeviceContext,
-    pub(crate) atlas: Option<FontAtlas>,
-    pub(crate) input_layout: ID3D11InputLayout,
-    pub(crate) vertex_buffer: ID3D11Buffer,
-    pub(crate) rtv: Option<ID3D11RenderTargetView>,
-}
-
-static STATE: OnceLock<RwLock<D3D11State>> = OnceLock::new();
-
-pub(crate) static SHADERS: LazyLock<(ID3DBlob, ID3DBlob)> = LazyLock::new(|| {
-    let mut vs_blob: Option<ID3DBlob> = None;
-    let mut ps_blob: Option<ID3DBlob> = None;
-    let mut err_blob: Option<ID3DBlob> = None;
-
-    let vs_bytes = include_bytes!(".././data/text_vs.hlsl");
-    let ps_bytes = include_bytes!(".././data/text_ps.hlsl");
-
-    unsafe {
-        D3DCompile(
-            vs_bytes.as_ptr() as *const _,
-            vs_bytes.len(),
-            None,
-            None,
-            None,
-            PCSTR::from_raw(c"main".as_ptr() as *const u8),
-            PCSTR::from_raw(c"vs_5_0".as_ptr() as *const u8),
-            0,
-            0,
-            &mut vs_blob,
-            Some(&mut err_blob),
-        )
-        .expect("Couldn't compile VS");
-        D3DCompile(
-            ps_bytes.as_ptr() as *const _,
-            ps_bytes.len(),
-            None,
-            None,
-            None,
-            PCSTR::from_raw(c"main".as_ptr() as *const u8),
-            PCSTR::from_raw(c"ps_5_0".as_ptr() as *const u8),
-            0,
-            0,
-            &mut ps_blob,
-            Some(&mut err_blob),
-        )
-        .expect("Couldn't compile PS");
-    }
-    (ps_blob.unwrap(), vs_blob.unwrap())
-});
+use randomizer_utilities::ui::dx11::{ORIGINAL_PRESENT, ORIGINAL_RESIZE_BUFFERS};
+use randomizer_utilities::ui::font_handler;
+use randomizer_utilities::ui::overlay::{D3D11State, SHADERS, STATE};
+use crate::utilities::is_crimson_loaded;
 
 static MESSAGE_QUEUE: LazyLock<Mutex<VecDeque<OverlayMessage>>> =
     LazyLock::new(|| Mutex::new(VecDeque::new()));
@@ -116,6 +65,10 @@ impl OverlayMessage {
 pub(crate) enum MessageType {
     _Default,     // Take the X and Y values as they are given
     Notification, // Disregard coordinates, automatically align to upper right (Used for newly received items+DL)
+}
+
+pub fn get_default_color() -> &'static FontColorCB {
+    if is_crimson_loaded() { &WHITE } else { &BLACK }
 }
 
 pub(crate) fn add_message(overlay: OverlayMessage) {
@@ -253,7 +206,7 @@ pub(crate) unsafe extern "system" fn resize_hook(
     swap_chain_flags: DXGI_SWAP_CHAIN_FLAG,
 ) {
     unsafe {
-        dx11_hooks::ORIGINAL_RESIZE_BUFFERS.get().unwrap()(
+        ORIGINAL_RESIZE_BUFFERS.get().unwrap()(
             swap_chain,
             buffer_count,
             width,
@@ -403,7 +356,7 @@ pub(crate) unsafe extern "system" fn present_hook(
         }
     }
 
-    unsafe { dx11_hooks::ORIGINAL_PRESENT.get().unwrap()(orig_swap_chain, sync_interval, flags) }
+    unsafe { ORIGINAL_PRESENT.get().unwrap()(orig_swap_chain, sync_interval, flags) }
 }
 
 fn draw_version_info(

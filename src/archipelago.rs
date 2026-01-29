@@ -4,7 +4,7 @@ use crate::game_manager::{ARCHIPELAGO_DATA, ArchipelagoData, Style, get_mission}
 use crate::mapping::{
     DeathlinkSetting, Goal, MAPPING, ModMode, ModModeData, OVERLAY_INFO, OverlayInfo,
 };
-use crate::ui::font_handler::{WHITE, YELLOW};
+use randomizer_utilities::ui::font_handler::{WHITE, YELLOW};
 use crate::ui::overlay::{MessageSegment, MessageType, OverlayMessage};
 use crate::ui::{overlay, text_handler};
 use crate::{
