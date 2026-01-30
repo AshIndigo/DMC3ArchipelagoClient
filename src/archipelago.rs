@@ -4,13 +4,13 @@ use crate::game_manager::{ARCHIPELAGO_DATA, ArchipelagoData, Style, get_mission}
 use crate::mapping::{
     DeathlinkSetting, Goal, MAPPING, ModMode, ModModeData, OVERLAY_INFO, OverlayInfo,
 };
-use randomizer_utilities::ui::font_handler::{WHITE, YELLOW};
 use crate::ui::overlay::{MessageSegment, MessageType, OverlayMessage};
 use crate::ui::{overlay, text_handler};
 use crate::{
     check_handler, constants, game_manager, hint_game, hook, location_handler, mapping,
     skill_manager, utilities,
 };
+use randomizer_utilities::ui::font_handler::{WHITE, YELLOW};
 use std::env;
 
 use crate::hint_game::TX_HINT;

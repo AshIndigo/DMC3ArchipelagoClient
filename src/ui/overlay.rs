@@ -1,24 +1,20 @@
 use crate::archipelago::CONNECTED;
-use randomizer_utilities::ui::font_handler::{FontAtlas, FontColorCB, BLACK, GREEN, RED, WHITE};
+use crate::utilities::is_crimson_loaded;
 use crate::{mapping, utilities};
 use archipelago_rs::LocatedItem;
 use randomizer_utilities::dmc::loader_parser::LOADER_STATUS;
-use std::collections::VecDeque;
-use std::slice::from_raw_parts;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{LazyLock, Mutex, RwLock, RwLockReadGuard};
-use std::time::{Duration, Instant};
-use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Direct3D11::{ID3D11Device, ID3D11Texture2D};
-use windows::Win32::Graphics::Dxgi::Common::{
-    DXGI_FORMAT_R32G32B32_FLOAT, DXGI_FORMAT_R32G32_FLOAT,
-};
-use windows::Win32::Graphics::Dxgi::*;
-use windows::core::{Interface, PCSTR};
 use randomizer_utilities::ui::dx11::{ORIGINAL_PRESENT, ORIGINAL_RESIZE_BUFFERS};
-use randomizer_utilities::ui::font_handler;
-use randomizer_utilities::ui::overlay::{D3D11State, SHADERS, STATE};
-use crate::utilities::is_crimson_loaded;
+use randomizer_utilities::ui::font_handler::{BLACK, FontAtlas, FontColorCB, GREEN, RED, WHITE};
+use randomizer_utilities::ui::overlay::{D3D11State, STATE};
+use randomizer_utilities::ui::{font_handler, overlay};
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{LazyLock, Mutex, RwLockReadGuard};
+use std::time::{Duration, Instant};
+use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
+use windows::Win32::Graphics::Direct3D11::*;
+use windows::Win32::Graphics::Dxgi::*;
+use windows::core::Interface;
 
 static MESSAGE_QUEUE: LazyLock<Mutex<VecDeque<OverlayMessage>>> =
     LazyLock::new(|| Mutex::new(VecDeque::new()));
@@ -82,121 +78,6 @@ pub(crate) fn add_message(overlay: OverlayMessage) {
     }
 }
 
-fn get_rtv_atlas(
-    device: &ID3D11Device,
-    swap_chain: &IDXGISwapChain,
-) -> (ID3D11RenderTargetView, FontAtlas) {
-    let atlas = {
-        const FONT_SIZE: f32 = 36.0;
-        const ROW_WIDTH: u32 = 256;
-        let chars: Vec<char> = (0u8..=127).map(|c| c as char).collect();
-        font_handler::create_rgba_font_atlas(device, &chars, FONT_SIZE, ROW_WIDTH).unwrap()
-    };
-
-    let rtv = {
-        let mut rtv = None;
-        if let Err(e) = unsafe {
-            device.CreateRenderTargetView(
-                &swap_chain.GetBuffer::<ID3D11Texture2D>(0).unwrap(),
-                None,
-                Some(&mut rtv),
-            )
-        } {
-            log::error!("Failed to create RTV: {:?}", e);
-        }
-        rtv.unwrap()
-    };
-    (rtv, atlas)
-}
-
-fn get_resources(swap_chain: &IDXGISwapChain) -> &RwLock<D3D11State> {
-    let state = STATE.get_or_init(|| {
-        let device: ID3D11Device = unsafe { swap_chain.GetDevice() }.unwrap();
-        let vertex_buffer = {
-            const VERTEX_BUFFER_DESC: D3D11_BUFFER_DESC = D3D11_BUFFER_DESC {
-                ByteWidth: (size_of::<font_handler::Vertex>() * 4 * 256) as u32,
-                Usage: D3D11_USAGE_DYNAMIC,
-                BindFlags: D3D11_BIND_VERTEX_BUFFER.0 as u32,
-                CPUAccessFlags: D3D11_CPU_ACCESS_WRITE.0 as u32,
-                MiscFlags: 0,
-                StructureByteStride: 0,
-            };
-
-            let mut vertex_buffer = None;
-            if let Err(e) =
-                unsafe { device.CreateBuffer(&VERTEX_BUFFER_DESC, None, Some(&mut vertex_buffer)) }
-            {
-                log::error!("Failed to create RTV: {:?}", e);
-            }
-            vertex_buffer.unwrap()
-        };
-        let input_layout = {
-            const INPUT_ELEMENT_DESCS: [D3D11_INPUT_ELEMENT_DESC; 2] = [
-                D3D11_INPUT_ELEMENT_DESC {
-                    SemanticName: PCSTR::from_raw(c"POSITION".as_ptr() as *const _),
-                    SemanticIndex: 0,
-                    Format: DXGI_FORMAT_R32G32B32_FLOAT,
-                    InputSlot: 0,
-                    AlignedByteOffset: 0,
-                    InputSlotClass: D3D11_INPUT_PER_VERTEX_DATA,
-                    InstanceDataStepRate: 0,
-                },
-                D3D11_INPUT_ELEMENT_DESC {
-                    SemanticName: PCSTR::from_raw(c"TEXCOORD".as_ptr() as *const _),
-                    SemanticIndex: 0,
-                    Format: DXGI_FORMAT_R32G32_FLOAT,
-                    InputSlot: 0,
-                    AlignedByteOffset: 12, // after the float3 position
-                    InputSlotClass: D3D11_INPUT_PER_VERTEX_DATA,
-                    InstanceDataStepRate: 0,
-                },
-            ];
-            let (_, vsb) = &*SHADERS;
-            let mut input_thingy = None;
-            unsafe {
-                device
-                    .CreateInputLayout(
-                        &INPUT_ELEMENT_DESCS,
-                        from_raw_parts(vsb.GetBufferPointer() as *const u8, vsb.GetBufferSize()),
-                        Some(&mut input_thingy),
-                    )
-                    .unwrap();
-            }
-            input_thingy.unwrap()
-        };
-        let (rtv, atlas) = get_rtv_atlas(&device, swap_chain);
-        RwLock::new(D3D11State {
-            device,
-            context: unsafe {
-                swap_chain
-                    .GetDevice::<ID3D11Device>()
-                    .unwrap()
-                    .GetImmediateContext()
-            }
-            .unwrap(),
-            atlas: Some(atlas),
-            input_layout,
-            vertex_buffer,
-            rtv: Some(rtv),
-        })
-    });
-    match state.write() {
-        Ok(mut state) => {
-            let (rtv, atlas) = get_rtv_atlas(&state.device, swap_chain);
-            if state.rtv.is_none() {
-                state.rtv = Some(rtv);
-            }
-            if state.atlas.is_none() {
-                state.atlas = Some(atlas);
-            }
-        }
-        Err(err) => {
-            log::error!("PoisonError upon trying to write {:?}", err);
-        }
-    }
-    state
-}
-
 pub(crate) unsafe extern "system" fn resize_hook(
     swap_chain: *mut IDXGISwapChain,
     buffer_count: u32,
@@ -251,7 +132,7 @@ pub(crate) unsafe extern "system" fn present_hook(
     flags: u32,
 ) -> i32 {
     let (screen_width, screen_height) = unsafe { update_screen_size(&orig_swap_chain) };
-    let state = get_resources(&orig_swap_chain);
+    let state = overlay::get_resources(&orig_swap_chain);
     match state.read() {
         Ok(state) => {
             unsafe {
