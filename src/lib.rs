@@ -105,16 +105,17 @@ fn main_loop_hook() {
         }
     }
 
-    if let Ok(mut core) = AP_CORE
-        .get_or_init(|| {
-            ArchipelagoCore::new(
-                config::CONFIG.connections.get_url(),
-                DMC3Config::GAME_NAME.parse().unwrap(),
-            )
-            .map(|core| Arc::new(Mutex::new(core)))
-            .unwrap()
-        })
-        .lock()
+    if !config::CONFIG.connections.disable_auto_connect
+        && let Ok(mut core) = AP_CORE
+            .get_or_init(|| {
+                ArchipelagoCore::new(
+                    config::CONFIG.connections.get_url(),
+                    DMC3Config::GAME_NAME.parse().unwrap(),
+                )
+                .map(|core| Arc::new(Mutex::new(core)))
+                .unwrap()
+            })
+            .lock()
         && let Err(err) = core.update()
     {
         log::error!("{}", err);
