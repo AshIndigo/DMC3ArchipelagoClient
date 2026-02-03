@@ -420,7 +420,7 @@ pub fn handle_received_items_packet(
                                 overlay::get_color_for_item(item.as_ref()),
                             ),
                             MessageSegment::new(" from ".to_string(), WHITE),
-                            MessageSegment::new(item.sender().name().parse()?, YELLOW),
+                            MessageSegment::new(item.sender().alias().parse()?, YELLOW),
                         ];
                         overlay::add_message(OverlayMessage::new(
                             rec_msg,
