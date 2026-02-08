@@ -849,7 +849,6 @@ pub(crate) struct EventTable {
 #[derive(Debug)]
 pub struct ItemEntry {
     // Represents an item on the ground
-    pub _offset: usize,    // Offset for the item table
     pub room_number: i32,  // Room number
     pub item_id: u32,      // Default Item ID
     pub mission: u32,      // Mission Number
