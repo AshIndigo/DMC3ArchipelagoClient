@@ -279,7 +279,7 @@ pub fn purchase_item_check(ptr: usize) {
     }
 
     if let Some(mapping) = MAPPING.read().unwrap().as_ref()
-        && (mapping.shop_checks || mapping.shop_orb_checks)
+        && mapping.shop_orb_checks
     {
         // Figure out the index of the item we just bought from the store.
         // 0xC8F263 is to check whether we are on gold or yellow

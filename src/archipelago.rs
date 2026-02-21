@@ -2,7 +2,7 @@ use crate::check_handler::{Location, LocationType, TX_LOCATION, take_away_receiv
 use crate::constants::{MISSION_ITEM_MAP, REMOTE_ID};
 use crate::game_manager::{ARCHIPELAGO_DATA, ArchipelagoData, Style, get_mission};
 use crate::mapping::{
-    DeathlinkSetting, Goal, MAPPING, ModMode, ModModeData, OVERLAY_INFO, OverlayInfo,
+    AutoHint, DeathlinkSetting, Goal, MAPPING, ModMode, ModModeData, OVERLAY_INFO, OverlayInfo,
 };
 use crate::ui::overlay::{MessageSegment, MessageType, OverlayMessage};
 use crate::ui::{overlay, text_handler};
@@ -13,6 +13,7 @@ use crate::{
 use randomizer_utilities::ui::font_handler::{WHITE, YELLOW};
 use std::env;
 
+use crate::data::generated_locations;
 use crate::hint_game::TX_HINT;
 use archipelago_rs::{
     AsItemId, Client, ClientStatus, Connection, ConnectionOptions, ConnectionState, CreateAsHint,
@@ -274,8 +275,45 @@ impl ArchipelagoCore {
 pub fn run_setup(client: &mut Client<ModModeData>) -> Result<(), Box<dyn Error>> {
     log::info!("Running setup");
     hook::rewrite_mode_table();
-    mapping::run_scouts_for_mission(client, constants::NO_MISSION, CreateAsHint::New);
+    mapping::run_scouts_for_mission(client, constants::NO_MISSION, CreateAsHint::No);
     mapping::run_scouts_for_secret_mission(client);
+
+    // Handle auto hinting
+    if let ModModeData::Normal(mapping) = client.slot_data() {
+        let mut locations_to_hint: Vec<i64> = vec![];
+        if AutoHint::All == mapping.auto_orb_hints {
+            locations_to_hint.extend(
+                generated_locations::ITEM_MISSION_MAP
+                    .iter()
+                    .filter(|(k, _)| {
+                        k.contains("Purchase Purple Orb") || k.contains("Purchase Blue Orb")
+                    })
+                    .map(|(&k, _)| client.this_game().location_by_name(k).unwrap().id()),
+            );
+        }
+        if AutoHint::All == mapping.auto_gun_hints {
+            locations_to_hint.extend(
+                generated_locations::ITEM_MISSION_MAP
+                    .iter()
+                    .filter(|(k, _)| {
+                        constants::GUN_NAMES
+                            .iter()
+                            .any(|gun_name| k.starts_with("Purchase ") && k.ends_with(gun_name))
+                    })
+                    .map(|(&k, _)| client.this_game().location_by_name(k).unwrap().id())
+                    .collect::<Vec<i64>>(),
+            );
+        }
+        if AutoHint::All == mapping.auto_skill_hints {
+            // locations_to_hint.extend(
+            //     generated_locations::ITEM_MISSION_MAP
+            //         .iter()
+            //         .filter(|(k, _)| k.contains("Purple Orb") || k.contains("Blue Orb"))
+            //         .map(|(k, _)| &client.this_game().location_by_name(*k).unwrap().id())
+            //         .collect::<Vec<i64>>())
+        }
+        client.create_hints(locations_to_hint)?;
+    }
     Ok(())
 }
 
@@ -505,11 +543,34 @@ pub fn handle_received_items_packet(
                             }
                         }
                         // Weapons
-                        0x16..0x19 => {
-                            // R, C, A&I
+                        0x16..=0x18 => {
+                            // Rebellion, Cerberus, Agni and Rudra
                         }
-                        0x1A..0x22 => {
-                            // Rest of weapons
+                        0x1A..=0x1B => {
+                            // Nevan, Beowulf
+                        }
+                        0x1C..=0x21 => {
+                            // All guns
+                            if let ModModeData::Normal(mapping) = client.slot_data()
+                                && mapping.auto_gun_hints == AutoHint::Obtained
+                            {
+                                // TODO Test this
+                                let gun_name = constants::GUN_NAMES[(item.item().as_item_id() - 0x1C) as usize];
+
+                                let ids: Vec<_> = [2, 3]
+                                    .into_iter()
+                                    .map(|lvl| {
+                                        client.this_game().location_by_name(format!(
+                                            "Purchase {} Level {}",
+                                            gun_name, lvl
+                                        ))
+                                        .unwrap()
+                                        .id()
+                                    })
+                                    .collect();
+
+                                TX_HINT.get().unwrap().send(ids)?;
+                            }
                         }
                         _ => {
                             log::warn!(

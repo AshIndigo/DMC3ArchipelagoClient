@@ -159,6 +159,47 @@ where
     }
 }
 
+fn parse_hint<'de, D>(deserializer: D) -> Result<AutoHint, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let val = Value::deserialize(deserializer)?;
+    match val {
+        Value::Number(n) => match AutoHint::from_repr(n.as_i64().unwrap_or_default() as usize) {
+            None => Err(serde::de::Error::custom(format!(
+                "Invalid autohint option: {}",
+                n
+            ))),
+            Some(n) => Ok(n),
+        },
+        other => Err(serde::de::Error::custom(format!(
+            "Unexpected type: {:?}",
+            other
+        ))),
+    }
+}
+
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    Deserialize,
+    Serialize,
+    PartialEq,
+    PartialOrd,
+    strum_macros::Display,
+    strum_macros::FromRepr,
+)]
+pub enum AutoHint {
+    #[default]
+    All,
+    Current,
+    /// Only Relevant for weapons/guns
+    Obtained,
+    None,
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Mapping {
     // For mapping JSON
@@ -174,14 +215,15 @@ pub struct Mapping {
     pub purple_orb_mode: bool,
     pub devil_trigger_mode: bool,
     pub check_ss_difficulty: bool,
-    // TODO Deprecated
-    #[serde(default)]
-    pub shop_checks: bool,
-    // TODO Remove the defaults
-    #[serde(default)]
     pub shop_orb_checks: bool,
-    #[serde(default)]
     pub shop_gun_checks: bool,
+    pub shop_skill_checks: bool,
+    #[serde(deserialize_with = "parse_hint")]
+    pub auto_orb_hints: AutoHint,
+    #[serde(deserialize_with = "parse_hint")]
+    pub auto_gun_hints: AutoHint,
+    #[serde(deserialize_with = "parse_hint")]
+    pub auto_skill_hints: AutoHint,
     #[serde(deserialize_with = "parse_death_link")]
     pub death_link: DeathlinkSetting,
     #[serde(default = "default_goal")]

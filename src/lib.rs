@@ -133,7 +133,7 @@ fn main_loop_hook() {
 }
 
 fn main_setup() {
-    exception_handler::install_exception_handler();
+    exception_handler::install_exception_handler("dmc3_randomizer_latest.log");
     if is_ddmk_loaded() {
         log::info!("DDMK is loaded!");
         log::warn!(

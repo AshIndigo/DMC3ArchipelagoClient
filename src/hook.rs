@@ -770,7 +770,7 @@ pub fn gun_upgrade(custom_gun: usize) {
             write((custom_gun + 0x3D10) as *mut [u8; 5], purchased_gun_levels);
         }
         // If randomize gun levels and no checks for them, deny purchasing
-        if mapping.randomize_gun_levels && !(mapping.shop_gun_checks || mapping.shop_checks) {
+        if mapping.randomize_gun_levels && !(mapping.shop_gun_checks) {
             CANT_PURCHASE.store(true, Ordering::SeqCst);
             if read_data_from_address::<u8>(custom_gun + 0x08) == 0x03 {
                 unsafe { replace_single_byte(custom_gun + 0x08, 0x01) }
@@ -791,7 +791,7 @@ pub fn gun_upgrade(custom_gun: usize) {
                     gun_idx,
                     gun_levels_new[gun_idx]
                 );
-                if mapping.shop_gun_checks || mapping.shop_checks {
+                if mapping.shop_gun_checks {
                     // Send out check for purchasing gun upgrade
                     check_handler::send_off_location_coords(
                         Location {
