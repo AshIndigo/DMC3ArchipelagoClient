@@ -4,6 +4,7 @@ use crate::data::generated_locations;
 use crate::game_manager::get_mission;
 use crate::{constants, game_manager, mapping, utilities};
 use anyhow::anyhow;
+use randomizer_utilities::archipelago_utilities;
 use std::error::Error;
 
 /// If we are in a room with a key item+appropriate mission, return Ok(location_key)
@@ -78,7 +79,7 @@ pub fn get_location_name_by_data(location_data: &Location) -> Result<&'static st
 }
 
 pub fn get_mapped_item_id(location_name: &str) -> Result<u32, Box<dyn Error>> {
-    let id = match mapping::CACHED_LOCATIONS.read() {
+    let id = match archipelago_utilities::CACHED_LOCATIONS.read() {
         Ok(cached_locations) => {
             if let Some(located_item) = cached_locations.get(location_name) {
                 if located_item.sender() == located_item.receiver() {
