@@ -764,13 +764,14 @@ pub fn gun_upgrade(custom_gun: usize) {
     // Get all current gun levels
     if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
         let backup_gun_levels = read_data_from_address::<[u8; 5]>(custom_gun + 0x3D10);
-        let purchased_gun_levels: [u8; 5] = get_purchased_levels();
+        // What gun level checks have we done
+        let gun_level_checks: [u8; 5] = get_gun_level_checks();
         // The shop will display the last purchased gun level check
         unsafe {
-            write((custom_gun + 0x3D10) as *mut [u8; 5], purchased_gun_levels);
+            write((custom_gun + 0x3D10) as *mut [u8; 5], gun_level_checks);
         }
         // If randomize gun levels and no checks for them, deny purchasing
-        if mapping.randomize_gun_levels && !(mapping.shop_gun_checks) {
+        if mapping.randomize_gun_levels && !mapping.shop_gun_checks {
             CANT_PURCHASE.store(true, Ordering::SeqCst);
             if read_data_from_address::<u8>(custom_gun + 0x08) == 0x03 {
                 unsafe { replace_single_byte(custom_gun + 0x08, 0x01) }
@@ -785,7 +786,7 @@ pub fn gun_upgrade(custom_gun: usize) {
 
         let gun_levels_new = read_data_from_address::<[u8; 5]>(custom_gun + 0x3D10);
         for gun_idx in 0..5 {
-            if gun_levels_new[gun_idx] > purchased_gun_levels[gun_idx] {
+            if gun_levels_new[gun_idx] > gun_level_checks[gun_idx] {
                 log::debug!(
                     "Attempting to purchase gun upgrade: {} - LV{}",
                     gun_idx,
@@ -820,7 +821,7 @@ pub fn gun_upgrade(custom_gun: usize) {
 }
 
 /// Returns the number of purchased gun upgrades checks per gun.
-fn get_purchased_levels() -> [u8; 5] {
+fn get_gun_level_checks() -> [u8; 5] {
     let mut res = [0u8; 5];
 
     if let Some(client) = AP_CORE.get().unwrap().lock().unwrap().connection.client() {
@@ -1050,9 +1051,6 @@ pub fn set_rando_session_data(ptr: usize) {
             s.weapons[1] = mapping.start_second_melee;
             s.weapons[2] = mapping.start_gun;
             s.weapons[3] = mapping.start_second_gun;
-            // Disable buying blue/purple orbs
-
-            s.items = Default::default();
 
             // Unlock DT off the bat
             s.unlocked_dt = true;
@@ -1070,6 +1068,12 @@ pub fn set_rando_session_data(ptr: usize) {
             if mapping.goal == Goal::RandomOrder {
                 s.mission = mapping.mission_order.as_ref().unwrap()[0] as u32;
                 s.other_mission = mapping.mission_order.as_ref().unwrap()[0] as u32;
+            }
+
+            // If orb checks are disabled, then set the purchase count to max for both to prevent purchasing
+            if !mapping.shop_orb_checks {
+                s.items[7] = 6;
+                s.items[8] = 7;
             }
         }
     })

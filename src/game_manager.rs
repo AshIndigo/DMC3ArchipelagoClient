@@ -254,21 +254,6 @@ pub struct MissionData {
 }
 
 static MISSION_DATA_PTR: LazyLock<usize> = LazyLock::new(|| *DMC3_ADDRESS + MISSION_CHARACTER_DATA);
-
-pub fn _with_mission_data_read<F, R>(f: F) -> Result<R, GameDataError>
-where
-    F: FnOnce(&MissionData) -> R,
-{
-    let addr = *MISSION_DATA_PTR;
-    unsafe {
-        let s = &*(addr as *const MissionData);
-        if !is_mission_valid() {
-            return Err(GameDataError::NotUsable);
-        }
-        Ok(f(s))
-    }
-}
-
 fn is_mission_valid() -> bool {
     read_data_from_address::<usize>(*MISSION_DATA_PTR) != 0
 }
@@ -279,14 +264,16 @@ where
 {
     let addr = *MISSION_DATA_PTR;
     unsafe {
-        let s = &mut *(addr as *mut MissionData);
         if !is_mission_valid() {
             return Err(GameDataError::NotUsable);
         }
+
+        let ptr = *(addr as *mut *mut MissionData);
+        let s = &mut *ptr;
+
         Ok(f(s))
     }
 }
-
 // TODO These offsets are wildly inaccurate
 pub(crate) fn give_magic(magic_val: f32, arch_data: &ArchipelagoData) {
     let base = *DMC3_ADDRESS;
@@ -626,6 +613,8 @@ pub(crate) fn add_consumable(item: Item) {
 
 pub(crate) fn give_red_orbs(orbs: i32) {
     log::debug!("Giving {} orbs", orbs);
-    with_session(|session| session.red_orbs += orbs).unwrap();
-    if with_mission_data(|m| m.red_orbs += orbs).is_err() {}
+    if with_session(|session| session.red_orbs += orbs).is_err() {
+        log::warn!("Failed to give red orbs for session data");
+    };
+    if with_mission_data(|m| m.red_orbs += orbs).is_err() {};
 }

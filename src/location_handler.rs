@@ -2,7 +2,7 @@ use crate::check_handler::{Location, LocationType};
 use crate::constants::{DUMMY_ID, EVENT_TABLES, EventCode, ITEM_MAP, ItemCategory, REMOTE_ID};
 use crate::data::generated_locations;
 use crate::game_manager::get_mission;
-use crate::{constants, game_manager, mapping, utilities};
+use crate::{constants, game_manager, utilities};
 use anyhow::anyhow;
 use randomizer_utilities::archipelago_utilities;
 use std::error::Error;

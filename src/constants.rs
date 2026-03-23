@@ -28,7 +28,6 @@ pub const ONE_ORB: f32 = 1000.0; // One Blue/Purple orb is worth 1000 "points"
 pub const BASE_HP: f32 = 6.0 * ONE_ORB;
 pub const MAX_HP: f32 = 20000.0;
 pub const MAX_MAGIC: f32 = 10000.0;
-pub const NO_MISSION: u32 = 0;
 
 pub struct Item {
     pub id: u32,

@@ -23,7 +23,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 #imgui = { version = "0.12.0" }
 imgui-sys = { version = "0.12.0" }
 minhook = "0.9.0"
-strum_macros = "0.27"
+strum_macros = "0.28.0"
 bitflags = "2.11.0"
-oneshot = "0.1.13"
+oneshot = "0.2.1"
 rand = "0.10.0"

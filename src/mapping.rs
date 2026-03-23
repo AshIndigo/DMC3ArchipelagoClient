@@ -1,7 +1,7 @@
 use crate::constants::{Difficulty, Rank};
 use crate::data::generated_locations;
 use archipelago_rs::{Client, CreateAsHint, Location};
-use randomizer_utilities::{APVersion, archipelago_utilities};
+use randomizer_utilities::{archipelago_utilities, APVersion};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -189,11 +189,11 @@ where
     strum_macros::FromRepr,
 )]
 pub enum AutoHint {
-    #[default]
     All,
     Current,
     /// Only Relevant for weapons/guns
     Obtained,
+    #[default]
     None,
 }
 
@@ -211,14 +211,19 @@ pub struct Mapping {
     pub randomize_styles: bool,
     pub purple_orb_mode: bool,
     pub devil_trigger_mode: bool,
+    pub enabled_ss_rank: bool,
     pub check_ss_difficulty: bool,
     pub shop_orb_checks: bool,
+    #[serde(default)]
     pub shop_gun_checks: bool,
+    #[serde(default)]
     pub shop_skill_checks: bool,
     #[serde(deserialize_with = "parse_hint")]
     pub auto_orb_hints: AutoHint,
+    #[serde(default)]
     #[serde(deserialize_with = "parse_hint")]
     pub auto_gun_hints: AutoHint,
+    #[serde(default)]
     #[serde(deserialize_with = "parse_hint")]
     pub auto_skill_hints: AutoHint,
     #[serde(deserialize_with = "parse_death_link")]
@@ -283,17 +288,24 @@ pub fn run_scouts_for_mission(client: &mut Client<ModModeData>, mission: u32, hi
         client.scout_locations(get_locations_by_mission(client, mission), hint),
     );
 }
-pub fn run_scouts_for_secret_mission(client: &mut Client<ModModeData>) {
-    archipelago_utilities::run_scouts(
-        client.scout_locations(get_secret_missions(client), CreateAsHint::No),
-    );
-}
 
 pub fn get_locations_by_mission(client: &Client<ModModeData>, mission: u32) -> Vec<Location> {
     let current_game = client.this_game();
     generated_locations::ITEM_MISSION_MAP
         .iter()
         .filter(|(_k, v)| v.mission == mission)
+        .filter(|(k, _v)| {
+            if let ModModeData::Normal(data) = client.slot_data() {
+                // If it's SS Rank, check if SS Ranks are allowed
+                if k.contains("SS Rank") {
+                    data.enabled_ss_rank
+                } else {
+                    true
+                }
+            } else {
+                true
+            }
+        })
         .filter_map(|(k, _v)| current_game.location_by_name(*k))
         .collect()
 }
@@ -303,6 +315,15 @@ pub fn get_secret_missions(client: &Client<ModModeData>) -> Vec<Location> {
     generated_locations::ITEM_MISSION_MAP
         .iter()
         .filter(|(k, _v)| k.contains("Secret Mission"))
+        .filter_map(|(k, _v)| current_game.location_by_name(*k))
+        .collect()
+}
+
+pub fn get_adjudicators(client: &Client<ModModeData>) -> Vec<Location> {
+    let current_game = client.this_game();
+    generated_locations::ITEM_MISSION_MAP
+        .iter()
+        .filter(|(k, _v)| k.contains("Combat Adjudicator"))
         .filter_map(|(k, _v)| current_game.location_by_name(*k))
         .collect()
 }

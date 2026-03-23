@@ -122,8 +122,8 @@ fn main_loop_hook() {
         log::debug!("Attempting to reconnect");
         core.connection = Connection::new(
             config::CONFIG.connections.get_url(),
-            DMC3Config::GAME_NAME,
             "",
+            Some(DMC3Config::GAME_NAME),
             ConnectionOptions::new().receive_items(ItemHandling::OtherWorlds {
                 own_world: true,
                 starting_inventory: true,

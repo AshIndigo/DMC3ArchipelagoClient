@@ -1,13 +1,11 @@
 use crate::check_handler::{Location, LocationType, TX_LOCATION, take_away_received_item};
 use crate::constants::{MISSION_ITEM_MAP, REMOTE_ID};
 use crate::game_manager::{ARCHIPELAGO_DATA, ArchipelagoData, Style, get_mission};
-use crate::mapping::{
-    AutoHint, DeathlinkSetting, Goal, MAPPING, ModMode, ModModeData, OVERLAY_INFO, OverlayInfo,
-};
+use crate::mapping::{AutoHint, DeathlinkSetting, Goal, MAPPING, ModMode, ModModeData, OVERLAY_INFO, OverlayInfo, get_secret_missions, get_adjudicators};
 use crate::ui::overlay::{MessageSegment, MessageType, OverlayMessage};
 use crate::ui::{overlay, text_handler};
 use crate::{
-    check_handler, constants, game_manager, hint_game, hook, location_handler, mapping,
+    check_handler, constants, game_manager, hint_game, hook, location_handler,
     skill_manager, utilities,
 };
 use randomizer_utilities::ui::font_handler::{WHITE, YELLOW};
@@ -49,8 +47,8 @@ impl ArchipelagoCore {
         Ok(Self {
             connection: Connection::new(
                 url,
-                game_name,
                 "",
+                Some(game_name),
                 ConnectionOptions::new().receive_items(ItemHandling::OtherWorlds {
                     own_world: true,
                     starting_inventory: true,
@@ -275,12 +273,18 @@ impl ArchipelagoCore {
 pub fn run_setup(client: &mut Client<ModModeData>) -> Result<(), Box<dyn Error>> {
     log::info!("Running setup");
     hook::rewrite_mode_table();
-    mapping::run_scouts_for_secret_mission(client);
+    // Secret Mission Scouts
+    archipelago_utilities::run_scouts(
+        client.scout_locations(get_secret_missions(client), CreateAsHint::No),
+    );
+    // Adjudicator Scouts
+    archipelago_utilities::run_scouts(
+        client.scout_locations(get_adjudicators(client), CreateAsHint::No),
+    );
 
     // Handle auto hinting
     if let ModModeData::Normal(mapping) = client.slot_data() {
         let mut locations_to_scout: Vec<i64> = vec![];
-        let mut locations_to_hint: Vec<i64> = vec![];
         if mapping.shop_orb_checks {
             let orb_checks: Vec<_> = generated_locations::ITEM_MISSION_MAP
                 .iter()
@@ -290,9 +294,6 @@ pub fn run_setup(client: &mut Client<ModModeData>) -> Result<(), Box<dyn Error>>
                 .map(|(&k, _)| client.this_game().location_by_name(k).unwrap().id())
                 .collect();
             locations_to_scout.extend(&orb_checks);
-            if AutoHint::All == mapping.auto_orb_hints {
-                locations_to_hint.extend(&orb_checks);
-            }
         }
         if mapping.shop_gun_checks {
             let gun_checks = generated_locations::ITEM_MISSION_MAP
@@ -306,25 +307,19 @@ pub fn run_setup(client: &mut Client<ModModeData>) -> Result<(), Box<dyn Error>>
                 .collect::<Vec<i64>>();
             log::debug!("Gun checks: {:?}", gun_checks);
             locations_to_scout.extend(&gun_checks);
-            if AutoHint::All == mapping.auto_gun_hints {
-                locations_to_hint.extend(&gun_checks);
-            }
         }
-        if AutoHint::All == mapping.auto_skill_hints {
-            // locations_to_hint.extend(
-            //     generated_locations::ITEM_MISSION_MAP
-            //         .iter()
-            //         .filter(|(k, _)| k.contains("Purple Orb") || k.contains("Blue Orb"))
-            //         .map(|(k, _)| &client.this_game().location_by_name(*k).unwrap().id())
-            //         .collect::<Vec<i64>>())
-        }
+        // if AutoHint::All == mapping.auto_skill_hints {
+        //     // locations_to_hint.extend(
+        //     //     generated_locations::ITEM_MISSION_MAP
+        //     //         .iter()
+        //     //         .filter(|(k, _)| k.contains("Purple Orb") || k.contains("Blue Orb"))
+        //     //         .map(|(k, _)| &client.this_game().location_by_name(*k).unwrap().id())
+        //     //         .collect::<Vec<i64>>())
+        // }
         if !locations_to_scout.is_empty() {
             archipelago_utilities::run_scouts(
                 client.scout_locations(locations_to_scout, CreateAsHint::No),
             );
-        }
-        if !locations_to_hint.is_empty() {
-            client.create_hints(locations_to_hint)?;
         }
     }
     Ok(())
