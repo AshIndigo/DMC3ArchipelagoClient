@@ -1,10 +1,10 @@
 use crate::check_handler::{Location, LocationType};
-use crate::constants::{EventCode, ItemCategory, DUMMY_ID, EVENT_TABLES, ITEM_MAP, REMOTE_ID};
+use crate::constants::{DUMMY_ID, EVENT_TABLES, EventCode, ITEM_MAP, ItemCategory, REMOTE_ID};
 use crate::data::generated_locations;
 use crate::game_manager::get_mission;
-use crate::{constants, game_manager, mapping, utilities};
+use crate::{constants, game_manager, utilities};
 use anyhow::anyhow;
-use randomizer_utilities::archipelago_utilities::CHECKED_LOCATIONS;
+use randomizer_utilities::archipelago_utilities;
 use std::error::Error;
 
 /// If we are in a room with a key item+appropriate mission, return Ok(location_key)
@@ -25,28 +25,38 @@ pub fn in_key_item_room() -> Result<&'static str, Box<dyn Error>> {
 }
 
 pub fn get_location_name_by_data(location_data: &Location) -> Result<&'static str, Box<dyn Error>> {
-    if location_data.location_type != LocationType::Standard {
-        let mission_loc: Vec<_> = generated_locations::ITEM_MISSION_MAP
-            .iter()
-            .filter(|(key, _item_entry)| match location_data.location_type {
-                LocationType::Standard => unreachable!(),
-                LocationType::MissionComplete => {
-                    *(*key) == format!("Mission #{} Complete", location_data.mission).as_str()
-                }
-                LocationType::SSRank => {
-                    *(*key) == format!("Mission #{} SS Rank", location_data.mission).as_str()
-                }
-                LocationType::PurchaseItem => {
-                    *(*key)
-                        == match location_data.item_id {
-                            0x07 => format!("Blue Orb #{}", location_data.mission),
-                            0x08 => format!("Purple Orb #{}", location_data.mission),
-                            _ => unreachable!(),
-                        }
-                }
-            })
-            .collect();
-        return Ok(mission_loc[0].0);
+    if location_data.location_type != LocationType::Standard
+        && let Some(location) =
+            generated_locations::ITEM_MISSION_MAP
+                .iter()
+                .find(|(key, _item_entry)| match location_data.location_type {
+                    LocationType::Standard => unreachable!(),
+                    LocationType::MissionComplete => {
+                        *(*key) == format!("Mission #{} Complete", location_data.mission).as_str()
+                    }
+                    LocationType::SSRank => {
+                        *(*key) == format!("Mission #{} SS Rank", location_data.mission).as_str()
+                    }
+                    LocationType::PurchaseItem => {
+                        *(*key)
+                            == format!(
+                                "Purchase {}",
+                                match location_data.item_id {
+                                    0x07 => format!("Blue Orb #{}", location_data.mission),
+                                    0x08 => format!("Purple Orb #{}", location_data.mission),
+                                    0x1C =>
+                                        format!("Ebony & Ivory Level {}", location_data.mission),
+                                    0x1D => format!("Shotgun Level {}", location_data.mission),
+                                    0x1E => format!("Artemis Level {}", location_data.mission),
+                                    0x1F => format!("Spiral Level {}", location_data.mission),
+                                    0x21 => format!("Kalina Ann Level {}", location_data.mission),
+                                    _ => unreachable!(),
+                                }
+                            )
+                    }
+                })
+    {
+        return Ok(location.0);
     }
 
     let filtered_locs =
@@ -69,15 +79,27 @@ pub fn get_location_name_by_data(location_data: &Location) -> Result<&'static st
 }
 
 pub fn get_mapped_item_id(location_name: &str) -> Result<u32, Box<dyn Error>> {
-    let mapping_data = mapping::MAPPING.read()?;
-    let Some(mapping_data) = mapping_data.as_ref() else {
-        return Err(Box::from("No mapping data"));
+    let id = match archipelago_utilities::CACHED_LOCATIONS.read() {
+        Ok(cached_locations) => {
+            if let Some(located_item) = cached_locations.get(location_name) {
+                if located_item.sender() == located_item.receiver() {
+                    located_item.item().id() as u32
+                } else {
+                    *REMOTE_ID
+                }
+            } else {
+                log::error!(
+                    "Location wasn't scouted: {}, defaulting to Remote ID",
+                    location_name
+                );
+                *REMOTE_ID
+            }
+        }
+        Err(err) => {
+            log::error!("Unable to read scout cache: {}", err);
+            *REMOTE_ID
+        }
     };
-    let id = mapping_data
-        .items
-        .get(location_name)
-        .unwrap()
-        .get_in_game_id::<constants::DMC3Config>();
     // To set the displayed graphic to the corresponding weapon
     if id > 0x39 {
         return Ok(match id {
@@ -126,36 +148,6 @@ pub fn edit_end_event(location_key: &str) {
                     }
                 }
             }
-        }
-    }
-}
-
-/// If the location key corresponds to an END event and is checked off, return true, otherwise false
-/// Used for dummy related item
-pub(crate) fn location_is_checked_and_end(location_key: &str) -> bool {
-    match EVENT_TABLES.get(&get_mission()) {
-        None => false,
-        Some(event_tables) => {
-            for event_table in event_tables {
-                if event_table.location == location_key {
-                    for event in event_table.events.iter() {
-                        if event.event_type == EventCode::End {
-                            match CHECKED_LOCATIONS.read() {
-                                Ok(checked_locations) => {
-                                    if checked_locations.contains(&location_key) {
-                                        return true;
-                                    }
-                                }
-                                Err(err) => {
-                                    log::error!("Failed to get checked locations: {}", err);
-                                    return false;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            false
         }
     }
 }

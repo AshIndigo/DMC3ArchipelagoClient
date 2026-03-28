@@ -1,16 +1,17 @@
-use crate::mapping::MAPPING;
+use crate::archipelago::CONNECTED;
+use crate::game_manager::{ARCHIPELAGO_DATA, ArchipelagoData};
 use crate::utilities::DMC3_ADDRESS;
-use crate::{create_hook, utilities};
-use minhook::MinHook;
+use crate::{AP_CORE, archipelago, create_hook, utilities};
 use minhook::MH_STATUS;
+use minhook::MinHook;
+use randomizer_utilities::item_sync;
+use randomizer_utilities::item_sync::CURRENT_INDEX;
 use std::error::Error;
 use std::io::ErrorKind;
 use std::ptr::{write, write_unaligned};
 use std::sync::atomic::Ordering;
 use std::sync::{OnceLock, RwLock};
 use std::{fs, io};
-use randomizer_utilities::mapping_utilities::get_own_slot_name;
-use crate::connection_manager::CONNECTION_STATUS;
 
 /// Pointer to where save file is in memory
 const SAVE_FILE_PTR: usize = 0x5EAE78;
@@ -24,25 +25,17 @@ pub static ORIGINAL_LOAD_GAME: OnceLock<
 
 static SAVE_DATA: RwLock<Vec<u8>> = RwLock::new(vec![]);
 
-pub fn get_save_path() -> Result<String, io::Error> {
-    // Load up the mappings to get the seed
-    if let Some(mappings) = MAPPING.read().unwrap().as_ref() {
-        Ok(format!("archipelago/dmc3_{}.sav", &mappings.seed))
-    } else {
-        Err(io::Error::other("Mappings not available"))
-    }
-}
-
-pub fn get_new_save_path() -> Result<String, Box<dyn Error>> {
-    // Load up the mappings to get the seed
-    if let Some(mappings) = MAPPING.read()?.as_ref() {
+pub fn get_save_path() -> Result<String, Box<dyn Error>> {
+    if let Ok(core) = AP_CORE.get().unwrap().as_ref().lock()
+        && let Some(client) = core.connection.client()
+    {
         Ok(format!(
-            "archipelago/dmc3_{}_{}.sav",
-            &mappings.seed,
-            &get_own_slot_name()?
+            "{}{}",
+            randomizer_utilities::get_room_path(client)?,
+            "dmc3.sav"
         ))
     } else {
-        Err("Mappings not available".into())
+        Err("Connecting unavailable".into())
     }
 }
 
@@ -51,22 +44,34 @@ pub fn setup_save_hooks() -> Result<(), MH_STATUS> {
     unsafe {
         create_hook!(
             LOAD_GAME_ADDR,
-            new_load_game,
+            load_ap_save_file,
             ORIGINAL_LOAD_GAME,
             "Load game"
         );
         create_hook!(
             SAVE_GAME_ADDR,
-            new_save_game,
+            save_ap_save_file,
             ORIGINAL_SAVE_GAME,
             "Save game"
+        );
+        create_hook!(
+            SAVE_SESSION_DATA,
+            save_to_slot,
+            ORIGINAL_SAVE_SLOT,
+            "Save slot"
+        );
+        create_hook!(
+            LOAD_SESSION_DATA,
+            load_slot,
+            ORIGINAL_LOAD_SLOT,
+            "Load slot"
         );
     }
     Ok(())
 }
 
 /// Reimplementation of DMC3's save game method, but will save to a custom file instead
-fn new_save_game(param_1: i32) {
+fn save_ap_save_file(param_1: i32) {
     // param_1 has just been 0 so far
     log::debug!("Saving game (1) Param_1: {}", param_1);
     let base = *DMC3_ADDRESS;
@@ -79,7 +84,7 @@ fn new_save_game(param_1: i32) {
             let len = len_ptr.read(); // AFAIK This is a constant value, but may as well get it from the game just to be safe
             let data = std::slice::from_raw_parts(save_file, len as usize).to_vec();
 
-            fs::write(get_new_save_path().expect("Unable to get save path"), data)
+            fs::write(get_save_path().expect("Unable to get save path"), data)
                 .expect("Unable to save game");
             utilities::replace_single_byte_with_base_addr(0x5EAE81, 0x0);
         }
@@ -94,13 +99,13 @@ fn new_save_game(param_1: i32) {
 }
 
 /// Hook for the games load game method
-/// Triggers everytime the 10 save slots are displayed. Probably when the game is also first loaded to control Vergil access, but that shouldn't matter
-fn new_load_game(param_1: i64, param_2: i64, save_data_ptr: *mut usize, length: i32) -> i32 {
+/// Triggers everytime the 10 save slots are displayed. As well as when the game is first loaded
+fn load_ap_save_file(param_1: i64, param_2: i64, save_data_ptr: *mut usize, length: i32) -> i32 {
     // Returns 1 (loaded successfully?) or -1 (failed for whatever reason)
     log::debug!("Loading save slot selection screen!");
-    if CONNECTION_STATUS.load(Ordering::SeqCst) == 1 {
+    if CONNECTED.load(Ordering::SeqCst) {
         return match get_save_data() {
-            Ok(..) => {
+            Ok(_) => {
                 unsafe {
                     write(
                         (*DMC3_ADDRESS + SAVE_FILE_PTR) as *mut usize,
@@ -134,20 +139,76 @@ fn new_load_game(param_1: i64, param_2: i64, save_data_ptr: *mut usize, length: 
 
 /// Get the save data to store in the SAVE_DATA global
 fn get_save_data() -> Result<(), Box<dyn Error>> {
-    match fs::read(get_new_save_path()?) {
-        Ok(bytes) => {
-            *SAVE_DATA.write()? = bytes;
-            Ok(())
+    *SAVE_DATA.write()? = fs::read(get_save_path()?)?;
+    Ok(())
+}
+
+pub const LOAD_SESSION_DATA: usize = 0x3297E0;
+pub static ORIGINAL_LOAD_SLOT: OnceLock<unsafe extern "C" fn(usize, i32)> = OnceLock::new();
+fn load_slot(param_1: usize, save_index: i32) {
+    if let Some(orig) = ORIGINAL_LOAD_SLOT.get() {
+        unsafe {
+            orig(param_1, save_index);
         }
-        Err(err) => match err.kind() {
-            ErrorKind::NotFound => match fs::read(get_save_path()?) {
-                Ok(bytes) => {
-                    *SAVE_DATA.write()? = bytes;
-                    Ok(())
+    }
+    log::debug!("Loading from slot: {}", save_index);
+    match AP_CORE.get().unwrap().lock() {
+        Ok(mut core) => {
+            let client = core.connection.client_mut().unwrap();
+            match item_sync::read_save_data() {
+                Ok(sync_data) => {
+                    CURRENT_INDEX
+                        .store(sync_data.sync_index[save_index as usize], Ordering::SeqCst);
+                    *ARCHIPELAGO_DATA.write().unwrap() = ArchipelagoData::default();
+                    if let Err(e) = archipelago::handle_received_items_packet(
+                        sync_data.sync_index[save_index as usize] as usize,
+                        client,
+                    ) {
+                        log::error!("Failed to handle received items: {:?}", e);
+                    }
                 }
-                Err(err) => Err(Box::new(err)),
-            },
-            _ => Err(Box::new(err)),
-        },
+
+                Err(err) => {
+                    log::error!("Error getting sync data: {}", err);
+                }
+            }
+        }
+        Err(err) => {
+            log::error!("Error locking core while writing sync data: {}", err);
+        }
+    }
+}
+
+pub const SAVE_SESSION_DATA: usize = 0x32B080;
+pub static ORIGINAL_SAVE_SLOT: OnceLock<unsafe extern "C" fn(usize, i32)> = OnceLock::new();
+fn save_to_slot(param_1: usize, save_index: i32) {
+    if let Some(orig) = ORIGINAL_SAVE_SLOT.get() {
+        unsafe {
+            orig(param_1, save_index);
+        }
+    }
+    log::debug!("Saving to slot {}", save_index);
+    match AP_CORE.get().unwrap().lock() {
+        Ok(core) => {
+            let client = core.connection.client().unwrap();
+            match item_sync::read_save_data() {
+                Ok(mut sync_data) => {
+                    sync_data.sync_index[save_index as usize] =
+                        CURRENT_INDEX.load(Ordering::SeqCst);
+                    sync_data.offline_checks = item_sync::OFFLINE_CHECKS.lock().unwrap().clone();
+
+                    item_sync::OFFLINE_CHECKS.lock().unwrap().clear();
+                    if let Err(e) = item_sync::write_sync_data_file(sync_data, client) {
+                        log::error!("Error writing sync data: {}", e);
+                    }
+                }
+                Err(err) => {
+                    log::error!("Error getting sync data: {}", err);
+                }
+            }
+        }
+        Err(err) => {
+            log::error!("Error locking core while writing sync data: {}", err);
+        }
     }
 }

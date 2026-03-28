@@ -1,6 +1,6 @@
-use std::sync::LazyLock;
-use std::{slice};
 pub(crate) use randomizer_utilities::{get_base_address, read_data_from_address};
+use std::slice;
+use std::sync::LazyLock;
 
 /// The base address for DMC3
 pub static DMC3_ADDRESS: LazyLock<usize> = LazyLock::new(|| get_base_address("dmc3.exe"));
@@ -51,4 +51,3 @@ pub fn _is_addon_mod_loaded() -> bool {
 pub unsafe fn replace_single_byte_with_base_addr(offset: usize, new_value: u8) {
     unsafe { randomizer_utilities::replace_single_byte(offset + *DMC3_ADDRESS, new_value) }
 }
-

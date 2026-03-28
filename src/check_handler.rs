@@ -1,17 +1,17 @@
-use crate::constants::{Coordinates, Difficulty, Rank, EMPTY_COORDINATES};
+use crate::constants::{Coordinates, Difficulty, EMPTY_COORDINATES, Rank};
 use crate::data::generated_locations;
-use crate::game_manager::{get_mission, set_item, with_session_read};
+use crate::game_manager::{ARCHIPELAGO_DATA, get_mission, set_item, with_session_read};
 use crate::mapping::MAPPING;
 use crate::ui::text_handler;
-use crate::utilities::{get_inv_address, DMC3_ADDRESS};
+use crate::utilities::{DMC3_ADDRESS, get_inv_address};
 use crate::{constants, create_hook, game_manager, location_handler};
-use minhook::{MinHook, MH_STATUS};
+use minhook::{MH_STATUS, MinHook};
+use randomizer_utilities::read_data_from_address;
 use std::cmp::PartialEq;
 use std::fmt::{Display, Formatter};
-use std::sync::atomic::Ordering::SeqCst;
 use std::sync::OnceLock;
-use tokio::sync::mpsc::Sender;
-use randomizer_utilities::read_data_from_address;
+use std::sync::atomic::Ordering::SeqCst;
+use std::sync::mpsc::Sender;
 
 pub const ITEM_HANDLE_PICKUP_ADDR: usize = 0x1b45a0;
 pub static ORIGINAL_HANDLE_PICKUP: OnceLock<unsafe extern "C" fn(item_struct: usize)> =
@@ -107,7 +107,7 @@ pub fn item_non_event(item_struct: usize) {
                     Ok(location_name) => {
                         send_off_location_coords(
                             loc,
-                            location_handler::get_mapped_item_id(location_name).unwrap(), //location_handler::get_item_at_location(&loc).unwrap(),
+                            location_handler::get_mapped_item_id(location_name).unwrap(),
                         );
                     }
                     Err(err) => {
@@ -232,8 +232,9 @@ pub fn mission_complete_check(cuid_result: usize, ranking: i32) -> i32 {
         if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
             // For SS Rank specific checks
 
-            if rank == Rank::SS && !mapping.check_ss_difficulty
-                || (mapping.check_ss_difficulty && difficulty >= mapping.mission_clear_difficulty)
+            if mapping.enabled_ss_rank
+                && rank == Rank::SS
+                && (difficulty >= mapping.mission_clear_difficulty || !mapping.check_ss_difficulty)
             {
                 send_off_location_coords(
                     Location {
@@ -279,7 +280,7 @@ pub fn purchase_item_check(ptr: usize) {
     }
 
     if let Some(mapping) = MAPPING.read().unwrap().as_ref()
-        && mapping.shop_checks
+        && mapping.shop_orb_checks
     {
         // Figure out the index of the item we just bought from the store.
         // 0xC8F263 is to check whether we are on gold or yellow
@@ -306,13 +307,16 @@ pub fn purchase_item_check(ptr: usize) {
             );
             log::debug!("Item {} Bought {}", bought_item_id, amt);
             // Now that we know what was bought and how many times. We need to send this off to AP
-            send_off_location_coords(Location {
-                location_type: LocationType::PurchaseItem,
-                item_id: bought_item_id as u32,
-                mission: amt as u32,
-                room: 0,
-                coordinates: EMPTY_COORDINATES
-            }, u32::MAX);
+            send_off_location_coords(
+                Location {
+                    location_type: LocationType::PurchaseItem,
+                    item_id: bought_item_id as u32,
+                    mission: amt as u32,
+                    room: 0,
+                    coordinates: EMPTY_COORDINATES,
+                },
+                u32::MAX,
+            );
         }
     }
 }
@@ -324,7 +328,7 @@ pub(crate) enum LocationType {
     Standard,
     MissionComplete,
     SSRank,
-    PurchaseItem
+    PurchaseItem,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -357,14 +361,12 @@ pub(crate) fn clear_high_roller() {
     set_item("Dummy", false, true);
 }
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 1)]
-async fn send_off_location_coords(loc: Location, to_display: u32) {
+pub(crate) fn send_off_location_coords(loc: Location, to_display: u32) {
     if let Some(tx) = TX_LOCATION.get() {
-        tx.send(loc).await.expect("Failed to send Location!");
+        tx.send(loc).expect("Failed to send Location!");
         if to_display != u32::MAX {
             clear_high_roller();
             text_handler::LAST_OBTAINED_ID.store(to_display as u8, SeqCst);
-            //take_away_received_item(loc.item_id);
         }
     }
 }
@@ -378,9 +380,24 @@ pub(crate) fn take_away_received_item(id: u32) {
         unsafe {
             randomizer_utilities::replace_single_byte(
                 current_inv_addr + offset as usize,
-                read_data_from_address::<u8>(current_inv_addr + offset as usize)
-                    .saturating_sub(1),
+                read_data_from_address::<u8>(current_inv_addr + offset as usize).saturating_sub(1),
             );
         }
     }
+}
+
+pub(crate) fn should_snatch_item(id: u32) -> bool {
+    // Haywire Neo Generator Case
+    // If we are attempting to take it away, but the item is in the AP Data, don't actually take it
+    if id == 0x32
+        && ARCHIPELAGO_DATA
+            .read()
+            .unwrap()
+            .items
+            .contains("Haywire Neo Generator")
+    {
+        return false;
+    }
+    // Otherwise just take it
+    true
 }

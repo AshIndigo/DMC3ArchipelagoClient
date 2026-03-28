@@ -1,78 +1,20 @@
-use crate::connection_manager::CONNECTION_STATUS;
-use crate::mapping::MAPPING;
-use crate::ui::font_handler::{get_default_color, FontAtlas, FontColorCB, GREEN, RED, WHITE};
-use crate::ui::{dx11_hooks, font_handler};
-use crate::utilities;
-use archipelago_rs::protocol::NetworkItemFlags;
-use randomizer_utilities::ui_utilities::Status;
+use crate::archipelago::CONNECTED;
+use crate::utilities::is_crimson_loaded;
+use crate::{mapping, utilities};
+use archipelago_rs::LocatedItem;
+use randomizer_utilities::dmc::loader_parser::LOADER_STATUS;
+use randomizer_utilities::ui::dx11::{ORIGINAL_PRESENT, ORIGINAL_RESIZE_BUFFERS};
+use randomizer_utilities::ui::font_handler::{BLACK, FontAtlas, FontColorCB, GREEN, RED, WHITE};
+use randomizer_utilities::ui::overlay::{D3D11State, STATE};
+use randomizer_utilities::ui::{font_handler, overlay};
 use std::collections::VecDeque;
-use std::slice::from_raw_parts;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{LazyLock, Mutex, OnceLock, RwLock, RwLockReadGuard};
+use std::sync::{LazyLock, Mutex, RwLockReadGuard};
 use std::time::{Duration, Instant};
-use windows::core::PCSTR;
-use windows::Win32::Foundation::RECT;
-use windows::Win32::Graphics::Direct3D::Fxc::D3DCompile;
-use windows::Win32::Graphics::Direct3D::ID3DBlob;
+use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
 use windows::Win32::Graphics::Direct3D11::*;
-use windows::Win32::Graphics::Direct3D11::{ID3D11Device, ID3D11Texture2D};
-use windows::Win32::Graphics::Dxgi::Common::{
-    DXGI_FORMAT_R32G32B32_FLOAT, DXGI_FORMAT_R32G32_FLOAT,
-};
 use windows::Win32::Graphics::Dxgi::*;
-use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
-
-pub(crate) struct D3D11State {
-    device: ID3D11Device,
-    pub(crate) context: ID3D11DeviceContext,
-    pub(crate) atlas: Option<FontAtlas>,
-    pub(crate) input_layout: ID3D11InputLayout,
-    pub(crate) vertex_buffer: ID3D11Buffer,
-    pub(crate) rtv: Option<ID3D11RenderTargetView>,
-}
-
-static STATE: OnceLock<RwLock<D3D11State>> = OnceLock::new();
-
-pub(crate) static SHADERS: LazyLock<(ID3DBlob, ID3DBlob)> = LazyLock::new(|| {
-    let mut vs_blob: Option<ID3DBlob> = None;
-    let mut ps_blob: Option<ID3DBlob> = None;
-    let mut err_blob: Option<ID3DBlob> = None;
-
-    let vs_bytes = include_bytes!(".././data/text_vs.hlsl");
-    let ps_bytes = include_bytes!(".././data/text_ps.hlsl");
-
-    unsafe {
-        D3DCompile(
-            vs_bytes.as_ptr() as *const _,
-            vs_bytes.len(),
-            None,
-            None,
-            None,
-            PCSTR::from_raw(c"main".as_ptr() as *const u8),
-            PCSTR::from_raw(c"vs_5_0".as_ptr() as *const u8),
-            0,
-            0,
-            &mut vs_blob,
-            Some(&mut err_blob),
-        )
-        .expect("Couldn't compile VS");
-        D3DCompile(
-            ps_bytes.as_ptr() as *const _,
-            ps_bytes.len(),
-            None,
-            None,
-            None,
-            PCSTR::from_raw(c"main".as_ptr() as *const u8),
-            PCSTR::from_raw(c"ps_5_0".as_ptr() as *const u8),
-            0,
-            0,
-            &mut ps_blob,
-            Some(&mut err_blob),
-        )
-        .expect("Couldn't compile PS");
-    }
-    (ps_blob.unwrap(), vs_blob.unwrap())
-});
+use windows::core::Interface;
 
 static MESSAGE_QUEUE: LazyLock<Mutex<VecDeque<OverlayMessage>>> =
     LazyLock::new(|| Mutex::new(VecDeque::new()));
@@ -93,9 +35,9 @@ impl MessageSegment {
 pub struct OverlayMessage {
     segments: Vec<MessageSegment>,
     duration: Duration,
-    x: f32,
-    y: f32,
-    msg_type: MessageType,
+    _x: f32,
+    _y: f32,
+    _msg_type: MessageType,
 }
 
 impl OverlayMessage {
@@ -109,16 +51,20 @@ impl OverlayMessage {
         OverlayMessage {
             segments,
             duration,
-            x,
-            y,
-            msg_type,
+            _x: x,
+            _y: y,
+            _msg_type: msg_type,
         }
     }
 }
 // TODO This doesn't matter right now, but it could be used later
 pub(crate) enum MessageType {
-    Default,      // Take the X and Y values as they are given
+    _Default,     // Take the X and Y values as they are given
     Notification, // Disregard coordinates, automatically align to upper right (Used for newly received items+DL)
+}
+
+pub fn get_default_color() -> &'static FontColorCB {
+    if is_crimson_loaded() { &WHITE } else { &BLACK }
 }
 
 pub(crate) fn add_message(overlay: OverlayMessage) {
@@ -132,121 +78,6 @@ pub(crate) fn add_message(overlay: OverlayMessage) {
     }
 }
 
-fn get_rtv_atlas(
-    device: &ID3D11Device,
-    swap_chain: &IDXGISwapChain,
-) -> (ID3D11RenderTargetView, FontAtlas) {
-    let atlas = {
-        const FONT_SIZE: f32 = 36.0;
-        const ROW_WIDTH: u32 = 256;
-        let chars: Vec<char> = (0u8..=127).map(|c| c as char).collect();
-        font_handler::create_rgba_font_atlas(device, &chars, FONT_SIZE, ROW_WIDTH).unwrap()
-    };
-
-    let rtv = {
-        let mut rtv = None;
-        if let Err(e) = unsafe {
-            device.CreateRenderTargetView(
-                &swap_chain.GetBuffer::<ID3D11Texture2D>(0).unwrap(),
-                None,
-                Some(&mut rtv),
-            )
-        } {
-            log::error!("Failed to create RTV: {:?}", e);
-        }
-        rtv.unwrap()
-    };
-    (rtv, atlas)
-}
-
-fn get_resources(swap_chain: &IDXGISwapChain) -> &RwLock<D3D11State> {
-    let state = STATE.get_or_init(|| {
-        let device: ID3D11Device = unsafe { swap_chain.GetDevice() }.unwrap();
-        let vertex_buffer = {
-            const VERTEX_BUFFER_DESC: D3D11_BUFFER_DESC = D3D11_BUFFER_DESC {
-                ByteWidth: (size_of::<font_handler::Vertex>() * 4 * 256) as u32,
-                Usage: D3D11_USAGE_DYNAMIC,
-                BindFlags: D3D11_BIND_VERTEX_BUFFER.0 as u32,
-                CPUAccessFlags: D3D11_CPU_ACCESS_WRITE.0 as u32,
-                MiscFlags: 0,
-                StructureByteStride: 0,
-            };
-
-            let mut vertex_buffer = None;
-            if let Err(e) =
-                unsafe { device.CreateBuffer(&VERTEX_BUFFER_DESC, None, Some(&mut vertex_buffer)) }
-            {
-                log::error!("Failed to create RTV: {:?}", e);
-            }
-            vertex_buffer.unwrap()
-        };
-        let input_layout = {
-            const INPUT_ELEMENT_DESCS: [D3D11_INPUT_ELEMENT_DESC; 2] = [
-                D3D11_INPUT_ELEMENT_DESC {
-                    SemanticName: PCSTR::from_raw(c"POSITION".as_ptr() as *const _),
-                    SemanticIndex: 0,
-                    Format: DXGI_FORMAT_R32G32B32_FLOAT,
-                    InputSlot: 0,
-                    AlignedByteOffset: 0,
-                    InputSlotClass: D3D11_INPUT_PER_VERTEX_DATA,
-                    InstanceDataStepRate: 0,
-                },
-                D3D11_INPUT_ELEMENT_DESC {
-                    SemanticName: PCSTR::from_raw(c"TEXCOORD".as_ptr() as *const _),
-                    SemanticIndex: 0,
-                    Format: DXGI_FORMAT_R32G32_FLOAT,
-                    InputSlot: 0,
-                    AlignedByteOffset: 12, // after the float3 position
-                    InputSlotClass: D3D11_INPUT_PER_VERTEX_DATA,
-                    InstanceDataStepRate: 0,
-                },
-            ];
-            let (_, vsb) = &*SHADERS;
-            let mut input_thingy = None;
-            unsafe {
-                device
-                    .CreateInputLayout(
-                        &INPUT_ELEMENT_DESCS,
-                        from_raw_parts(vsb.GetBufferPointer() as *const u8, vsb.GetBufferSize()),
-                        Some(&mut input_thingy),
-                    )
-                    .unwrap();
-            }
-            input_thingy.unwrap()
-        };
-        let (rtv, atlas) = get_rtv_atlas(&device, swap_chain);
-        RwLock::new(D3D11State {
-            device,
-            context: unsafe {
-                swap_chain
-                    .GetDevice::<ID3D11Device>()
-                    .unwrap()
-                    .GetImmediateContext()
-            }
-            .unwrap(),
-            atlas: Some(atlas),
-            input_layout,
-            vertex_buffer,
-            rtv: Some(rtv),
-        })
-    });
-    match state.write() {
-        Ok(mut state) => {
-            let (rtv, atlas) = get_rtv_atlas(&state.device, swap_chain);
-            if state.rtv.is_none() {
-                state.rtv = Some(rtv);
-            }
-            if state.atlas.is_none() {
-                state.atlas = Some(atlas);
-            }
-        }
-        Err(err) => {
-            log::error!("PoisonError upon trying to write {:?}", err);
-        }
-    }
-    state
-}
-
 pub(crate) unsafe extern "system" fn resize_hook(
     swap_chain: *mut IDXGISwapChain,
     buffer_count: u32,
@@ -256,7 +87,7 @@ pub(crate) unsafe extern "system" fn resize_hook(
     swap_chain_flags: DXGI_SWAP_CHAIN_FLAG,
 ) {
     unsafe {
-        dx11_hooks::ORIGINAL_RESIZE_BUFFERS.get().unwrap()(
+        ORIGINAL_RESIZE_BUFFERS.get().unwrap()(
             swap_chain,
             buffer_count,
             width,
@@ -280,21 +111,28 @@ pub(crate) unsafe extern "system" fn resize_hook(
 
 pub(crate) static CANT_PURCHASE: AtomicBool = AtomicBool::new(false);
 
+unsafe fn update_screen_size(swap_chain: &IDXGISwapChain) -> (f32, f32) {
+    let back_buffer: ID3D11Texture2D = {
+        let ptr: ID3D11Texture2D =
+            unsafe { swap_chain.GetBuffer(0) }.expect("Failed to get back buffer");
+        ptr.cast().unwrap()
+    };
+
+    let mut desc = D3D11_TEXTURE2D_DESC::default();
+    unsafe {
+        back_buffer.GetDesc(&mut desc);
+    }
+
+    (desc.Width as f32, desc.Height as f32)
+}
+
 pub(crate) unsafe extern "system" fn present_hook(
     orig_swap_chain: IDXGISwapChain,
     sync_interval: u32,
     flags: u32,
 ) -> i32 {
-    let (screen_width, screen_height) = {
-        let mut rect = RECT::default();
-        unsafe { GetClientRect(orig_swap_chain.GetDesc().unwrap().OutputWindow, &mut rect) }
-            .expect("Failed to get ClientRect");
-        (
-            (rect.right - rect.left) as f32,
-            (rect.bottom - rect.top) as f32,
-        )
-    };
-    let state = get_resources(&orig_swap_chain);
+    let (screen_width, screen_height) = unsafe { update_screen_size(&orig_swap_chain) };
+    let state = overlay::get_resources(&orig_swap_chain);
     match state.read() {
         Ok(state) => {
             unsafe {
@@ -324,29 +162,37 @@ pub(crate) unsafe extern "system" fn present_hook(
                     screen_height,
                     get_default_color(),
                 );
-                let status =
-                    Status::from_repr(CONNECTION_STATUS.load(Ordering::SeqCst) as usize).unwrap();
+                let connected = CONNECTED.load(Ordering::SeqCst);
                 font_handler::draw_string(
                     &state,
-                    &format!("{}", status),
+                    if connected {
+                        "Connected"
+                    } else {
+                        "Disconnected"
+                    },
                     STATUS.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>(),
                     0.0,
                     screen_width,
                     screen_height,
-                    &match status {
-                        Status::Connected => GREEN,
-                        _ => RED,
-                    },
+                    &if connected { GREEN } else { RED },
                 );
-                draw_version_info(&state, screen_width, screen_height);
+                draw_version_info(&state, screen_width, screen_height, atlas);
             }
-            if CANT_PURCHASE.load(Ordering::SeqCst) && let Some(atlas) = &state.atlas {
+            if CANT_PURCHASE.load(Ordering::SeqCst)
+                && let Some(atlas) = &state.atlas
+            {
+                // TODO Modify this text
                 const NO_PURCHASE: &str = "Cannot purchase upgrades";
                 const NO_PURCHASE_L2: &str = "due to world settings";
                 font_handler::draw_string(
                     &state,
                     NO_PURCHASE,
-                    480.0+(NO_PURCHASE.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>()/2.0),
+                    480.0
+                        + (NO_PURCHASE
+                            .chars()
+                            .map(|c| atlas.glyph_advance(c))
+                            .sum::<f32>()
+                            / 2.0),
                     70.0,
                     screen_width,
                     screen_height,
@@ -355,7 +201,12 @@ pub(crate) unsafe extern "system" fn present_hook(
                 font_handler::draw_string(
                     &state,
                     NO_PURCHASE_L2,
-                    480.0+(NO_PURCHASE.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>()/2.0),
+                    480.0
+                        + (NO_PURCHASE
+                            .chars()
+                            .map(|c| atlas.glyph_advance(c))
+                            .sum::<f32>()
+                            / 2.0),
                     106.0,
                     screen_width,
                     screen_height,
@@ -386,40 +237,53 @@ pub(crate) unsafe extern "system" fn present_hook(
         }
     }
 
-    unsafe { dx11_hooks::ORIGINAL_PRESENT.get().unwrap()(orig_swap_chain, sync_interval, flags) }
+    unsafe { ORIGINAL_PRESENT.get().unwrap()(orig_swap_chain, sync_interval, flags) }
 }
 
 fn draw_version_info(
     state: &RwLockReadGuard<D3D11State>,
     screen_width: f32,
     screen_height: f32,
+    atlas: &FontAtlas,
 ) {
     const MOD_VERSION: &str = "Mod Version:";
     const AP_VERSION: &str = "AP Client Version:";
     const ROOM_VERSION: &str = "Room Version:";
+    const MODE: &str = "Mode:";
+    const GAME_VERSION: &str = "Game Version:";
+    const ADDITIONAL_MODS: &str = "Additional Mods:";
     // TODO Maybe at some point I'd want to have the mod poke github on launch?
     font_handler::draw_string(
         state,
         &format!("{} {}", MOD_VERSION, env!("CARGO_PKG_VERSION")),
         0.0,
         //VERSION.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>(),
-        50.0,
+        100.0,
         screen_width,
         screen_height,
         get_default_color(),
     );
 
-    if (CONNECTION_STATUS.load(Ordering::SeqCst)
-        == <Status as Into<isize>>::into(Status::Connected))
-        && let Some(mapping) = MAPPING.read().unwrap().as_ref()
+    if CONNECTED.load(Ordering::SeqCst)
+        && let Ok(mapping) = mapping::OVERLAY_INFO.read()
     {
+        font_handler::draw_string(
+            state,
+            &format!("{} {}", MODE, mapping.mode),
+            0.0,
+            //VERSION.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>(),
+            50.0,
+            screen_width,
+            screen_height,
+            get_default_color(),
+        );
         if let Some(cv) = &mapping.client_version {
             font_handler::draw_string(
                 state,
                 &format!("{} {}", AP_VERSION, cv),
                 0.0,
                 //VERSION.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>(),
-                100.0,
+                150.0,
                 screen_width,
                 screen_height,
                 get_default_color(),
@@ -431,10 +295,58 @@ fn draw_version_info(
                 &format!("{} {}", ROOM_VERSION, gv),
                 0.0,
                 //VERSION.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>(),
-                150.0,
+                200.0,
                 screen_width,
                 screen_height,
                 get_default_color(),
+            );
+        }
+    }
+    if let Some(status) = LOADER_STATUS.get() {
+        font_handler::draw_string(
+            state,
+            GAME_VERSION,
+            0.0,
+            250.0,
+            screen_width,
+            screen_height,
+            &WHITE,
+        );
+        font_handler::draw_string(
+            state,
+            &format!(" {}", status.game_information.description),
+            GAME_VERSION
+                .chars()
+                .map(|c| atlas.glyph_advance(c))
+                .sum::<f32>(),
+            250.0,
+            screen_width,
+            screen_height,
+            if status.game_information.valid_for_use {
+                &GREEN
+            } else {
+                &RED
+            },
+        );
+        font_handler::draw_string(
+            state,
+            ADDITIONAL_MODS,
+            0.0,
+            300.0,
+            screen_width,
+            screen_height,
+            &WHITE,
+        );
+        for (i, mod_info) in status.mod_information.iter().enumerate() {
+            let base = 350;
+            font_handler::draw_string(
+                state,
+                mod_info.description,
+                0.0,
+                (base + (i * 50)) as f32,
+                screen_width,
+                screen_height,
+                if mod_info.valid_for_use { &GREEN } else { &RED },
             );
         }
     }
@@ -517,19 +429,16 @@ fn pop_buffer_message() {
     }
 }
 
-pub(crate) fn get_color_for_item(flags: &NetworkItemFlags) -> FontColorCB {
+pub(crate) fn get_color_for_item(item: &LocatedItem) -> FontColorCB {
     const CYAN: FontColorCB = FontColorCB::new(0.0, 0.933, 0.933, 1.0);
     const PLUM: FontColorCB = FontColorCB::new(0.686, 0.6, 0.937, 1.0);
     const STATE_BLUE: FontColorCB = FontColorCB::new(0.427, 0.545, 0.91, 1.0);
     const SALMON: FontColorCB = FontColorCB::new(0.98, 0.502, 0.447, 1.0);
-    match flags.bits() {
-        0b000 => CYAN,       // Cyan for regular/filler
-        0b001 => PLUM,       // Plum for progression
-        0b010 => STATE_BLUE, // 'Stateblue' for useful
-        0b100 => SALMON,     // Salmon for trap
-        0b101 => PLUM,       // Plum for progression
-        0b110 => STATE_BLUE, // 'Stateblue' for useful
-        0b011 => PLUM,       // Plum-gression (could be gold if I wanted to do proguseful)
-        _ => WHITE,
+
+    match (item.is_trap(), item.is_useful(), item.is_progression()) {
+        (true, _, _) => SALMON,
+        (false, _, true) => PLUM,
+        (false, true, false) => STATE_BLUE,
+        (false, false, false) => CYAN,
     }
 }

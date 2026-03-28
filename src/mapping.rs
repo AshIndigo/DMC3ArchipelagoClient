@@ -1,17 +1,64 @@
+use crate::constants::{Difficulty, Rank};
 use crate::data::generated_locations;
-use crate::hook::modify_item_table;
-use crate::{constants, location_handler};
+use archipelago_rs::{Client, CreateAsHint, Location};
+use randomizer_utilities::{APVersion, archipelago_utilities};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-
-use crate::constants::{Difficulty, Rank};
-use randomizer_utilities::archipelago_utilities::CONNECTED;
-use randomizer_utilities::mapping_utilities::LocationData;
-use randomizer_utilities::APVersion;
+use std::fmt::{Display, Formatter};
 use std::sync::{LazyLock, RwLock};
-
 pub static MAPPING: LazyLock<RwLock<Option<Mapping>>> = LazyLock::new(|| RwLock::new(None));
+
+pub static OVERLAY_INFO: LazyLock<RwLock<OverlayInfo>> =
+    LazyLock::new(|| RwLock::new(OverlayInfo::default()));
+
+#[derive(Debug, Default)]
+pub struct OverlayInfo {
+    pub mode: ModMode,
+    pub client_version: Option<APVersion>,
+    pub generated_version: Option<APVersion>,
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub enum ModMode {
+    Normal,
+    HintGame,
+    #[default]
+    Unknown,
+}
+
+impl Display for ModMode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                ModMode::Normal => {
+                    "Randomizer"
+                }
+                ModMode::HintGame => {
+                    "Hint Game"
+                }
+                ModMode::Unknown => {
+                    "Unknown"
+                }
+            }
+        )
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum ModModeData {
+    HintGame(HintGame),
+    Normal(Mapping),
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HintGame {
+    pub floors_per_hint: u16,
+    pub client_version: Option<APVersion>,
+}
 
 fn default_goal() -> Goal {
     Goal::Standard
@@ -109,11 +156,50 @@ where
     }
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+fn parse_hint<'de, D>(deserializer: D) -> Result<AutoHint, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let val = Value::deserialize(deserializer)?;
+    match val {
+        Value::Number(n) => match AutoHint::from_repr(n.as_i64().unwrap_or_default() as usize) {
+            None => Err(serde::de::Error::custom(format!(
+                "Invalid autohint option: {}",
+                n
+            ))),
+            Some(n) => Ok(n),
+        },
+        other => Err(serde::de::Error::custom(format!(
+            "Unexpected type: {:?}",
+            other
+        ))),
+    }
+}
+
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    Deserialize,
+    Serialize,
+    PartialEq,
+    PartialOrd,
+    strum_macros::Display,
+    strum_macros::FromRepr,
+)]
+pub enum AutoHint {
+    All,
+    Current,
+    /// Only Relevant for weapons/guns
+    Obtained,
+    #[default]
+    None,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Mapping {
     // For mapping JSON
-    pub seed: String,
-    pub items: HashMap<String, LocationData>,
     pub starter_items: Vec<String>,
     pub adjudicators: Option<HashMap<String, AdjudicatorData>>,
     pub start_melee: u8,
@@ -125,8 +211,21 @@ pub struct Mapping {
     pub randomize_styles: bool,
     pub purple_orb_mode: bool,
     pub devil_trigger_mode: bool,
+    pub enabled_ss_rank: bool,
     pub check_ss_difficulty: bool,
-    pub shop_checks: bool,
+    pub shop_orb_checks: bool,
+    #[serde(default)]
+    pub shop_gun_checks: bool,
+    #[serde(default)]
+    pub shop_skill_checks: bool,
+    #[serde(deserialize_with = "parse_hint")]
+    pub auto_orb_hints: AutoHint,
+    #[serde(default)]
+    #[serde(deserialize_with = "parse_hint")]
+    pub auto_gun_hints: AutoHint,
+    #[serde(default)]
+    #[serde(deserialize_with = "parse_hint")]
+    pub auto_skill_hints: AutoHint,
     #[serde(deserialize_with = "parse_death_link")]
     pub death_link: DeathlinkSetting,
     #[serde(default = "default_goal")]
@@ -161,7 +260,7 @@ impl Mapping {
     }
 }
 
-#[derive(Deserialize, Serialize, Debug, PartialEq, strum_macros::Display)]
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, strum_macros::Display)]
 pub enum Goal {
     /// Beat M20 in linear order M1-M20 (Default)
     Standard,
@@ -171,77 +270,60 @@ pub enum Goal {
     RandomOrder,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub enum DeathlinkSetting {
     DeathLink, // Normal DeathLink Behavior
     HurtLink,  // Sends out DeathLink messages when you die. But only hurts you if you receive one
     Off,       // Don't send/receive DL related messages
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct AdjudicatorData {
     pub weapon: String,
     pub ranking: u8,
 }
 
-pub fn use_mappings() -> Result<(), Box<dyn std::error::Error>> {
-    let guard = MAPPING.read()?; // Annoying
-    let mapping = guard.as_ref().ok_or("No mappings found, cannot use")?;
-    // Run through each mapping entry
-    for (location_name, _location_data) in mapping.items.iter() {
-        // Acquire the default location data for a specific location
-        match generated_locations::ITEM_MISSION_MAP.get(location_name as &str) {
-            Some(entry) => {
-                // With the offset acquired, before the necessary replacement
-                if location_handler::location_is_checked_and_end(location_name) {
-                    // If the item procs an end mission event, replace with a dummy ID in order to not immediately trigger a mission end
-                    modify_item_table(entry.offset, *constants::DUMMY_ID as u8)
+pub fn run_scouts_for_mission(client: &mut Client<ModModeData>, mission: u32, hint: CreateAsHint) {
+    archipelago_utilities::run_scouts(
+        client.scout_locations(get_locations_by_mission(client, mission), hint),
+    );
+}
+
+pub fn get_locations_by_mission(client: &Client<ModModeData>, mission: u32) -> Vec<Location> {
+    let current_game = client.this_game();
+    generated_locations::ITEM_MISSION_MAP
+        .iter()
+        .filter(|(_k, v)| v.mission == mission)
+        .filter(|(k, _v)| {
+            if let ModModeData::Normal(data) = client.slot_data() {
+                // If it's SS Rank, check if SS Ranks are allowed
+                if k.contains("SS Rank") {
+                    data.enabled_ss_rank
+                } else {
+                    true
                 }
-            }
-            None => {
-                log::warn!("Location not found: {}", location_name);
-            }
-        }
-    }
-    Ok(())
-}
-
-pub(crate) fn parse_slot_data() -> Result<(), Box<dyn std::error::Error>> {
-    match CONNECTED.read() {
-        Ok(conn_opt) => {
-            if let Some(connected) = conn_opt.as_ref() {
-                let mapping: Mapping =
-                    serde_path_to_error::deserialize(connected.slot_data.clone())?;
-                log::debug!("Mod version: {}", env!("CARGO_PKG_VERSION"));
-                log::debug!(
-                    "Client version: {}",
-                    if let Some(cv) = mapping.client_version {
-                        cv.to_string()
-                    } else {
-                        "Unknown".to_string()
-                    }
-                );
-                log::debug!(
-                    "Generated version: {}",
-                    if let Some(gv) = mapping.generated_version {
-                        gv.to_string()
-                    } else {
-                        "Unknown".to_string()
-                    }
-                );
-                MAPPING.write()?.replace(mapping);
-                Ok(())
             } else {
-                Err("No mapping found, cannot parse".into())
+                true
             }
-        }
-        Err(err) => Err(err.into()),
-    }
+        })
+        .filter_map(|(k, _v)| current_game.location_by_name(*k))
+        .collect()
 }
 
-pub static CACHED_LOCATIONS: LazyLock<RwLock<HashMap<String, LocationData>>> = LazyLock::new(|| RwLock::new(HashMap::new()));
+pub fn get_secret_missions(client: &Client<ModModeData>) -> Vec<Location> {
+    let current_game = client.this_game();
+    generated_locations::ITEM_MISSION_MAP
+        .iter()
+        .filter(|(k, _v)| k.contains("Secret Mission"))
+        .filter_map(|(k, _v)| current_game.location_by_name(*k))
+        .collect()
+}
 
-pub fn run_initial_scouts() {
-    // Run scouts for shop checks
-    
+pub fn get_adjudicators(client: &Client<ModModeData>) -> Vec<Location> {
+    let current_game = client.this_game();
+    generated_locations::ITEM_MISSION_MAP
+        .iter()
+        .filter(|(k, _v)| k.contains("Combat Adjudicator"))
+        .filter_map(|(k, _v)| current_game.location_by_name(*k))
+        .collect()
 }

@@ -1,13 +1,12 @@
+use crate::config;
 use core::sync::atomic::Ordering;
-use crate::constants::BasicNothingFunc;
-use crate::{config};
 use minhook::MinHook;
-use std::sync::{LazyLock, OnceLock};
-use std::sync::atomic::AtomicBool;
+use randomizer_utilities::BasicNothingFunc;
 use randomizer_utilities::get_base_address;
+use std::sync::atomic::AtomicBool;
+use std::sync::{LazyLock, OnceLock};
 
-pub static CRIMSON_ADDRESS: LazyLock<usize> =
-    LazyLock::new(|| get_base_address("Crimson.dll"));
+pub static CRIMSON_ADDRESS: LazyLock<usize> = LazyLock::new(|| get_base_address("Crimson.dll"));
 
 static ORIGINAL_FIX_WEAPON_UNLOCKS_DANTE: OnceLock<BasicNothingFunc> = OnceLock::new();
 static FIX_WEAPON_UNLOCKS_DANTE_ADDR: usize = 0x1EBD00;
@@ -44,5 +43,4 @@ fn init_weapon_unlock_hook() {
     });
 }
 
-fn dont_fix_weapons() {
-}
+fn dont_fix_weapons() {}

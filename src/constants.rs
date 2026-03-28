@@ -1,17 +1,16 @@
-use randomizer_utilities::cache::DATA_PACKAGE;
 use crate::skill_manager::ID_SKILL_MAP;
+use bimap::BiMap;
+use randomizer_utilities::dmc::dmc_constants::GameConfig;
+use serde::{Deserialize, Serialize};
 use std::cmp::PartialEq;
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock};
-use bimap::BiMap;
-use serde::{Deserialize, Serialize};
-use randomizer_utilities::mapping_utilities::GameConfig;
+use std::sync::LazyLock;
 
-pub type BasicNothingFunc = unsafe extern "system" fn();
+pub(crate) static DUMMY_ID: LazyLock<u32> =
+    LazyLock::new(|| *ITEM_MAP.get_by_left("Dummy").unwrap());
 
-pub(crate) static DUMMY_ID: LazyLock<u32> = LazyLock::new(|| *ITEM_MAP.get_by_left("Dummy").unwrap());
-
-pub(crate) static REMOTE_ID: LazyLock<u32> = LazyLock::new(|| *ITEM_MAP.get_by_left("Remote").unwrap());
+pub(crate) static REMOTE_ID: LazyLock<u32> =
+    LazyLock::new(|| *ITEM_MAP.get_by_left("Remote").unwrap());
 
 pub struct DMC3Config;
 pub const GAME_NAME: &str = "Devil May Cry 3";
@@ -21,7 +20,6 @@ impl GameConfig for DMC3Config {
     const GAME_NAME: &'static str = GAME_NAME;
 }
 
-
 // DMC3 Offsets+Functions - Offsets are from 2022 DDMK's version
 
 pub const ITEM_MODE_TABLE: usize = 0x1B4534; // This is actually a constant, we like this one
@@ -30,6 +28,7 @@ pub const ONE_ORB: f32 = 1000.0; // One Blue/Purple orb is worth 1000 "points"
 pub const BASE_HP: f32 = 6.0 * ONE_ORB;
 pub const MAX_HP: f32 = 20000.0;
 pub const MAX_MAGIC: f32 = 10000.0;
+
 pub struct Item {
     pub id: u32,
     pub name: &'static str,
@@ -53,7 +52,7 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x00,
         name: "Red Orb - 1",
-        offset: Some(0x38),
+        offset: Some(0x38), // Note: I think this offset is wrong
         category: ItemCategory::RedOrb,
         mission: None,
         _max_amount: Some(999999), // Is what fits on screen, could theoretically go up to MAX_INT
@@ -591,9 +590,8 @@ pub static MISSION_ITEM_MAP: LazyLock<HashMap<u32, Vec<&'static str>>> = LazyLoc
     map
 });
 
-pub static ITEM_MAP: LazyLock<BiMap<&'static str, u32>> = LazyLock::new(|| {
-    ALL_ITEMS.iter().map(|item| (item.name, item.id)).collect()
-});
+pub static ITEM_MAP: LazyLock<BiMap<&'static str, u32>> =
+    LazyLock::new(|| ALL_ITEMS.iter().map(|item| (item.name, item.id)).collect());
 
 pub fn get_item_name(item_id: u32) -> &'static str {
     if item_id <= 0x39 {
@@ -612,21 +610,6 @@ pub fn get_item_name(item_id: u32) -> &'static str {
     }
 }
 
-pub fn get_item_id(name: &str) -> Option<u32> {
-    match ITEM_MAP.get_by_left(name).copied() {
-        None => match DATA_PACKAGE.read().unwrap().as_ref() {
-            None => None,
-            Some(data_package) => data_package
-                .games
-                .get(GAME_NAME)?
-                .item_name_to_id
-                .get_by_left(&Arc::new(name.to_string()))
-                .copied()
-                .map(|id| id as u32),
-        },
-        Some(id) => Some(id),
-    }
-}
 pub fn get_items_by_category(category: ItemCategory) -> Vec<&'static str> {
     ALL_ITEMS
         .iter()
@@ -865,7 +848,6 @@ pub(crate) struct EventTable {
 #[derive(Debug)]
 pub struct ItemEntry {
     // Represents an item on the ground
-    pub offset: usize,     // Offset for the item table
     pub room_number: i32,  // Room number
     pub item_id: u32,      // Default Item ID
     pub mission: u32,      // Mission Number
@@ -873,9 +855,19 @@ pub struct ItemEntry {
     pub coordinates: Coordinates,
 }
 
-
-#[derive(Copy, Clone, Debug, Default, Deserialize, Serialize, PartialEq, PartialOrd, strum_macros::Display, strum_macros::FromRepr)]
-pub(crate) enum Difficulty {
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    Deserialize,
+    Serialize,
+    PartialEq,
+    PartialOrd,
+    strum_macros::Display,
+    strum_macros::FromRepr,
+)]
+pub enum Difficulty {
     #[default]
     Easy = 0,
     Normal = 1,
@@ -893,8 +885,19 @@ pub(crate) enum Difficulty {
     HeavenOrHell = 5,
 }
 
-#[derive(Copy, Clone, Debug, Default, Deserialize, Serialize, PartialEq, PartialOrd, strum_macros::Display, strum_macros::FromRepr)]
-pub(crate) enum Rank {
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    Default,
+    Deserialize,
+    Serialize,
+    PartialEq,
+    PartialOrd,
+    strum_macros::Display,
+    strum_macros::FromRepr,
+)]
+pub enum Rank {
     #[default]
     D = 0,
     C = 1,

@@ -10,10 +10,17 @@ pub static CONFIG: LazyLock<Config> = LazyLock::new(|| {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Connection {
-    pub port: i32,                       // The port the local client is running on
+    pub port: i32,                  // The port the local client is running on
     pub address: String, // The address the local client is on, should always be localhost
     pub disable_auto_connect: bool, // Do not attempt to connect to local client
+    // TODO Forgot to reimplement this
     pub reconnect_interval_seconds: i32, // How many seconds between each reconnection attempt to the local client
+}
+
+impl Connection {
+    pub fn get_url(&self) -> String {
+        format!("{}:{}", self.address, self.port)
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]

@@ -15,12 +15,12 @@ fn main() {
     let mut output = String::from("// Auto-generated constants file\n\n");
     output.push_str("use std::collections::HashMap;\n");
     output.push_str("use crate::constants::ItemEntry;\nuse std::sync::LazyLock;\n\n");
-    output.push_str("use crate::constants::Coordinates;\nuse crate::constants::EMPTY_COORDINATES;\n");
+    output
+        .push_str("use crate::constants::Coordinates;\nuse crate::constants::EMPTY_COORDINATES;\n");
 
     output.push_str("pub static ITEM_MISSION_MAP: LazyLock<HashMap<&'static str, ItemEntry>> = LazyLock::new(|| {
     HashMap::from([\n");
     for (key, value) in data.as_object().expect("Expected JSON object") {
-        let offset = value["offset"].as_u64().unwrap();
         let mission_number = value["mission_number"].as_u64().unwrap();
         let room = value["room_number"].as_u64().unwrap();
         let item_id = value["default_item"].as_u64().unwrap();
@@ -29,8 +29,8 @@ fn main() {
         let y_coord = value["yCoord"].as_u64().unwrap();
         let z_coord = value["zCoord"].as_u64().unwrap();
         output.push_str(&format!(
-            r#"        ("{}", ItemEntry {{ offset: {}, mission: {}, room_number: {}, item_id: {}, adjudicator: {}, coordinates: "#,
-            key, offset, mission_number, room, item_id, adjudicator
+            r#"        ("{}", ItemEntry {{ mission: {}, room_number: {}, item_id: {}, adjudicator: {}, coordinates: "#,
+            key, mission_number, room, item_id, adjudicator
         ));
         if x_coord != 0 {
             output.push_str(&format!(

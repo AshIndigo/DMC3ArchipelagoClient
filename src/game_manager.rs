@@ -1,11 +1,12 @@
 use crate::constants::{
-    get_items_by_category, get_weapon_id, Difficulty, ItemCategory, BASE_HP, GUN_NAMES, ITEM_MAP, ITEM_OFFSET_MAP,
-    MAX_HP, MAX_MAGIC, MELEE_NAMES, ONE_ORB,
+    BASE_HP, Difficulty, GUN_NAMES, ITEM_MAP, ITEM_OFFSET_MAP, ItemCategory, MAX_HP, MAX_MAGIC,
+    MELEE_NAMES, ONE_ORB, get_items_by_category, get_weapon_id,
 };
 use crate::hook::ORIGINAL_GIVE_STYLE_XP;
 use crate::mapping::MAPPING;
 use crate::utilities;
-use crate::utilities::{get_inv_address, read_data_from_address, DMC3_ADDRESS};
+use crate::utilities::{DMC3_ADDRESS, get_inv_address, read_data_from_address};
+use archipelago_rs::Item;
 use randomizer_utilities::replace_single_byte;
 use std::collections::HashSet;
 use std::ptr::{read_unaligned, write_unaligned};
@@ -25,8 +26,8 @@ pub(crate) struct ArchipelagoData {
     pub(crate) reverb_level: u8,
     // Beast uppercut -> Rising dragon
     pub(crate) beowulf_level: u8,
-    pub(crate) items: HashSet<&'static str>,
-    pub(crate) skills: HashSet<&'static str>,
+    pub(crate) items: HashSet<String>,
+    pub(crate) skills: HashSet<usize>,
 }
 
 #[derive(Copy, Clone, strum_macros::Display, strum_macros::FromRepr)]
@@ -56,12 +57,12 @@ pub static ARCHIPELAGO_DATA: LazyLock<RwLock<ArchipelagoData>> =
     LazyLock::new(|| RwLock::new(ArchipelagoData::default()));
 
 impl ArchipelagoData {
-    pub fn add_item(&mut self, item: &'static str) {
+    pub fn add_item(&mut self, item: String) {
         self.items.insert(item);
     }
 
-    pub fn add_skill(&mut self, item: &'static str) {
-        self.skills.insert(item);
+    pub fn add_skill(&mut self, skill_id: usize) {
+        self.skills.insert(skill_id);
     }
 
     pub(crate) fn add_blue_orb(&mut self) {
@@ -105,9 +106,9 @@ impl ArchipelagoData {
     }
 
     pub(crate) fn get_style_unlocked(&self) -> [bool; 4] {
-        let mut style_table = [false, false, false, false];
-        for style_idx in 0..4 {
-            style_table[style_idx] = self.style_levels[style_idx] > 0;
+        let mut style_table = [false; 4];
+        for (out, level) in style_table.iter_mut().zip(self.style_levels.iter()) {
+            *out = *level > 0;
         }
         style_table
     }
@@ -154,7 +155,7 @@ pub struct SessionData {
     pub(crate) _unknown3: [u8; 7],
     bloody_palace: bool,
     _unknown4: [u8; 15],
-    pub(crate) red_orbs: u32,
+    pub(crate) red_orbs: i32,
     pub(crate) items: [u8; 20],
     unknown5: [u8; 2],
     unlocks: [bool; 14],
@@ -178,47 +179,48 @@ pub struct SessionData {
 
 /// Error type for session access
 #[derive(Debug)]
-pub enum SessionError {
-    NotUsable, // If a save slot has not been loaded for whatever reason
+pub enum GameDataError {
+    NotUsable, // If the requested data is unavailable
 }
 
 static SESSION_PTR: LazyLock<usize> = LazyLock::new(|| *DMC3_ADDRESS + GAME_SESSION_DATA);
 
-pub fn with_session_read<F, R>(f: F) -> Result<R, SessionError>
+pub fn with_session_read<F, R>(f: F) -> Result<R, GameDataError>
 where
     F: FnOnce(&SessionData) -> R,
 {
-    let addr = *SESSION_PTR;
     unsafe {
-        let s = &*(addr as *const SessionData);
-        if !session_is_valid(s) {
-            return Err(SessionError::NotUsable);
+        if !session_is_valid() {
+            return Err(GameDataError::NotUsable);
         }
-        Ok(f(s))
+        Ok(f(&*(*SESSION_PTR as *const SessionData)))
     }
 }
 
-pub fn with_session<F, R>(f: F) -> Result<R, SessionError>
+pub fn with_session<F, R>(f: F) -> Result<R, GameDataError>
 where
     F: FnOnce(&mut SessionData) -> R,
 {
-    let addr = *SESSION_PTR;
     unsafe {
-        let s = &mut *(addr as *mut SessionData);
-        if !session_is_valid(s) {
-            return Err(SessionError::NotUsable);
+        if !session_is_valid() {
+            return Err(GameDataError::NotUsable);
         }
-        Ok(f(s))
+        Ok(f(&mut *(*SESSION_PTR as *mut SessionData)))
     }
 }
 
-fn session_is_valid(_s: &SessionData) -> bool {
-    true
+pub(crate) fn session_is_valid() -> bool {
+    // let data = read_data_from_address::<usize>(*SESSION_PTR);
+    // log::debug!("ses data: {}", data);
+    read_data_from_address::<usize>(*SESSION_PTR) != 0
 }
 
 /// Get current mission
 pub fn get_mission() -> u32 {
-    with_session_read(|s| s.mission).unwrap()
+    with_session_read(|s| s.mission).unwrap_or_else(|_| {
+        log::debug!("Attempting to get mission before session data is ready");
+        0
+    })
 }
 
 /// Get current room
@@ -234,23 +236,63 @@ pub fn get_difficulty() -> Difficulty {
     .unwrap()
 }
 
-const CHARACTER_DATA: usize = 0xC90E30;
+const MISSION_CHARACTER_DATA: usize = 0xC90E30;
 
+#[repr(C)]
+pub struct MissionData {
+    unknown1: [u8; 56],
+    red_orbs: i32,
+    items: [u8; 62],
+    bought_items: [u8; 8],
+    unknown2: [u8; 38],
+    frame_count: u32,
+    damage_taken: u32,
+    orbs_collected: u32,
+    items_used: u32,
+    kill_count: u32,
+    unknown3: [u8; 4],
+}
+
+static MISSION_DATA_PTR: LazyLock<usize> = LazyLock::new(|| *DMC3_ADDRESS + MISSION_CHARACTER_DATA);
+fn is_mission_valid() -> bool {
+    read_data_from_address::<usize>(*MISSION_DATA_PTR) != 0
+}
+
+pub fn with_mission_data<F, R>(f: F) -> Result<R, GameDataError>
+where
+    F: FnOnce(&mut MissionData) -> R,
+{
+    let addr = *MISSION_DATA_PTR;
+    unsafe {
+        if !is_mission_valid() {
+            return Err(GameDataError::NotUsable);
+        }
+
+        let ptr = *(addr as *mut *mut MissionData);
+        let s = &mut *ptr;
+
+        Ok(f(s))
+    }
+}
+// TODO These offsets are wildly inaccurate
 pub(crate) fn give_magic(magic_val: f32, arch_data: &ArchipelagoData) {
     let base = *DMC3_ADDRESS;
     if arch_data.dt_unlocked {
+        log::debug!("Supplying added Magic");
         unsafe {
             write_unaligned(
                 (base + GAME_SESSION_DATA + 0xD8) as *mut f32,
                 read_unaligned((base + GAME_SESSION_DATA + 0xD8) as *mut f32) + magic_val,
             );
             write_unaligned(
-                (base + CHARACTER_DATA + 0x16C + 0x6C) as *mut f32,
-                read_unaligned((base + CHARACTER_DATA + 0x16C + 0x6C) as *mut f32) + magic_val,
+                (base + MISSION_CHARACTER_DATA + 0x16C + 0x6C) as *mut f32,
+                read_unaligned((base + MISSION_CHARACTER_DATA + 0x16C + 0x6C) as *mut f32)
+                    + magic_val,
             ); // Magic
             write_unaligned(
-                (base + CHARACTER_DATA + 0x16C + 0x70) as *mut f32,
-                read_unaligned((base + CHARACTER_DATA + 0x16C + 0x70) as *mut f32) + magic_val,
+                (base + MISSION_CHARACTER_DATA + 0x16C + 0x70) as *mut f32,
+                read_unaligned((base + MISSION_CHARACTER_DATA + 0x16C + 0x70) as *mut f32)
+                    + magic_val,
             ); // Max magic
             if let Some(char_data_ptr) = utilities::get_active_char_address() {
                 write_unaligned(
@@ -268,14 +310,15 @@ pub(crate) fn give_magic(magic_val: f32, arch_data: &ArchipelagoData) {
 
 pub(crate) fn give_hp(life_value: f32) {
     let base = *DMC3_ADDRESS;
+    log::debug!("Supplying added HP");
     unsafe {
         write_unaligned(
-            (base + CHARACTER_DATA + 0x16C + 0x64) as *mut f32,
-            read_unaligned((base + CHARACTER_DATA + 0x16C + 0x64) as *mut f32) + life_value,
+            (base + MISSION_CHARACTER_DATA + 0x16C + 0x64) as *mut f32,
+            read_unaligned((base + MISSION_CHARACTER_DATA + 0x16C + 0x64) as *mut f32) + life_value,
         ); // Life
         write_unaligned(
-            (base + CHARACTER_DATA + 0x16C + 0x68) as *mut f32,
-            read_unaligned((base + CHARACTER_DATA + 0x16C + 0x68) as *mut f32) + life_value,
+            (base + MISSION_CHARACTER_DATA + 0x16C + 0x68) as *mut f32,
+            read_unaligned((base + MISSION_CHARACTER_DATA + 0x16C + 0x68) as *mut f32) + life_value,
         ); // Max life
         if let Some(char_data_ptr) = utilities::get_active_char_address() {
             write_unaligned(
@@ -407,7 +450,7 @@ pub fn set_session_weapons() {
     if let Ok(data) = ARCHIPELAGO_DATA.read() {
         with_session(|s| {
             for weapon in get_items_by_category(ItemCategory::Weapon) {
-                if data.items.contains(&weapon) {
+                if data.items.contains(weapon) {
                     let weapon_id = get_weapon_id(weapon);
                     if MELEE_NAMES.contains(&weapon)
                         && s.weapons[0] != weapon_id
@@ -435,7 +478,7 @@ pub(crate) fn set_weapons_in_inv() {
     let mut flag;
     if let Ok(data) = ARCHIPELAGO_DATA.read() {
         for weapon in get_items_by_category(ItemCategory::Weapon) {
-            if data.items.contains(&weapon) {
+            if data.items.contains(weapon) {
                 flag = true;
                 log::debug!("Adding weapon/style to inventory {}", weapon);
             } else {
@@ -512,10 +555,10 @@ pub(crate) fn apply_style_levels(style: Style) {
                             ORIGINAL_GIVE_STYLE_XP.get().unwrap()(char_data_ptr, LEVEL_2_XP);
                         }
                         2 => {
-                            log::debug!("Style {} is max level", style);
+                            log::debug!("Style {style} is max level");
                         }
                         _ => {
-                            log::error!("Unknown level: {}", level);
+                            log::error!("Unknown {style} level: {level}");
                         }
                     }
                 }
@@ -537,7 +580,7 @@ pub struct TotalRankings {
 
 static RANKING_PTR: LazyLock<usize> = LazyLock::new(|| *DMC3_ADDRESS + 0xC8F8E5);
 
-pub fn with_rankings_read<F, R>(f: F) -> Result<R, SessionError>
+pub fn with_rankings_read<F, R>(f: F) -> Result<R, GameDataError>
 where
     F: FnOnce(&TotalRankings) -> R,
 {
@@ -546,4 +589,32 @@ where
         let s = &*(addr as *const TotalRankings);
         Ok(f(s))
     }
+}
+
+pub(crate) fn add_consumable(item: Item) {
+    log::debug!("Adding Consumable item {}", item);
+    // Add to mission inv
+    if let Some(inv_addr) = get_inv_address()
+        && let Some(offset) = ITEM_OFFSET_MAP.get(item.name().as_str())
+    {
+        unsafe {
+            replace_single_byte(
+                inv_addr + *offset as usize,
+                read_data_from_address::<u8>(inv_addr + *offset as usize).saturating_add(1),
+            );
+        }
+    }
+
+    with_session(|session| {
+        session.items[item.id() as usize] += 1;
+    })
+    .unwrap();
+}
+
+pub(crate) fn give_red_orbs(orbs: i32) {
+    log::debug!("Giving {} orbs", orbs);
+    if with_session(|session| session.red_orbs += orbs).is_err() {
+        log::warn!("Failed to give red orbs for session data");
+    };
+    if with_mission_data(|m| m.red_orbs += orbs).is_err() {};
 }

@@ -1,52 +1,36 @@
 use crate::archipelago::TX_DEATHLINK;
-use crate::connection_manager::CONNECTION_STATUS;
+use crate::check_handler::{Location, LocationType};
 use crate::constants::ItemEntry;
 use crate::constants::*;
 use crate::data::generated_locations;
 use crate::game_manager::{
-    get_difficulty, get_mission, get_room, set_item, set_loc_chk_flg, set_weapons_in_inv, with_rankings_read,
-    with_session, Style, ARCHIPELAGO_DATA,
+    ARCHIPELAGO_DATA, Style, get_difficulty, get_mission, get_room, set_item, set_loc_chk_flg,
+    set_weapons_in_inv, with_rankings_read, with_session,
 };
 use crate::location_handler::in_key_item_room;
-use crate::mapping::{Goal, Mapping, MAPPING};
+use crate::mapping::{Goal, MAPPING, Mapping, run_scouts_for_mission};
 use crate::ui::overlay::CANT_PURCHASE;
 use crate::ui::text_handler;
 use crate::ui::text_handler::LAST_OBTAINED_ID;
-use crate::utilities::{read_data_from_address, DMC3_ADDRESS};
+use crate::utilities::{DMC3_ADDRESS, read_data_from_address};
 use crate::{
-    bank, check_handler, create_hook, game_manager, save_handler, skill_manager, utilities,
+    AP_CORE, archipelago, check_handler, create_hook, game_manager, save_handler, skill_manager,
+    utilities,
 };
+use archipelago_rs::CreateAsHint;
 use bitflags::bitflags;
-use minhook::{MinHook, MH_STATUS};
-use randomizer_utilities::archipelago_utilities::{DeathLinkData, CHECKED_LOCATIONS};
+use minhook::{MH_STATUS, MinHook};
+use randomizer_utilities::archipelago_utilities::DeathLinkData;
+use randomizer_utilities::item_sync::CURRENT_INDEX;
 use randomizer_utilities::replace_single_byte;
 use std::arch::asm;
 use std::cmp::min;
 use std::ptr::{read_unaligned, write};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::{LazyLock, OnceLock};
 use std::{ptr, slice};
-
-static HOOKS_CREATED: AtomicBool = AtomicBool::new(false);
-
-pub(crate) fn install_initial_functions() {
-    if !HOOKS_CREATED.load(Ordering::SeqCst) {
-        unsafe {
-            match create_hooks() {
-                Ok(_) => {
-                    HOOKS_CREATED.store(true, Ordering::SeqCst);
-                }
-                Err(err) => {
-                    log::error!("Failed to create hooks: {:?}", err);
-                }
-            }
-        }
-    }
-    enable_hooks();
-}
-
 // 23d680 - Pause menu event? Hook in here to do rendering
-unsafe fn create_hooks() -> Result<(), MH_STATUS> {
+pub(crate) unsafe fn create_hooks() -> Result<(), MH_STATUS> {
     unsafe {
         check_handler::setup_check_hooks()?;
         create_hook!(
@@ -99,7 +83,7 @@ unsafe fn create_hooks() -> Result<(), MH_STATUS> {
         );
         create_hook!(
             GUN_SHOP_ADDR,
-            deny_gun_upgrade,
+            gun_upgrade,
             ORIGINAL_GUN_SHOP,
             "Deny purchasing gun upgrades"
         );
@@ -114,7 +98,8 @@ unsafe fn create_hooks() -> Result<(), MH_STATUS> {
             deny_blue_or_purple_orb,
             ORIGINAL_PURCHASE_HP,
             "N/A"
-        );  create_hook!(
+        );
+        create_hook!(
             PURCHASE_DT_ADDR,
             deny_blue_or_purple_orb,
             ORIGINAL_PURCHASE_DT,
@@ -152,13 +137,12 @@ unsafe fn create_hooks() -> Result<(), MH_STATUS> {
         );
         text_handler::setup_text_hooks()?;
         save_handler::setup_save_hooks()?;
-        bank::setup_bank_hooks()?;
     }
     Ok(())
 }
 
 static HOOK_ADDRESSES: LazyLock<Vec<usize>> = LazyLock::new(|| {
-    const ADDRESSES: [usize; 29] = [
+    const ADDRESSES: [usize; 28] = [
         // Check handling
         check_handler::ITEM_HANDLE_PICKUP_ADDR,
         check_handler::ITEM_PICKED_UP_ADDR,
@@ -182,13 +166,11 @@ static HOOK_ADDRESSES: LazyLock<Vec<usize>> = LazyLock::new(|| {
         RESULT_SCREEN_BUTTON_ADDR,
         PURCHASE_DT_ADDR,
         PURCHASE_HP_ADDR,
-        // Bank
-        bank::OPEN_INV_SCREEN_ADDR,
-        bank::CLOSE_INV_SCREEN_ADDR,
-        bank::USE_ITEM_ADDR,
         // Save handler
         save_handler::LOAD_GAME_ADDR,
         save_handler::SAVE_GAME_ADDR,
+        save_handler::LOAD_SESSION_DATA,
+        save_handler::SAVE_SESSION_DATA,
         // Text Handler
         text_handler::DISPLAY_ITEM_GET_ADDR,
         text_handler::DISPLAY_ITEM_GET_DESTRUCTOR_ADDR,
@@ -197,13 +179,10 @@ static HOOK_ADDRESSES: LazyLock<Vec<usize>> = LazyLock::new(|| {
     ADDRESSES.to_vec()
 });
 
-fn enable_hooks() {
+pub(crate) fn enable_hooks() {
     HOOK_ADDRESSES.iter().for_each(|addr| unsafe {
-        match MinHook::enable_hook((*DMC3_ADDRESS + addr) as *mut _) {
-            Ok(_) => {}
-            Err(err) => {
-                log::error!("Failed to enable {:#X} hook: {:?}", addr, err);
-            }
+        if let Err(err) = MinHook::enable_hook((*DMC3_ADDRESS + addr) as *mut _) {
+            log::error!("Failed to enable {:#X} hook: {:?}", addr, err);
         }
     })
 }
@@ -212,11 +191,8 @@ fn enable_hooks() {
 pub fn disable_hooks() -> Result<(), MH_STATUS> {
     let base_address = *DMC3_ADDRESS;
     HOOK_ADDRESSES.iter().for_each(|addr| unsafe {
-        match MinHook::disable_hook((base_address + *addr) as *mut _) {
-            Ok(_) => {}
-            Err(err) => {
-                log::error!("Failed to disable {:#X} hook: {:?}", addr, err);
-            }
+        if let Err(err) = MinHook::disable_hook((base_address + *addr) as *mut _) {
+            log::error!("Failed to disable {:#X} hook: {:?}", addr, err);
         }
     });
     Ok(())
@@ -228,13 +204,13 @@ pub static ORIGINAL_EDIT_EVENT: OnceLock<
 > = OnceLock::new();
 pub fn edit_event_drop(param_1: usize, param_2: i32, param_3: usize) {
     let (mapping, mission_event_tables, checked_locations) =
-        if let (Ok(mapping), Some(mission_event_tables), Some(checked_locations)) = (
+        if let (Ok(mapping), Some(mission_event_tables), Ok(client)) = (
             MAPPING.read(),
             EVENT_TABLES.get(&get_mission()),
-            CHECKED_LOCATIONS.read().ok(),
+            AP_CORE.get().unwrap().as_ref().lock(),
         ) && mapping.is_some()
         {
-            (mapping, mission_event_tables, checked_locations)
+            (mapping, mission_event_tables, client)
         } else {
             unsafe {
                 if let Some(original) = ORIGINAL_EDIT_EVENT.get() {
@@ -251,7 +227,13 @@ pub fn edit_event_drop(param_1: usize, param_2: i32, param_3: usize) {
                 for event_table in mission_event_tables {
                     for event in &event_table.events {
                         if let Some(event_table_addr) = utilities::get_event_address() {
-                            if checked_locations.contains(&event_table.location) {
+                            if checked_locations
+                                .connection
+                                .client()
+                                .unwrap()
+                                .checked_locations()
+                                .any(|loc| loc.name() == event_table.location)
+                            {
                                 log::debug!("Event loc checked: {}", &event_table.location);
                                 match event.event_type {
                                     // If the location has already been checked use DUMMY_ID as a dummy item.
@@ -475,20 +457,17 @@ fn monitor_hp(damage_calc: usize, param_1: usize, param_2: usize, param_3: usize
     }
 }
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 1)]
-async fn send_deathlink() {
+fn send_deathlink() {
     TX_DEATHLINK
         .get()
         .unwrap()
         .send(DeathLinkData {
             cause: format!(
                 "died in Mission #{} on {}", // TODO Maybe an "against {}" at some point?
-                //mapping_utilities::get_own_slot_name().unwrap(),
                 get_mission(),
                 get_difficulty()
             ),
         })
-        .await
         .unwrap();
 }
 
@@ -583,22 +562,26 @@ fn dummy_replace(location_key: &&str, item_addr: *mut i32) -> bool {
             .iter()
             .filter(|table| table.location == *location_key)
         {
-            for _event in event_table
+            for _ in event_table
                 .events
                 .iter()
                 .filter(|event| event.event_type == EventCode::End)
             {
-                // Then if location in question is checked, replace the item with a dummy and return true
-                if let Ok(checked_locations) = CHECKED_LOCATIONS.read() {
-                    if checked_locations.contains(location_key) {
+                if let Ok(core) = AP_CORE.get().unwrap().lock().as_ref() {
+                    // Then if location in question is checked, replace the item with a dummy and return true
+                    if core
+                        .connection
+                        .client()
+                        .unwrap()
+                        .checked_locations()
+                        .any(|loc| loc.name() == *location_key)
+                    {
                         unsafe {
                             *item_addr = *DUMMY_ID as i32;
                         }
                         log::info!("Replaced item at {} with dummy item", location_key);
                         return true;
                     }
-                } else {
-                    log::error!("Failed to lock checked locations vec");
                 }
             }
         }
@@ -607,17 +590,13 @@ fn dummy_replace(location_key: &&str, item_addr: *mut i32) -> bool {
 }
 
 fn set_relevant_key_items() {
-    if CONNECTION_STATUS.load(Ordering::Relaxed) != 1 {
-        return;
-    }
-
     if let Ok(data) = ARCHIPELAGO_DATA.read() {
         with_session(|s| {
             match MISSION_ITEM_MAP.get(&(s.mission)) {
                 None => {} // No items for the mission
                 Some(item_list) => {
                     for item in item_list.iter() {
-                        if data.items.contains(item) {
+                        if data.items.contains(*item) {
                             let res = game_manager::has_item_by_flags(item);
                             if !res {
                                 set_item(item, true, true);
@@ -634,41 +613,40 @@ fn set_relevant_key_items() {
                     }
                 }
             }
-            // Special case for Ignis Fatuus
-            // Needed so the Ignis Fatuus location can be reached even when the actual key item is acquired
 
-            if get_room() == 302
-                && let Some(event_table_addr) = utilities::get_event_address()
-            {
-                if CHECKED_LOCATIONS
-                    .read()
-                    .unwrap()
-                    .contains(&"Mission #8 - Ignis Fatuus")
+            if let Ok(core) = AP_CORE.get().unwrap().lock().as_ref() {
+                let mut checked_locations = core.connection.client().unwrap().checked_locations();
+                // Special case for Ignis Fatuus
+                // Needed so the Ignis Fatuus location can be reached even when the actual key item is acquired
+                if get_room() == 302
+                    && let Some(event_table_addr) = utilities::get_event_address()
                 {
-                    // If we have the location checked, continue normal routing
-                    unsafe {
-                        write((event_table_addr + 0x748) as _, 311);
-                    }
-                } else {
-                    // If location not checked, alter event to get to it
-                    unsafe {
-                        write((event_table_addr + 0x748) as _, 303);
+                    if checked_locations.any(|loc| loc.name() == "Mission #8 - Ignis Fatuus") {
+                        // If we have the location checked, continue normal routing
+                        unsafe {
+                            write((event_table_addr + 0x748) as _, 311);
+                        }
+                    } else {
+                        // If location not checked, alter event to get to it
+                        unsafe {
+                            write((event_table_addr + 0x748) as _, 303);
+                        }
                     }
                 }
-            }
 
-            if let Ok(loc) = in_key_item_room() {
-                log::debug!("In key room: {}", loc);
-                if !CHECKED_LOCATIONS.read().unwrap().contains(&loc) {
-                    set_loc_chk_flg(
-                        get_item_name(
-                            generated_locations::ITEM_MISSION_MAP
-                                .get(loc)
-                                .unwrap()
-                                .item_id,
-                        ),
-                        false,
-                    );
+                if let Ok(loc) = in_key_item_room() {
+                    log::debug!("In key room: {}", loc);
+                    if !checked_locations.any(|location| location.name() == loc) {
+                        set_loc_chk_flg(
+                            get_item_name(
+                                generated_locations::ITEM_MISSION_MAP
+                                    .get(loc)
+                                    .unwrap()
+                                    .item_id,
+                            ),
+                            false,
+                        );
+                    }
                 }
             }
         })
@@ -692,7 +670,11 @@ pub fn load_new_room(param_1: usize) -> bool {
     set_relevant_key_items();
     check_handler::clear_high_roller();
     LAST_OBTAINED_ID.store(0, Ordering::SeqCst); // Should stop random item jumpscares
-    skill_manager::set_skills(&ARCHIPELAGO_DATA.read().unwrap());
+    if let Some(mapping) = MAPPING.read().unwrap().as_ref()
+        && mapping.randomize_skills
+    {
+        skill_manager::set_skills(&ARCHIPELAGO_DATA.read().unwrap());
+    }
     res
 }
 
@@ -717,6 +699,18 @@ pub fn set_player_data(param_1: usize) -> bool {
         }
     }
     LAST_OBTAINED_ID.store(0, Ordering::SeqCst); // Should stop random item jumpscares
+    run_scouts_for_mission(
+        AP_CORE
+            .get()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .connection
+            .client_mut()
+            .unwrap(),
+        get_mission(),
+        CreateAsHint::No,
+    );
     unsafe {
         if let Some(original) = ORIGINAL_SETUP_PLAYER_DATA.get() {
             res = original(param_1)
@@ -725,54 +719,6 @@ pub fn set_player_data(param_1: usize) -> bool {
         }
     }
     res
-}
-
-/// The mapping data at dmc3.exe+5c4c20+1A00
-/// This table dictates what item is in what room. Only relevant for consumables and blue orb fragments
-pub fn modify_item_table(offset: usize, id: u8) {
-    unsafe {
-        // let start_addr = 0x5C4C20usize; dmc3.exe+5c4c20+1A00
-        // let end_addr = 0x5C4C20 + 0xC8; // 0x5C4CE8
-        let true_offset = offset + *DMC3_ADDRESS + 0x1A00usize; // MFW I can't do my offsets correctly
-        if offset == 0x0 {
-            return; // Undecided/ignorable
-        }
-        randomizer_utilities::modify_protected_memory(
-            || {
-                let table = slice::from_raw_parts_mut(true_offset as *mut u8, 4);
-                table[3] = id;
-            },
-            true_offset as *mut [u8; 4],
-        )
-        .unwrap();
-        // log::trace!(
-        //     "Modified Item Table: Address: 0x{:x}, ID: 0x{:x}, Offset: 0x{:x}",
-        //     true_offset,
-        //     id,
-        //     offset
-        // ); // Shushing this for now
-    }
-}
-
-/// Restore the mode table to its original values
-pub(crate) fn restore_item_table() {
-    generated_locations::ITEM_MISSION_MAP
-        .iter()
-        .filter(|(_name, entry)| entry.offset != 0x0)
-        .for_each(|(_key, val)| {
-            let true_offset = val.offset + *DMC3_ADDRESS + 0x1A00usize;
-            randomizer_utilities::modify_protected_memory(
-                || {
-                    const LENGTH: usize = 4;
-                    unsafe {
-                        let table = slice::from_raw_parts_mut(true_offset as *mut u8, LENGTH);
-                        table[3] = val.item_id as u8;
-                    }
-                },
-                true_offset as *mut [u8; 4],
-            )
-            .unwrap();
-        })
 }
 
 /// Set the modified modes back to 1 from 2
@@ -814,21 +760,89 @@ pub fn deny_skill_purchasing(custom_skill: usize) {
 
 pub const GUN_SHOP_ADDR: usize = 0x283d60;
 pub static ORIGINAL_GUN_SHOP: OnceLock<unsafe extern "C" fn(custom_gun: usize)> = OnceLock::new();
-pub fn deny_gun_upgrade(custom_gun: usize) {
-    if let Some(mapping) = MAPPING.read().unwrap().as_ref()
-        && mapping.randomize_gun_levels
-    {
-        CANT_PURCHASE.store(true, Ordering::SeqCst);
-        if read_data_from_address::<u8>(custom_gun + 0x08) == 0x03 {
-            //unsafe { replace_single_byte(custom_gun + 0x08, 0x01) }
+pub fn gun_upgrade(custom_gun: usize) {
+    // Get all current gun levels
+    if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
+        let backup_gun_levels = read_data_from_address::<[u8; 5]>(custom_gun + 0x3D10);
+        // What gun level checks have we done
+        let gun_level_checks: [u8; 5] = get_gun_level_checks();
+        // The shop will display the last purchased gun level check
+        unsafe {
+            write((custom_gun + 0x3D10) as *mut [u8; 5], gun_level_checks);
+        }
+        // If randomize gun levels and no checks for them, deny purchasing
+        if mapping.randomize_gun_levels && !mapping.shop_gun_checks {
+            CANT_PURCHASE.store(true, Ordering::SeqCst);
+            if read_data_from_address::<u8>(custom_gun + 0x08) == 0x03 {
+                unsafe { replace_single_byte(custom_gun + 0x08, 0x01) }
+            }
+        }
+        if let Some(orig) = ORIGINAL_GUN_SHOP.get() {
+            unsafe {
+                orig(custom_gun);
+            }
+        }
+        // TODO Overlay to show actual gun levels as well
+
+        let gun_levels_new = read_data_from_address::<[u8; 5]>(custom_gun + 0x3D10);
+        for gun_idx in 0..5 {
+            if gun_levels_new[gun_idx] > gun_level_checks[gun_idx] {
+                log::debug!(
+                    "Attempting to purchase gun upgrade: {} - LV{}",
+                    gun_idx,
+                    gun_levels_new[gun_idx]
+                );
+                if mapping.shop_gun_checks {
+                    // Send out check for purchasing gun upgrade
+                    check_handler::send_off_location_coords(
+                        Location {
+                            location_type: LocationType::PurchaseItem,
+                            item_id: match gun_idx {
+                                0 => 0x1C,
+                                1 => 0x1D,
+                                2 => 0x1E,
+                                3 => 0x1F,
+                                4 => 0x21,
+                                _ => unreachable!(),
+                            },
+                            mission: 1 + gun_levels_new[gun_idx] as u32,
+                            room: 0,
+                            coordinates: EMPTY_COORDINATES,
+                        },
+                        u32::MAX,
+                    );
+                }
+            }
+        }
+        unsafe {
+            write((custom_gun + 0x3D10) as *mut [u8; 5], backup_gun_levels);
+        }
+    }
+}
+
+/// Returns the number of purchased gun upgrades checks per gun.
+fn get_gun_level_checks() -> [u8; 5] {
+    let mut res = [0u8; 5];
+
+    if let Some(client) = AP_CORE.get().unwrap().lock().unwrap().connection.client() {
+        let checked = client.checked_locations().collect::<Vec<_>>();
+
+        for (i, gun) in GUN_NAMES.iter().enumerate() {
+            let level_2 = format!("Purchase {} Level 2", gun);
+            let level_3 = format!("Purchase {} Level 3", gun);
+
+            let has_level_2 = checked.iter().any(|loc| loc.name() == level_2);
+            let has_level_3 = checked.iter().any(|loc| loc.name() == level_3);
+
+            res[i] = match (has_level_2, has_level_3) {
+                (true, true) => 2,
+                (true, false) => 1,
+                _ => 0,
+            };
         }
     }
 
-    if let Some(orig) = ORIGINAL_GUN_SHOP.get() {
-        unsafe {
-            orig(custom_gun);
-        }
-    }
+    res
 }
 
 pub const ADD_SHOTGUN_OR_CERBERUS_ADDR: usize = 0x1fcfa0;
@@ -841,11 +855,8 @@ pub fn deny_cerberus_or_shotgun(_param_1: usize, _id: u8) -> bool {
 }
 
 // Making it so purchasing a blue/purple orb in the store does not give the relevant stat boost
-pub static ORIGINAL_PURCHASE_HP: OnceLock<
-    PurchaseStatOrb,
-> = OnceLock::new();pub static ORIGINAL_PURCHASE_DT: OnceLock<
-    PurchaseStatOrb,
-> = OnceLock::new();
+pub static ORIGINAL_PURCHASE_HP: OnceLock<PurchaseStatOrb> = OnceLock::new();
+pub static ORIGINAL_PURCHASE_DT: OnceLock<PurchaseStatOrb> = OnceLock::new();
 type PurchaseStatOrb = unsafe fn(ptr: usize, hp: f32) -> f32;
 const PURCHASE_HP_ADDR: usize = 0x86e90;
 const PURCHASE_DT_ADDR: usize = 0x86e30;
@@ -1040,26 +1051,48 @@ pub fn set_rando_session_data(ptr: usize) {
             s.weapons[1] = mapping.start_second_melee;
             s.weapons[2] = mapping.start_gun;
             s.weapons[3] = mapping.start_second_gun;
-            // Disable buying blue/purple orbs
-
-            //s.items[7] = 6;
-            //s.items[8] = 7;
 
             // Unlock DT off the bat
             s.unlocked_dt = true;
             /* Should see if I can change unlocked files? Or unlock them all.
             Game seemed to just auto unlock them though when the weapon is used
             Overall, not too important */
-            s.red_orbs = u32::MAX;
+            s.red_orbs = 0;
+            #[cfg(debug_assertions)]
+            {
+                // Give max red orbs if we are using a debug build
+                //s.red_orbs = i32::MAX;
+            }
             // 29A5E8
             // 0x45FECCA
             if mapping.goal == Goal::RandomOrder {
                 s.mission = mapping.mission_order.as_ref().unwrap()[0] as u32;
                 s.other_mission = mapping.mission_order.as_ref().unwrap()[0] as u32;
             }
+
+            // If orb checks are disabled, then set the purchase count to max for both to prevent purchasing
+            if !mapping.shop_orb_checks {
+                s.items[7] = 6;
+                s.items[8] = 7;
+            }
         }
     })
     .unwrap();
+    skill_manager::set_skills(&ARCHIPELAGO_DATA.read().unwrap());
+    set_weapons_in_inv();
+    match AP_CORE.get().unwrap().lock() {
+        Ok(mut core) => {
+            CURRENT_INDEX.store(0, Ordering::SeqCst);
+            if let Err(e) =
+                archipelago::handle_received_items_packet(0, core.connection.client_mut().unwrap())
+            {
+                log::error!("Failed to handle received items: {:?}", e);
+            }
+        }
+        Err(err) => {
+            log::error!("Error locking core: {}", err);
+        }
+    }
 }
 
 pub const SELECT_MISSION_BUTTON: usize = 0x29a7b0;

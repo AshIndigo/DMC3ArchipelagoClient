@@ -1,46 +1,19 @@
 use crate::ui::overlay::{present_hook, resize_hook};
 use crate::utilities::DMC3_ADDRESS;
+use randomizer_utilities::ui::dx11::{
+    D3D11CreateDeviceAndSwapChain, ORIGINAL_DEV_CHAIN, ORIGINAL_PRESENT, ORIGINAL_RESIZE_BUFFERS,
+    PresentFn, ResizeBuffersFn,
+};
 use std::error::Error;
 use std::ffi::c_void;
 use std::fmt::Debug;
 use std::ptr;
 use std::sync::OnceLock;
-use windows::core::HRESULT;
 use windows::Win32::Foundation::HMODULE;
 use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE, D3D_FEATURE_LEVEL};
 use windows::Win32::Graphics::Direct3D11::D3D11_CREATE_DEVICE_FLAG;
-use windows::Win32::Graphics::Dxgi::{
-    Common, IDXGISwapChain, DXGI_SWAP_CHAIN_DESC, DXGI_SWAP_CHAIN_FLAG,
-};
-
-type D3D11CreateDeviceAndSwapChain = unsafe extern "system" fn(
-    padapter: *mut c_void,
-    drivertype: D3D_DRIVER_TYPE,
-    software: HMODULE,
-    flags: D3D11_CREATE_DEVICE_FLAG,
-    pfeaturelevels: *const D3D_FEATURE_LEVEL,
-    featurelevels: u32,
-    sdkversion: u32,
-    pswapchaindesc: *const DXGI_SWAP_CHAIN_DESC,
-    ppswapchain: *mut *mut IDXGISwapChain,
-    ppdevice: *mut *mut c_void,
-    pfeaturelevel: *mut D3D_FEATURE_LEVEL,
-    ppimmediatecontext: *mut *mut c_void,
-) -> HRESULT;
-
-type PresentFn = unsafe extern "system" fn(IDXGISwapChain, u32, u32) -> i32; // *mut IDXGISwapChain
-type ResizeBuffersFn = unsafe extern "system" fn(
-    *mut IDXGISwapChain,
-    u32,
-    u32,
-    u32,
-    Common::DXGI_FORMAT,
-    DXGI_SWAP_CHAIN_FLAG,
-);
-
-static ORIGINAL_DEV_CHAIN: OnceLock<D3D11CreateDeviceAndSwapChain> = OnceLock::new();
-pub(crate) static ORIGINAL_PRESENT: OnceLock<PresentFn> = OnceLock::new();
-pub(crate) static ORIGINAL_RESIZE_BUFFERS: OnceLock<ResizeBuffersFn> = OnceLock::new();
+use windows::Win32::Graphics::Dxgi::{DXGI_SWAP_CHAIN_DESC, IDXGISwapChain};
+use windows::core::HRESULT;
 
 unsafe extern "system" fn hook_d3d11_create_device_and_swap_chain(
     padapter: *mut c_void,
