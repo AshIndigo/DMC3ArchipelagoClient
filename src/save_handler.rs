@@ -5,7 +5,7 @@ use crate::{AP_CORE, archipelago, create_hook, utilities};
 use minhook::MH_STATUS;
 use minhook::MinHook;
 use randomizer_utilities::item_sync;
-use randomizer_utilities::item_sync::{CURRENT_INDEX, SlotSyncInfo};
+use randomizer_utilities::item_sync::CURRENT_INDEX;
 use std::error::Error;
 use std::io::ErrorKind;
 use std::ptr::{write, write_unaligned};
@@ -25,14 +25,14 @@ pub static ORIGINAL_LOAD_GAME: OnceLock<
 
 static SAVE_DATA: RwLock<Vec<u8>> = RwLock::new(vec![]);
 
-pub fn get_new_save_path() -> Result<String, Box<dyn Error>> {
+pub fn get_save_path() -> Result<String, Box<dyn Error>> {
     if let Ok(core) = AP_CORE.get().unwrap().as_ref().lock()
         && let Some(client) = core.connection.client()
     {
         Ok(format!(
-            "archipelago/dmc3_{}_{}.sav",
-            client.seed_name(),
-            client.this_player().name()
+            "{}{}",
+            randomizer_utilities::get_room_path(client)?,
+            "dmc3.sav"
         ))
     } else {
         Err("Connecting unavailable".into())
@@ -84,7 +84,7 @@ fn save_ap_save_file(param_1: i32) {
             let len = len_ptr.read(); // AFAIK This is a constant value, but may as well get it from the game just to be safe
             let data = std::slice::from_raw_parts(save_file, len as usize).to_vec();
 
-            fs::write(get_new_save_path().expect("Unable to get save path"), data)
+            fs::write(get_save_path().expect("Unable to get save path"), data)
                 .expect("Unable to save game");
             utilities::replace_single_byte_with_base_addr(0x5EAE81, 0x0);
         }
@@ -139,7 +139,7 @@ fn load_ap_save_file(param_1: i64, param_2: i64, save_data_ptr: *mut usize, leng
 
 /// Get the save data to store in the SAVE_DATA global
 fn get_save_data() -> Result<(), Box<dyn Error>> {
-    *SAVE_DATA.write()? = fs::read(get_new_save_path()?)?;
+    *SAVE_DATA.write()? = fs::read(get_save_path()?)?;
     Ok(())
 }
 
@@ -157,27 +157,17 @@ fn load_slot(param_1: usize, save_index: i32) {
             let client = core.connection.client_mut().unwrap();
             match item_sync::read_save_data() {
                 Ok(sync_data) => {
-                    match sync_data.room_sync_info.get(&item_sync::get_sync_file_key(
-                        client.seed_name(),
-                        client.this_player().name().into(),
-                    )) {
-                        None => {
-                            // Doesn't exist so 0
-                            CURRENT_INDEX.store(0, Ordering::SeqCst);
-                        }
-                        Some(arr) => {
-                            CURRENT_INDEX
-                                .store(arr.sync_index[save_index as usize], Ordering::SeqCst);
-                            *ARCHIPELAGO_DATA.write().unwrap() = ArchipelagoData::default();
-                            if let Err(e) = archipelago::handle_received_items_packet(
-                                arr.sync_index[save_index as usize] as usize,
-                                client,
-                            ) {
-                                log::error!("Failed to handle received items: {:?}", e);
-                            }
-                        }
+                    CURRENT_INDEX
+                        .store(sync_data.sync_index[save_index as usize], Ordering::SeqCst);
+                    *ARCHIPELAGO_DATA.write().unwrap() = ArchipelagoData::default();
+                    if let Err(e) = archipelago::handle_received_items_packet(
+                        sync_data.sync_index[save_index as usize] as usize,
+                        client,
+                    ) {
+                        log::error!("Failed to handle received items: {:?}", e);
                     }
                 }
+
                 Err(err) => {
                     log::error!("Error getting sync data: {}", err);
                 }
@@ -203,29 +193,12 @@ fn save_to_slot(param_1: usize, save_index: i32) {
             let client = core.connection.client().unwrap();
             match item_sync::read_save_data() {
                 Ok(mut sync_data) => {
-                    let key = item_sync::get_sync_file_key(
-                        client.seed_name(),
-                        client.this_player().name().into(),
-                    );
-                    match sync_data.room_sync_info.get_mut(&key) {
-                        None => {
-                            // Doesn't exist, need to add
-                            let mut sync_info = SlotSyncInfo::default();
-                            sync_info.sync_index[save_index as usize] =
-                                CURRENT_INDEX.load(Ordering::SeqCst);
-                            sync_info.offline_checks =
-                                item_sync::OFFLINE_CHECKS.lock().unwrap().clone();
-                            sync_data.room_sync_info.insert(key, sync_info);
-                        }
-                        Some(sync_info) => {
-                            sync_info.sync_index[save_index as usize] =
-                                CURRENT_INDEX.load(Ordering::SeqCst);
-                            sync_info.offline_checks =
-                                item_sync::OFFLINE_CHECKS.lock().unwrap().clone();
-                        }
-                    }
+                    sync_data.sync_index[save_index as usize] =
+                        CURRENT_INDEX.load(Ordering::SeqCst);
+                    sync_data.offline_checks = item_sync::OFFLINE_CHECKS.lock().unwrap().clone();
+
                     item_sync::OFFLINE_CHECKS.lock().unwrap().clear();
-                    if let Err(e) = item_sync::write_sync_data_file(sync_data) {
+                    if let Err(e) = item_sync::write_sync_data_file(sync_data, client) {
                         log::error!("Error writing sync data: {}", e);
                     }
                 }

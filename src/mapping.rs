@@ -1,7 +1,7 @@
 use crate::constants::{Difficulty, Rank};
 use crate::data::generated_locations;
 use archipelago_rs::{Client, CreateAsHint, Location};
-use randomizer_utilities::{archipelago_utilities, APVersion};
+use randomizer_utilities::{APVersion, archipelago_utilities};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;

@@ -1,12 +1,15 @@
 use crate::check_handler::{Location, LocationType, TX_LOCATION, take_away_received_item};
 use crate::constants::{MISSION_ITEM_MAP, REMOTE_ID};
 use crate::game_manager::{ARCHIPELAGO_DATA, ArchipelagoData, Style, get_mission};
-use crate::mapping::{AutoHint, DeathlinkSetting, Goal, MAPPING, ModMode, ModModeData, OVERLAY_INFO, OverlayInfo, get_secret_missions, get_adjudicators};
+use crate::mapping::{
+    AutoHint, DeathlinkSetting, Goal, MAPPING, ModMode, ModModeData, OVERLAY_INFO, OverlayInfo,
+    get_adjudicators, get_secret_missions,
+};
 use crate::ui::overlay::{MessageSegment, MessageType, OverlayMessage};
 use crate::ui::{overlay, text_handler};
 use crate::{
-    check_handler, constants, game_manager, hint_game, hook, location_handler,
-    skill_manager, utilities,
+    check_handler, constants, game_manager, hint_game, hook, location_handler, skill_manager,
+    utilities,
 };
 use randomizer_utilities::ui::font_handler::{WHITE, YELLOW};
 use std::env;

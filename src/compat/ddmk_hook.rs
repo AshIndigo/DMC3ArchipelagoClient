@@ -144,7 +144,7 @@ pub fn setup_ddmk_hook() {
                 main_func_addr: 0xC17B0,
                 timestep_func_addr: 0x1DC50,
                 ddmk_ui_enabled: DDMK_UI_ENABLED,
-                hooked_render: hooked_render as *const() as _,
+                hooked_render: hooked_render as *const () as _,
                 text_addr: 0x65210,
                 end_addr: 0x24cd0,
                 begin_addr: 0x1f640,
