@@ -155,7 +155,7 @@ fn load_slot(param_1: usize, save_index: i32) {
     match AP_CORE.get().unwrap().lock() {
         Ok(mut core) => {
             let client = core.connection.client_mut().unwrap();
-            match item_sync::read_save_data() {
+            match item_sync::read_save_data(client) {
                 Ok(sync_data) => {
                     CURRENT_INDEX
                         .store(sync_data.sync_index[save_index as usize], Ordering::SeqCst);
@@ -191,7 +191,7 @@ fn save_to_slot(param_1: usize, save_index: i32) {
     match AP_CORE.get().unwrap().lock() {
         Ok(core) => {
             let client = core.connection.client().unwrap();
-            match item_sync::read_save_data() {
+            match item_sync::read_save_data(client) {
                 Ok(mut sync_data) => {
                     sync_data.sync_index[save_index as usize] =
                         CURRENT_INDEX.load(Ordering::SeqCst);
