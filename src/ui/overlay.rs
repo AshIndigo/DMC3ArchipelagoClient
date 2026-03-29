@@ -310,7 +310,7 @@ fn draw_version_info(
             250.0,
             screen_width,
             screen_height,
-            &WHITE,
+            get_default_color(),
         );
         font_handler::draw_string(
             state,
@@ -335,7 +335,7 @@ fn draw_version_info(
             300.0,
             screen_width,
             screen_height,
-            &WHITE,
+            get_default_color(),
         );
         for (i, mod_info) in status.mod_information.iter().enumerate() {
             let base = 350;
