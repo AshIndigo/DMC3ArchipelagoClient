@@ -1,4 +1,4 @@
-use crate::constants::{Difficulty, Rank};
+use crate::constants::{Character, Difficulty, Rank};
 use crate::data::generated_locations;
 use archipelago_rs::{Client, CreateAsHint, Location};
 use randomizer_utilities::{APVersion, archipelago_utilities};
@@ -176,6 +176,26 @@ where
     }
 }
 
+fn parse_character<'de, D>(deserializer: D) -> Result<Character, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let val = Value::deserialize(deserializer)?;
+    match val {
+        Value::Number(n) => match Character::from_repr(n.as_i64().unwrap_or_default() as usize) {
+            None => Err(serde::de::Error::custom(format!(
+                "Invalid character option: {}",
+                n
+            ))),
+            Some(n) => Ok(n),
+        },
+        other => Err(serde::de::Error::custom(format!(
+            "Unexpected type: {:?}",
+            other
+        ))),
+    }
+}
+
 #[derive(
     Copy,
     Clone,
@@ -197,15 +217,21 @@ pub enum AutoHint {
     None,
 }
 
-#[derive(Deserialize, Serialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct Mapping {
     // For mapping JSON
     pub starter_items: Vec<String>,
     pub adjudicators: Option<HashMap<String, AdjudicatorData>>,
+    #[serde(default)]
     pub start_melee: u8,
+    #[serde(default)]
     pub start_second_melee: u8,
+    #[serde(default)]
     pub start_gun: u8,
+    #[serde(default)]
     pub start_second_gun: u8,
+    #[serde(default)]
+    pub start_melee_vergil: u8,
     pub randomize_skills: bool,
     pub randomize_gun_levels: bool,
     pub randomize_styles: bool,
@@ -242,6 +268,8 @@ pub struct Mapping {
     pub mission_clear_difficulty: Difficulty,
     #[serde(default = "default_difficulty_list")]
     pub initially_unlocked_difficulties: Vec<Difficulty>,
+    #[serde(deserialize_with = "parse_character")]
+    pub character_selection: Character,
 }
 
 impl Mapping {

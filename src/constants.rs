@@ -941,6 +941,10 @@ pub fn get_weapon_id(weapon: &str) -> u8 {
         "Artemis" => 7,
         "Spiral" => 8,
         "Kalina Ann" => 9,
+
+        "Yamato" => 0,
+        "Beowulf (Vergil)" => 1,
+        "Force Edge" => 2,
         "None" => 0xFF,
         _ => 0xFF,
     }
@@ -961,9 +965,10 @@ impl Coordinates {
     }
 }
 
-#[derive(Copy, Clone, strum_macros::Display, strum_macros::FromRepr)]
-pub(crate) enum Character {
+#[derive(Copy, Clone, Default, Debug, strum_macros::Display, strum_macros::FromRepr)]
+pub enum Character {
     // Values from DDMK, only care about Dante or Vergil though
+    #[default]
     Dante,
     _Bob,
     _Lady,

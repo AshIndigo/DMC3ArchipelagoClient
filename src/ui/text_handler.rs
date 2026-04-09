@@ -1,14 +1,13 @@
 use crate::create_hook;
 use crate::utilities::DMC3_ADDRESS;
 use minhook::{MH_STATUS, MinHook};
-use randomizer_utilities::replace_single_byte;
 use std::ptr;
 use std::ptr::write_unaligned;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{LazyLock, OnceLock};
 
 pub static CANCEL_TEXT: AtomicBool = AtomicBool::new(false);
-pub static LAST_OBTAINED_ID: AtomicU8 = AtomicU8::new(0);
+pub static LAST_OBTAINED_ID: AtomicU32 = AtomicU32::new(0);
 static TEXT_DISPLAYED: LazyLock<usize> = LazyLock::new(|| *DMC3_ADDRESS + 0xCB89A0); // 0x01 if text is being displayed
 
 pub unsafe fn setup_text_hooks() -> Result<(), MH_STATUS> {
@@ -100,7 +99,11 @@ pub static SETUP_ITEM_GET_SCREEN: OnceLock<unsafe extern "C" fn(ptr: usize)> = O
 pub fn setup_item_get_screen(item_get: usize) {
     unsafe {
         if LAST_OBTAINED_ID.load(Ordering::SeqCst) != 0 {
-            replace_single_byte(item_get + 0x36, LAST_OBTAINED_ID.load(Ordering::SeqCst));
+            ptr::write(
+                (item_get + 0x36) as *mut u32,
+                LAST_OBTAINED_ID.load(Ordering::SeqCst),
+            );
+            //replace_single_byte(item_get + 0x36, LAST_OBTAINED_ID.load(Ordering::SeqCst));
         }
         if let Some(original) = SETUP_ITEM_GET_SCREEN.get() {
             original(item_get);

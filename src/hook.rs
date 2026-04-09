@@ -316,6 +316,7 @@ fn modify_adjudicator(
     const LOG_ADJU_DATA: bool = false;
     const RANKING_OFFSET: usize = 0x04;
     const WEAPON_OFFSET: usize = 0x06;
+    //log::debug!("Adju data location: {:#X}", &adjudicator_data);
     for (location_name, entry) in generated_locations::ITEM_MISSION_MAP.iter() {
         // Run through all locations
         if entry.adjudicator && entry.room_number == get_room() {
@@ -689,7 +690,18 @@ pub fn set_player_data(param_1: usize) -> bool {
     game_manager::set_max_hp_and_magic();
     if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
         if mapping.randomize_gun_levels {
-            game_manager::set_gun_levels();
+            match mapping.character_selection {
+                Character::Dante => {
+                    game_manager::set_gun_levels_dante();
+                }
+                Character::Vergil => {
+                    // Do spiral sword stuff
+                    let data = &ARCHIPELAGO_DATA.read().unwrap();
+                }
+                _ => {
+                    game_manager::set_gun_levels_dante();
+                }
+            }
         }
         if mapping.randomize_skills {
             skill_manager::set_skills(&ARCHIPELAGO_DATA.read().unwrap());
@@ -965,7 +977,7 @@ impl UnlockFlags {
         res = res.union(UnlockFlags::DMC1DanteCostume);
         res = res.union(UnlockFlags::ShirtlessDanteCostume);
         //res = res.union(UnlockFlags::Unk3);
-        //res = res.union(UnlockFlags::Vergil);
+        res = res.union(UnlockFlags::Vergil);
         res = res.union(UnlockFlags::BloodyPalace);
         //res = res.union(UnlockFlags::Unk6);
         res = res.union(UnlockFlags::Gallery);
@@ -1013,15 +1025,11 @@ pub fn set_rando_session_data(ptr: usize) {
     }
     log::debug!("Starting new game, setting appropriate data");
     with_session(|s| {
-        if s.char != Character::Dante as u8 {
-            log::error!(
-                "Character is {} not Dante",
-                Character::from_repr(s.char as usize).unwrap()
-            );
-            log::info!("Only Dante is supported at the moment");
-            return;
-        }
         if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
+            if s.char != mapping.character_selection as u8 {
+                log::warn!("Selected character does not match Slot Character, changing to correct character");
+                s.char = mapping.character_selection as u8;
+            }
             // Unlock difficulties, costumes and modes
             unsafe {
                 let difficulty_flags = DifficultyUnlockFlags::create_final_flag(

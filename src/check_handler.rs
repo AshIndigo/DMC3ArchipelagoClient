@@ -366,7 +366,7 @@ pub(crate) fn send_off_location_coords(loc: Location, to_display: u32) {
         tx.send(loc).expect("Failed to send Location!");
         if to_display != u32::MAX {
             clear_high_roller();
-            text_handler::LAST_OBTAINED_ID.store(to_display as u8, SeqCst);
+            text_handler::LAST_OBTAINED_ID.store(to_display, SeqCst);
         }
     }
 }

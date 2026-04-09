@@ -21,13 +21,20 @@ pub(crate) struct ArchipelagoData {
     pub(crate) dt_unlocked: bool,
     gun_levels: [u32; 5],
     style_levels: [i32; 4],
-    pub(crate) stinger_level: u8,
+    pub(crate) stinger_level: u8, // Used for Rebellion and Force Edge
     pub(crate) jet_stream_level: u8,
     pub(crate) reverb_level: u8,
     // Beast uppercut -> Rising dragon
     pub(crate) beowulf_level: u8,
     pub(crate) items: HashSet<String>,
     pub(crate) skills: HashSet<usize>,
+
+    // Vergil Info
+    pub(crate) rapid_slash_level: u8,
+    pub(crate) judgement_cut_level: u8,
+    pub(crate) darkslayer_level: u8,
+    pub(crate) summoned_swords: u8,
+    pub(crate) spiral_swords: bool,
 }
 
 #[derive(Copy, Clone, strum_macros::Display, strum_macros::FromRepr)]
@@ -138,6 +145,14 @@ impl ArchipelagoData {
 
     pub(crate) fn add_beowulf_level(&mut self) {
         self.beowulf_level = (self.beowulf_level + 1).min(2);
+    }
+
+    pub(crate) fn add_rapid_slash_level(&mut self) {
+        self.rapid_slash_level = (self.rapid_slash_level + 1).min(2);
+    }
+
+    pub(crate) fn add_judgement_cut_level(&mut self) {
+        self.judgement_cut_level = (self.judgement_cut_level + 1).min(2);
     }
 }
 
@@ -446,6 +461,7 @@ pub(crate) fn kill_dante() {
     }
 }
 
+// Dante Specific
 pub fn set_session_weapons() {
     if let Ok(data) = ARCHIPELAGO_DATA.read() {
         with_session(|s| {
@@ -489,7 +505,7 @@ pub(crate) fn set_weapons_in_inv() {
     }
 }
 
-pub(crate) fn set_gun_levels() {
+pub(crate) fn set_gun_levels_dante() {
     log::debug!("Setting gun levels");
     with_session(|s| match ARCHIPELAGO_DATA.read() {
         Ok(data) => {

@@ -114,6 +114,17 @@ pub fn get_mapped_item_id(location_name: &str) -> Result<u32, Box<dyn Error>> {
             0x55 => *ITEM_MAP.get_by_left("Artemis").unwrap(),
             0x56 => *ITEM_MAP.get_by_left("Spiral").unwrap(),
             0x57 => *ITEM_MAP.get_by_left("Kalina Ann").unwrap(),
+            // TODO Vergil icons
+            // ID's acquired from file screen, don't know why they are being picky though
+            // Unless I need to change more?
+            0x70 => 0x1A93 - 500,
+            0x71 => 0x1A93 - 500,
+            0x72 => 0x1A93 - 500,
+            // Summoned Swords 1AA3
+            // //(0x73..=0x75)
+            // (0x76..=0x78) => *ITEM_MAP.get_by_left("Rebellion").unwrap(), // Yamato
+            // (0x7A..=0x7C) => *ITEM_MAP.get_by_left("Beowulf").unwrap(), // Beowulf
+            // (0x7D..=0x80) => *ITEM_MAP.get_by_left("Cerberus").unwrap(), // Force Edge
             // It would be neat to have custom pics for styles...
             _ => {
                 log::error!("Unrecognized id {}, default to Remote", id);

@@ -529,7 +529,7 @@ pub fn handle_received_items_packet(
                                 }
                             }
                         }
-                        0x3A..0x53 => {
+                        0x3A..0x53 | 0x76..0x80 => {
                             // For skills
                             if let ModModeData::Normal(mapping) = client.slot_data()
                                 && mapping.randomize_skills
@@ -542,10 +542,10 @@ pub fn handle_received_items_packet(
                             // Gun Levels
                             data.add_gun_level((item.item().id() - 0x53) as usize);
                         }
-                        0x60..0x64 => {
+                        0x60..0x64 | 0x75 => {
                             // Style Handling
                             let style = match item.item().id() {
-                                0x60 => Style::Trickster,
+                                0x60 | 0x75 => Style::Trickster,
                                 0x61 => Style::Swordmaster,
                                 0x62 => Style::Gunslinger,
                                 0x63 => Style::Royalguard,
@@ -586,6 +586,9 @@ pub fn handle_received_items_packet(
 
                                 TX_HINT.get().unwrap().send(ids)?;
                             }
+                        }
+                        0x70..=0x72 => {
+                            // Vergil Weapons
                         }
                         _ => {
                             log::warn!(

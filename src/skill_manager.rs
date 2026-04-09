@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::ops::BitOrAssign;
 use std::ptr::{read_unaligned, write_unaligned};
 
+use crate::constants::Character;
 use std::sync::LazyLock;
 
 struct SkillData {
@@ -24,12 +25,15 @@ pub static ID_SKILL_MAP: LazyLock<HashMap<usize, &'static str>> = LazyLock::new(
         (0x55, "Artemis Progressive Upgrade"),
         (0x56, "Spiral Progressive Upgrade"),
         (0x57, "Kalina Ann Progressive Upgrade"),
+        (0x73, "Summoned Swords Progressive Upgrade"),
+        (0x74, "Spiral Swords"),
     ]));
     map.extend(HashMap::from([
         (0x60, "Progressive Trickster"),
         (0x61, "Progressive Swordmaster"),
         (0x62, "Progressive Gunslinger"),
         (0x63, "Progressive Royalguard"),
+        (0x75, "Progressive Darkslayer"),
     ]));
     map
 });
@@ -188,26 +192,148 @@ static SKILLS_MAP: LazyLock<HashMap<&str, SkillData>> = LazyLock::new(|| {
                 flag: 0x100000,
             },
         ),
+        (
+            "Yamato - Rapid Slash Level 1",
+            SkillData {
+                id: 0x76,
+                index: 0,
+                flag: 0x10,
+            },
+        ),
+        (
+            "Yamato - Rapid Slash Level 2",
+            SkillData {
+                id: 0x77,
+                index: 0,
+                flag: 0x20,
+            },
+        ),
+        (
+            "Yamato - Judgement Cut Level 1",
+            SkillData {
+                id: 0x78,
+                index: 0,
+                flag: 0x200,
+            },
+        ),
+        (
+            "Yamato - Judgement Cut Level 2",
+            SkillData {
+                id: 0x79,
+                index: 0,
+                flag: 0x400,
+            },
+        ),
+        (
+            "Beowulf - Starfall Level 2",
+            SkillData {
+                id: 0x7A,
+                index: 0,
+                flag: 0x800000,
+            },
+        ),
+        (
+            "Beowulf - Rising Sun",
+            SkillData {
+                id: 0x7B,
+                index: 0,
+                flag: 0x2000000,
+            },
+        ),
+        (
+            "Beowulf - Lunar Phase Level 2",
+            SkillData {
+                id: 0x7C,
+                index: 0,
+                flag: 0x4000000,
+            },
+        ),
+        (
+            "Force Edge - Helm Breaker Level 2",
+            SkillData {
+                id: 0x7D,
+                index: 1,
+                flag: 0x4,
+            },
+        ),
+        (
+            "Force Edge - Stinger Level 1",
+            SkillData {
+                id: 0x7E,
+                index: 1,
+                flag: 0x40,
+            },
+        ),
+        (
+            "Force Edge - Stinger Level 2",
+            SkillData {
+                id: 0x7F,
+                index: 1,
+                flag: 0x80,
+            },
+        ),
+        (
+            "Force Edge - Round Trip",
+            SkillData {
+                id: 0x80,
+                index: 1,
+                flag: 0x100,
+            },
+        ),
+        // Technically guns, but DMC3 can be weird
+        (
+            "Summoned Swords Level 2",
+            SkillData {
+                id: 0x73,
+                index: 1,
+                flag: 0x40000,
+            },
+        ),
+        (
+            "Summoned Swords Level 3",
+            SkillData {
+                id: 0x74,
+                index: 1,
+                flag: 0xC0000,
+            },
+        ),
+        (
+            "Spiral Swords",
+            SkillData {
+                id: 0x75,
+                index: 1,
+                flag: 0x200000,
+            },
+        ),
     ])
 });
-static DEFAULT_SKILLS: [u32; 8] = [
+static DEFAULT_SKILLS_DANTE: [u32; 8] = [
     // I should see what else this lets me control...
     0xFFFF5E7F, 0xA7FFAF5F, 0xAF1FFFF3, 0xCB9FFFF9, 0xFBFBFFFE, 0xFFFFEFFD, 0xFFE3FEFF, 0xFFFFFFFF,
 ];
 
+static DEFAULT_SKILLS_VERGIL: [u32; 8] = [
+    // I should see what else this lets me control...
+    0xF4FFF9CF, 0xFFC7FE37, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF,
+];
+
 pub(crate) fn reset_expertise() {
     game_manager::with_session(|s| {
-        s.expertise = DEFAULT_SKILLS;
+        s.expertise = match Character::from_repr(s.char as usize).unwrap_or_default() {
+            Character::Dante => DEFAULT_SKILLS_DANTE,
+            Character::Vergil => DEFAULT_SKILLS_VERGIL,
+            _ => DEFAULT_SKILLS_DANTE,
+        };
+        if let Some(char_data_ptr) = utilities::get_active_char_address() {
+            unsafe {
+                write_unaligned(
+                    (char_data_ptr + EXPERTISE_OFFSET) as *mut [u32; 8],
+                    s.expertise,
+                )
+            }
+        }
     })
     .expect("Unable to reset expertise");
-    if let Some(char_data_ptr) = utilities::get_active_char_address() {
-        unsafe {
-            write_unaligned(
-                (char_data_ptr + EXPERTISE_OFFSET) as *mut [u32; 8],
-                DEFAULT_SKILLS,
-            )
-        }
-    }
 }
 
 const EXPERTISE_OFFSET: usize = 0x3FEC; // 0x400c
@@ -244,18 +370,16 @@ pub(crate) fn set_skills(data: &ArchipelagoData) {
 // Certain skills have two levels they can gain
 pub(crate) fn add_skill(id: usize, data: &mut ArchipelagoData) {
     match id {
-        0x40 => {
-            data.add_stinger_level();
-        }
-        0x46 => {
-            data.add_jet_stream_level();
-        }
-        0x4A => {
-            data.add_reverb_level();
-        }
-        0x50 => {
-            data.add_beowulf_level();
-        }
+        // Rebellion
+        0x40 => data.add_stinger_level(),
+        0x46 => data.add_jet_stream_level(),
+        0x4A => data.add_reverb_level(),
+        0x50 => data.add_beowulf_level(),
+        // Vergil Stuff
+        0x76 => data.add_rapid_slash_level(),
+        0x78 => data.add_judgement_cut_level(),
+        // Force Edge
+        0x7E => data.add_stinger_level(),
         _ => {}
     }
 
@@ -278,6 +402,16 @@ pub(crate) fn add_skill(id: usize, data: &mut ArchipelagoData) {
         0x50 => match data.beowulf_level {
             1 => 0x50,
             2 => 0x51,
+            _ => unreachable!(),
+        },
+        0x76 => match data.rapid_slash_level {
+            1 => 0x76,
+            2 => 0x77,
+            _ => unreachable!(),
+        },
+        0x78 => match data.judgement_cut_level {
+            1 => 0x79,
+            2 => 0x7A,
             _ => unreachable!(),
         },
         _ => id,
