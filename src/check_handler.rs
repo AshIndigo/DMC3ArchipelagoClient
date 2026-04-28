@@ -83,6 +83,7 @@ pub fn item_non_event(item_struct: usize) {
                         y: y_coord_val,
                         z: z_coord_val,
                     },
+                    to_display: false,
                 };
                 let location_name = location_handler::get_location_name_by_data(&loc);
                 log::debug!(
@@ -157,6 +158,7 @@ pub fn item_event(loc_chk_flg: usize, item_id: i16, unknown: i32) {
                 room: game_manager::get_room(),
                 mission: get_mission(),
                 coordinates: EMPTY_COORDINATES,
+                to_display: false,
             };
             const EXTRA_OUTPUT: bool = true;
             if EXTRA_OUTPUT && !EXTRA_EXTRA_OUTPUT {
@@ -243,6 +245,7 @@ pub fn mission_complete_check(cuid_result: usize, ranking: i32) -> i32 {
                         room: 0,
                         mission: s.mission,
                         coordinates: EMPTY_COORDINATES,
+                        to_display: true,
                     },
                     u32::MAX,
                 );
@@ -258,6 +261,7 @@ pub fn mission_complete_check(cuid_result: usize, ranking: i32) -> i32 {
                         room: 0,
                         mission: s.mission,
                         coordinates: EMPTY_COORDINATES,
+                        to_display: true,
                     },
                     u32::MAX,
                 );
@@ -279,8 +283,10 @@ pub fn purchase_item_check(ptr: usize) {
         }
     }
 
+    log::debug!("Purchase item check");
     if let Some(mapping) = MAPPING.read().unwrap().as_ref()
         && mapping.shop_orb_checks
+    // TODO This might be laggy? Set an atomic instead? Disable the hooks if its not needed?
     {
         // Figure out the index of the item we just bought from the store.
         // 0xC8F263 is to check whether we are on gold or yellow
@@ -314,6 +320,7 @@ pub fn purchase_item_check(ptr: usize) {
                     mission: amt as u32,
                     room: 0,
                     coordinates: EMPTY_COORDINATES,
+                    to_display: true,
                 },
                 u32::MAX,
             );
@@ -338,11 +345,16 @@ pub(crate) struct Location {
     pub(crate) room: i32,
     pub(crate) mission: u32,
     pub coordinates: Coordinates,
+    pub to_display: bool,
 }
 
 impl Display for Location {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Room ID: {:#} Item ID: {:#x}", self.room, self.item_id)
+        write!(
+            f,
+            "Mission: {:#} Room ID: {:#} Item ID: {:#x}",
+            self.mission, self.room, self.item_id
+        )
     }
 }
 

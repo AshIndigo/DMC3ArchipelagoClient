@@ -866,6 +866,8 @@ pub struct ItemEntry {
     PartialOrd,
     strum_macros::Display,
     strum_macros::FromRepr,
+    strum_macros::EnumIter,
+    strum_macros::IntoStaticStr,
 )]
 pub enum Difficulty {
     #[default]
@@ -968,4 +970,36 @@ pub(crate) enum Character {
     _Bob,
     _Lady,
     Vergil,
+}
+
+#[derive(
+    Copy, Clone, strum_macros::Display, strum_macros::FromRepr, strum_macros::IntoStaticStr,
+)]
+pub(crate) enum Style {
+    Trickster = 0,
+    Swordmaster = 1,
+    Gunslinger = 2,
+    Royalguard = 3,
+}
+
+impl Style {
+    pub fn index(&self) -> usize {
+        *self as usize
+    }
+
+    pub fn get_internal_order_index(&self) -> usize {
+        match &self {
+            Style::Trickster => 2,
+            Style::Swordmaster => 0,
+            Style::Gunslinger => 1,
+            Style::Royalguard => 3,
+        }
+    }
+
+    pub const INTERNAL_ORDER: [Style; 4] = [
+        Style::Swordmaster,
+        Style::Gunslinger,
+        Style::Trickster,
+        Style::Royalguard,
+    ];
 }

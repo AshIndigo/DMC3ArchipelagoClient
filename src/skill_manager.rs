@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::ops::BitOrAssign;
 use std::ptr::{read_unaligned, write_unaligned};
 
+use bitflags::bitflags;
 use std::sync::LazyLock;
 
 struct SkillData {
@@ -194,6 +195,12 @@ static DEFAULT_SKILLS: [u32; 8] = [
     // I should see what else this lets me control...
     0xFFFF5E7F, 0xA7FFAF5F, 0xAF1FFFF3, 0xCB9FFFF9, 0xFBFBFFFE, 0xFFFFEFFD, 0xFFE3FEFF, 0xFFFFFFFF,
 ];
+
+bitflags! {
+    pub struct Exp0: u32 {
+
+    }
+}
 
 pub(crate) fn reset_expertise() {
     game_manager::with_session(|s| {

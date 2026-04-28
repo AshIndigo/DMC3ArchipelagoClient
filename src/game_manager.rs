@@ -1,8 +1,8 @@
 use crate::constants::{
     BASE_HP, Difficulty, GUN_NAMES, ITEM_MAP, ITEM_OFFSET_MAP, ItemCategory, MAX_HP, MAX_MAGIC,
-    MELEE_NAMES, ONE_ORB, get_items_by_category, get_weapon_id,
+    MELEE_NAMES, ONE_ORB, Style, get_items_by_category, get_weapon_id,
 };
-use crate::hook::ORIGINAL_GIVE_STYLE_XP;
+use crate::hooks::hook::ORIGINAL_GIVE_STYLE_XP;
 use crate::mapping::MAPPING;
 use crate::utilities;
 use crate::utilities::{DMC3_ADDRESS, get_inv_address, read_data_from_address};
@@ -28,29 +28,6 @@ pub(crate) struct ArchipelagoData {
     pub(crate) beowulf_level: u8,
     pub(crate) items: HashSet<String>,
     pub(crate) skills: HashSet<usize>,
-}
-
-#[derive(Copy, Clone, strum_macros::Display, strum_macros::FromRepr)]
-pub(crate) enum Style {
-    Trickster = 0,
-    Swordmaster = 1,
-    Gunslinger = 2,
-    Royalguard = 3,
-}
-
-impl Style {
-    pub fn index(&self) -> usize {
-        *self as usize
-    }
-
-    pub fn get_internal_order(&self) -> usize {
-        match &self {
-            Style::Trickster => 2,
-            Style::Swordmaster => 0,
-            Style::Gunslinger => 1,
-            Style::Royalguard => 3,
-        }
-    }
 }
 
 pub static ARCHIPELAGO_DATA: LazyLock<RwLock<ArchipelagoData>> =
@@ -172,7 +149,7 @@ pub struct SessionData {
     pub max_hp: f32,
     pub max_magic: f32,
     pub style: u32,
-    style_levels: [u32; 6],
+    pub(crate) style_levels: [u32; 6],
     style_xp: [f32; 6],
     pub(crate) expertise: [u32; 8],
 }
@@ -541,10 +518,11 @@ pub(crate) fn apply_style_levels(style: Style) {
     //set_style_levels();
     if let Some(char_data_ptr) = utilities::get_active_char_address() {
         unsafe {
+            // Note these are based on default values. If I randomized them I will to update this section
             const LEVEL_1_XP: f32 = 30000f32; // XP To get to LV2
             const LEVEL_2_XP: f32 = 99999f32; // LV2 -> LV3
             let equipped_style = read_data_from_address::<u32>(char_data_ptr + 0x6338) as usize;
-            if style.get_internal_order() == equipped_style {
+            if style.get_internal_order_index() == equipped_style {
                 let level = read_data_from_address::<u32>(char_data_ptr + 0x6358);
                 if let Some(char_data_ptr) = utilities::get_active_char_address() {
                     match level {
@@ -576,6 +554,19 @@ pub struct TotalRankings {
     pub very_hard_ranking: [u8; 20],
     pub dmd_ranking: [u8; 20],
     pub hoh_ranking: [u8; 20],
+}
+
+impl TotalRankings {
+    pub fn get_ranking_for_difficulty(&self, difficulty: Difficulty) -> [u8; 20] {
+        match difficulty {
+            Difficulty::Easy => self.easy_ranking,
+            Difficulty::Normal => self.normal_ranking,
+            Difficulty::Hard => self.hard_ranking,
+            Difficulty::VeryHard => self.very_hard_ranking,
+            Difficulty::DanteMustDie => self.dmd_ranking,
+            Difficulty::HeavenOrHell => self.hoh_ranking,
+        }
+    }
 }
 
 static RANKING_PTR: LazyLock<usize> = LazyLock::new(|| *DMC3_ADDRESS + 0xC8F8E5);

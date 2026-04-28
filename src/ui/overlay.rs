@@ -212,7 +212,6 @@ pub(crate) unsafe extern "system" fn present_hook(
                     screen_height,
                     &WHITE,
                 );
-                CANT_PURCHASE.store(false, Ordering::SeqCst);
             }
 
             pop_buffer_message();

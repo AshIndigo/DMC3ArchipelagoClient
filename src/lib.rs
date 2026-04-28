@@ -19,11 +19,12 @@ mod constants;
 mod data;
 mod game_manager;
 mod hint_game;
-mod hook;
+mod hooks;
 mod location_handler;
 mod mapping;
 mod save_handler;
 mod skill_manager;
+pub mod tracker;
 mod ui;
 mod utilities;
 

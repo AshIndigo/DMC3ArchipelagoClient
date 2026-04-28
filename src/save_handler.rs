@@ -1,5 +1,6 @@
 use crate::archipelago::CONNECTED;
 use crate::game_manager::{ARCHIPELAGO_DATA, ArchipelagoData};
+use crate::tracker::initial_connection_updates;
 use crate::utilities::DMC3_ADDRESS;
 use crate::{AP_CORE, archipelago, create_hook, utilities};
 use minhook::MH_STATUS;
@@ -165,6 +166,9 @@ fn load_slot(param_1: usize, save_index: i32) {
                         client,
                     ) {
                         log::error!("Failed to handle received items: {:?}", e);
+                    }
+                    if let Err(e) = initial_connection_updates(client) {
+                        log::error!("Failed to perform data storage updates: {:?}", e);
                     }
                 }
 

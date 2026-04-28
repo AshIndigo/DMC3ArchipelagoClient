@@ -1,6 +1,6 @@
 use crate::check_handler::{Location, LocationType, TX_LOCATION, take_away_received_item};
-use crate::constants::{MISSION_ITEM_MAP, REMOTE_ID};
-use crate::game_manager::{ARCHIPELAGO_DATA, ArchipelagoData, Style, get_mission};
+use crate::constants::{MISSION_ITEM_MAP, REMOTE_ID, Style};
+use crate::game_manager::{ARCHIPELAGO_DATA, ArchipelagoData, get_mission};
 use crate::mapping::{
     AutoHint, DeathlinkSetting, Goal, MAPPING, ModMode, ModModeData, OVERLAY_INFO, OverlayInfo,
     get_adjudicators, get_secret_missions,
@@ -8,14 +8,14 @@ use crate::mapping::{
 use crate::ui::overlay::{MessageSegment, MessageType, OverlayMessage};
 use crate::ui::{overlay, text_handler};
 use crate::{
-    check_handler, constants, game_manager, hint_game, hook, location_handler, skill_manager,
-    utilities,
+    check_handler, constants, game_manager, hint_game, location_handler, skill_manager, utilities,
 };
 use randomizer_utilities::ui::font_handler::{WHITE, YELLOW};
 use std::env;
 
 use crate::data::generated_locations;
 use crate::hint_game::TX_HINT;
+use crate::hooks::hook;
 use archipelago_rs::{
     AsItemId, Client, ClientStatus, Connection, ConnectionOptions, ConnectionState, CreateAsHint,
     DeathLinkOptions, Event, ItemHandling,
@@ -378,6 +378,24 @@ fn handle_item_receive(
         .get(location_key)
     {
         Some(located_item) => {
+            if received_item.to_display {
+                let rec_msg: Vec<MessageSegment> = vec![
+                    MessageSegment::new("Sent ".to_string(), WHITE),
+                    MessageSegment::new(
+                        located_item.item().name().to_string(),
+                        overlay::get_color_for_item(located_item),
+                    ),
+                    MessageSegment::new(" to ".to_string(), WHITE),
+                    MessageSegment::new(located_item.receiver().alias().parse()?, YELLOW),
+                ];
+                overlay::add_message(OverlayMessage::new(
+                    rec_msg,
+                    Duration::from_secs(3),
+                    0.0,
+                    0.0,
+                    MessageType::Notification,
+                ));
+            }
             location_handler::edit_end_event(location_key); // Needed so a mission will end properly after picking up its trigger.
             text_handler::replace_unused_with_text(archipelago_utilities::get_description(
                 located_item,
