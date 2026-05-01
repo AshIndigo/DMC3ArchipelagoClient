@@ -197,12 +197,24 @@ static DEFAULT_SKILLS: [u32; 8] = [
 ];
 
 /*
-    Notes:
-        - Free Ride, Taunt, Jump/Wall Jump are all built in
-        TODO
-        - Need to check Vergil stuff
-        - Need to run through all skills again, see if there's any holes
- */
+   Notes:
+       - Free Ride, Taunt, Jump/Wall Jump are all built in
+       TODO
+       - Need to check Vergil stuff
+       - Need to run through all skills again, see if there's any holes
+       - To Test/Find
+           - Rebellion - High Time, Float (Glide), Slash Roll (Pole Play with Rebellion)
+           - A&R - Million Slash (Crazy Combo 3)
+           - Nevan - Thunder Bolt and Vortex (Air raid abilities)
+           - Beowulf - Tornado (Crazy RI)
+           - E&I - Wild Stomp, Rain Storm
+           - Shotgun - Point Blank, finisher for gun stinger
+           - Artemis - Acid Rain
+           - Spiral - Reflector
+           - Kalina Ann - More Grapple testing, might be multistep
+
+
+*/
 bitflags! {
     pub struct Exp0: u32 {
         // Default                        0b1111_1111_1111_1111_0101_1110_0111_1111;
@@ -241,12 +253,12 @@ bitflags! {
         const Cerberus_Combo_A_1 =        0b0100_0000_0000_0000_0000_0000_0000_0000;
         const Cerberus_Combo_A_2 =        0b1000_0000_0000_0000_0000_0000_0000_0000;
 
-
+        const Cerberus_Combo_A_B =        0b1100_0000_0000_0000_0000_0000_0000_0000;
     }
 
     pub struct Exp1: u32 {
         // Default                        0b1010_0111_1111_1111_1010_1111_0101_1111;
-        const Unknown =                   0b1000_0000_0000_0011_1010_0010_0000_0000;
+        const Unknown =                   0b1000_0000_0000_0011_1000_0000_0000_0000;
         // Continued Cerberus Combo 1
         const Cerberus_Combo_A_3 =        0b0000_0000_0000_0000_0000_0000_0000_0001;
         const Cerberus_Combo_A_4 =        0b0000_0000_0000_0000_0000_0000_0000_0010;
@@ -264,10 +276,13 @@ bitflags! {
         const Cerberus_Revolver =         0b0000_0000_0000_0000_0000_0000_1000_0000;
         const Force_Edge_Round_Trip =     0b0000_0000_0000_0000_0000_0001_0000_0000;
         const Cerberus_Swing =            0b0000_0000_0000_0000_0000_0001_0000_0000;
+        // Combo 2 Crazy
+        const Cerberus_Satellite =        0b0000_0000_0000_0000_0000_0010_0000_0000;
         // Style
         const Cerberus_Flicker =          0b0000_0000_0000_0000_0000_0100_0000_0000;
         const Cerberus_Air_Flicker =      0b0000_0000_0000_0000_0000_1000_0000_0000;
         const Cerberus_Crystal =          0b0000_0000_0000_0000_0001_0000_0000_0000;
+        const Cerberus_Million_Carats =   0b0000_0000_0000_0000_0010_0000_0000_0000;
         const Cerberus_Ice_Age =          0b0000_0000_0000_0000_0100_0000_0000_0000;
         // Agni & Rudra Combo 1
         const AgniAndRudra_Combo_A_1 =    0b0000_0000_0000_0100_0000_0000_0000_0000;
@@ -288,7 +303,7 @@ bitflags! {
 
     pub struct Exp2: u32 {
         // Default                        0b1010_1111_0001_1111_1111_1111_1111_0011;
-        const Unknown =                   0b1010_0000_0000_1100_1111_1111_1000_0001;
+        const Unknown =                   0b1000_0000_0000_1100_1111_1111_1000_0001;
         const AgniAndRudra_Cross_Swords = 0b0000_0000_0000_0000_0000_0000_0000_0010;
         // Both Twister+Tempest?
         const AgniAndRudra_Crawler =      0b0000_0000_0000_0000_0000_0000_0000_0100;
@@ -300,19 +315,19 @@ bitflags! {
         const AgniAndRudra_Sky_Dance_2 =  0b0000_0000_0000_0000_0000_0000_0010_0000;
         // Spin down to the ground, independent
         const AgniAndRudra_Sky_Dance_3 =  0b0000_0000_0000_0000_0000_0000_0100_0000;
-        // Store
-        const Nevan_Reverb_Shock_1 =      0b0000_0000_0100_0000_0000_0000_0000_0000;
-        const Nevan_Reverb_Shock_2 =      0b0000_0000_1000_0000_0000_0000_0000_0000;
-        const Nevan_Bat_Rift_2 =          0b0000_0000_0010_0000_0000_0000_0000_0000;
         const Nevan_Tune_Up =             0b0000_0000_0000_0001_0000_0000_0000_0000;
         // Needs Tune Up, Also includes Jam Session
         const Neva_Combo_ABC =            0b0000_0000_0000_0010_0000_0000_0000_0000;
         const Nevan_Bat_Rift =            0b0000_0000_0001_0000_0000_0000_0000_0000;
+        const Nevan_Bat_Rift_2 =          0b0000_0000_0010_0000_0000_0000_0000_0000;
+        const Nevan_Reverb_Shock_1 =      0b0000_0000_0100_0000_0000_0000_0000_0000;
+        const Nevan_Reverb_Shock_2 =      0b0000_0000_1000_0000_0000_0000_0000_0000;
         const Nevan_Air_Play =            0b0000_0001_0000_0000_0000_0000_0000_0000;
         const Nevan_Slash =               0b0000_0010_0000_0000_0000_0000_0000_0000;
         const Nevan_Air_Slash =           0b0000_0100_0000_0000_0000_0000_0000_0000;
         // Style
         const Nevan_Feedback =            0b0001_0000_0000_0000_0000_0000_0000_0000;
+        const Nevan_Crazy_Roll =          0b0010_0000_0000_0000_0000_0000_0000_0000;
         const Nevan_Distortion =          0b0100_0000_0000_0000_0000_0000_0000_0000;
     }
 

@@ -176,14 +176,7 @@ impl ArchipelagoCore {
                         hint_game::FLOORS_PER_HINT.store(val, Ordering::SeqCst);
                     }
                 }
-                Event::DeathLink {
-                    games: _,
-                    slots: _,
-                    tags: _,
-                    time: _,
-                    cause,
-                    source,
-                } => {
+                Event::DeathLink { cause, source, .. } => {
                     overlay::add_message(OverlayMessage::new(
                         vec![MessageSegment::new(
                             format!("{}: {}", source, cause.unwrap_or_default()),
