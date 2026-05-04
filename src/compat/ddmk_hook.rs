@@ -1,12 +1,13 @@
 use crate::archipelago::CONNECTED;
 use crate::constants::ItemCategory;
+use crate::hooks::check_handler;
 use crate::ui::text_handler;
 use crate::utilities::read_data_from_address;
-use crate::{check_handler, config, constants, game_manager};
+use crate::{config, constants, game_manager};
 use imgui_sys::{ImGuiCond, ImGuiCond_Appearing, ImGuiWindowFlags, ImVec2};
 use randomizer_utilities::dmc::common_ddmk;
 use randomizer_utilities::dmc::common_ddmk::{SETUP, checkbox_text};
-use randomizer_utilities::dmc::dmc_constants::DDMKHandler;
+use randomizer_utilities::dmc::dmc_helpers::DDMKHandler;
 use randomizer_utilities::get_base_address;
 use std::os::raw::c_char;
 use std::sync::LazyLock;

@@ -1,9 +1,8 @@
 use crate::game_manager::ArchipelagoData;
-use crate::{game_manager, utilities};
 use std::collections::HashMap;
 use std::ops::BitOrAssign;
-use std::ptr::{read_unaligned, write_unaligned};
 
+use crate::data::game_structs::{CharacterData, GameData, SessionData};
 use bitflags::bitflags;
 use std::sync::LazyLock;
 
@@ -199,7 +198,7 @@ static DEFAULT_SKILLS: [u32; 8] = [
 /*
    Notes:
        - Free Ride, Taunt, Jump/Wall Jump are all built in
-       TODO
+       TODO Skill notes
        - Need to check Vergil stuff
        - Need to run through all skills again, see if there's any holes
        - To Test/Find
@@ -212,8 +211,6 @@ static DEFAULT_SKILLS: [u32; 8] = [
            - Artemis - Acid Rain
            - Spiral - Reflector
            - Kalina Ann - More Grapple testing, might be multistep
-
-
 */
 bitflags! {
     pub struct Exp0: u32 {
@@ -422,47 +419,27 @@ bitflags! {
     }
 }
 
-pub(crate) fn test() {
-    let test: u32 = Exp0::all().bits();
-    //log::debug!("Flags: {:?}", Exp0::from_bits_retain(test))
-}
-
 pub(crate) fn reset_expertise() {
-    game_manager::with_session(|s| {
+    SessionData::with_mut(|s| {
         s.expertise = DEFAULT_SKILLS;
     })
     .expect("Unable to reset expertise");
-    if let Some(char_data_ptr) = utilities::get_active_char_address() {
-        unsafe {
-            write_unaligned(
-                (char_data_ptr + EXPERTISE_OFFSET) as *mut [u32; 8],
-                DEFAULT_SKILLS,
-            )
-        }
-    }
+    let _ = CharacterData::with_mut(|c| {
+        c.expertise = DEFAULT_SKILLS;
+    });
 }
-
-const EXPERTISE_OFFSET: usize = 0x3FEC; // 0x400c
 
 fn give_skill(skill_id: &usize) {
     // This works, might not update files? need to double-check
     let data = SKILLS_MAP.get(ID_SKILL_MAP.get(skill_id).unwrap()).unwrap();
-    game_manager::with_session(|s| {
+    SessionData::with_mut(|s| {
         s.expertise[data.index].bitor_assign(data.flag);
     })
     .expect("Unable to give skill");
 
-    if let Some(char_data_ptr) = utilities::get_active_char_address() {
-        unsafe {
-            let mut active_expertise =
-                read_unaligned((char_data_ptr + EXPERTISE_OFFSET) as *mut [u32; 8]);
-            active_expertise[data.index].bitor_assign(data.flag);
-            write_unaligned(
-                (char_data_ptr + EXPERTISE_OFFSET) as *mut [u32; 8],
-                active_expertise,
-            )
-        }
-    }
+    let _ = CharacterData::with_mut(|c| {
+        c.expertise[data.index].bitor_assign(data.flag);
+    });
 }
 
 pub(crate) fn set_skills(data: &ArchipelagoData) {

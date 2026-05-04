@@ -5,21 +5,9 @@ use std::sync::LazyLock;
 /// The base address for DMC3
 pub static DMC3_ADDRESS: LazyLock<usize> = LazyLock::new(|| get_base_address("dmc3.exe"));
 
-// Seems to sometimes flicker to true when loading? At least when I went to the save selection screen
-pub fn is_on_main_menu() -> bool {
+pub(crate) fn is_on_main_menu() -> bool {
+    // Seems to sometimes flicker to true when loading? At least when I went to the save selection screen
     read_data_from_address(*DMC3_ADDRESS + 0x5D9213)
-}
-
-pub fn get_inv_address() -> Option<usize> {
-    const INVENTORY_PTR: usize = 0xC90E28 + 0x8;
-    let val = read_data_from_address(*DMC3_ADDRESS + INVENTORY_PTR);
-    if val == 0 { None } else { Some(val) }
-}
-
-pub fn get_active_char_address() -> Option<usize> {
-    const ACTIVE_CHAR_PTR: usize = 0xCF2548;
-    let val = read_data_from_address(*DMC3_ADDRESS + ACTIVE_CHAR_PTR);
-    if val == 0 { None } else { Some(val) }
 }
 
 pub fn get_event_address() -> Option<usize> {

@@ -1,27 +1,27 @@
-use crate::check_handler::{Location, LocationType, TX_LOCATION, take_away_received_item};
 use crate::constants::{MISSION_ITEM_MAP, REMOTE_ID, Style};
-use crate::game_manager::{ARCHIPELAGO_DATA, ArchipelagoData, get_mission};
+use crate::game_manager::{ARCHIPELAGO_DATA, ArchipelagoData, get_mission, set_weapons_in_inv};
+use crate::hooks::check_handler::{Location, LocationType, TX_LOCATION, take_away_received_item};
 use crate::mapping::{
     AutoHint, DeathlinkSetting, Goal, MAPPING, ModMode, ModModeData, OVERLAY_INFO, OverlayInfo,
-    get_adjudicators, get_secret_missions,
+    get_adjudicators, get_mission_completes, get_secret_missions,
 };
-use crate::ui::overlay::{MessageSegment, MessageType, OverlayMessage};
-use crate::ui::{overlay, text_handler};
-use crate::{
-    check_handler, constants, game_manager, hint_game, location_handler, skill_manager, utilities,
-};
+use crate::ui::text_handler;
+use crate::{constants, game_manager, hint_game, location_handler, skill_manager, utilities};
 use randomizer_utilities::ui::font_handler::{WHITE, YELLOW};
 use std::env;
 
+use crate::data::game_structs::{GameData, SessionData};
 use crate::data::generated_locations;
 use crate::hint_game::TX_HINT;
-use crate::hooks::hook;
+use crate::hooks::{check_handler, hook};
 use archipelago_rs::{
     AsItemId, Client, ClientStatus, Connection, ConnectionOptions, ConnectionState, CreateAsHint,
     DeathLinkOptions, Event, ItemHandling,
 };
 use randomizer_utilities::archipelago_utilities::{DeathLinkData, handle_print};
 use randomizer_utilities::item_sync::CURRENT_INDEX;
+use randomizer_utilities::ui::overlay_messages;
+use randomizer_utilities::ui::overlay_messages::{MessageSegment, MessageType, OverlayMessage};
 use randomizer_utilities::{archipelago_utilities, item_sync, setup_channel_pair};
 use std::error::Error;
 use std::sync::OnceLock;
@@ -177,7 +177,7 @@ impl ArchipelagoCore {
                     }
                 }
                 Event::DeathLink { cause, source, .. } => {
-                    overlay::add_message(OverlayMessage::new(
+                    overlay_messages::add_message(OverlayMessage::new(
                         vec![MessageSegment::new(
                             format!("{}: {}", source, cause.unwrap_or_default()),
                             WHITE,
@@ -276,6 +276,10 @@ pub fn run_setup(client: &mut Client<ModModeData>) -> Result<(), Box<dyn Error>>
     // Adjudicator Scouts
     archipelago_utilities::run_scouts(
         client.scout_locations(get_adjudicators(client), CreateAsHint::No),
+    );
+    // Mission Completion Scouts
+    archipelago_utilities::run_scouts(
+        client.scout_locations(get_mission_completes(client), CreateAsHint::No),
     );
 
     // Handle auto hinting
@@ -376,12 +380,12 @@ fn handle_item_receive(
                     MessageSegment::new("Sent ".to_string(), WHITE),
                     MessageSegment::new(
                         located_item.item().name().to_string(),
-                        overlay::get_color_for_item(located_item),
+                        overlay_messages::get_color_for_item(located_item),
                     ),
                     MessageSegment::new(" to ".to_string(), WHITE),
                     MessageSegment::new(located_item.receiver().alias().parse()?, YELLOW),
                 ];
-                overlay::add_message(OverlayMessage::new(
+                overlay_messages::add_message(OverlayMessage::new(
                     rec_msg,
                     Duration::from_secs(3),
                     0.0,
@@ -464,13 +468,20 @@ pub fn handle_received_items_packet(
     index: usize,
     client: &mut Client<ModModeData>,
 ) -> Result<(), Box<dyn Error>> {
-    if game_manager::session_is_valid() {
+    if SessionData::is_valid() {
         if index == 0 {
             // If 0 reset stored data
             *ARCHIPELAGO_DATA.write()? = ArchipelagoData::default();
         }
         match ARCHIPELAGO_DATA.write() {
             Ok(mut data) => {
+                // Not particularly proud of this
+                // TODO Maybe try to save+restore ARCHIPELAGO_DATA's state?
+                data.blue_orbs = 0;
+                data.purple_orbs = 0;
+                data.reset_gun_levels();
+                data.reset_style_levels();
+
                 for item in client.received_items().iter() {
                     // Display overlay text if we're not at the main menu
                     if !utilities::is_on_main_menu()
@@ -480,12 +491,12 @@ pub fn handle_received_items_packet(
                             MessageSegment::new("Received ".to_string(), WHITE),
                             MessageSegment::new(
                                 item.item().name().to_string(),
-                                overlay::get_color_for_item(item.as_ref()),
+                                overlay_messages::get_color_for_item(item.as_ref()),
                             ),
                             MessageSegment::new(" from ".to_string(), WHITE),
                             MessageSegment::new(item.sender().alias().parse()?, YELLOW),
                         ];
-                        overlay::add_message(OverlayMessage::new(
+                        overlay_messages::add_message(OverlayMessage::new(
                             rec_msg,
                             Duration::from_secs(3),
                             0.0,
@@ -493,7 +504,7 @@ pub fn handle_received_items_packet(
                             MessageType::Notification,
                         ));
                     }
-
+                    data.add_item(item.item().name().into());
                     match item.item().as_item_id() {
                         0x01..0x04 => {
                             if item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize {
@@ -508,11 +519,15 @@ pub fn handle_received_items_packet(
                         }
                         0x07 => {
                             data.add_blue_orb();
-                            game_manager::give_hp(constants::ONE_ORB);
+                            if item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize {
+                                game_manager::give_hp(constants::ONE_ORB, &data);
+                            }
                         }
                         0x08 => {
                             data.add_purple_orb();
-                            game_manager::give_magic(constants::ONE_ORB, &data);
+                            if item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize {
+                                game_manager::give_magic(constants::ONE_ORB, &data);
+                            }
                         }
                         0x10..0x14 => {
                             // Don't add duplicate consumables
@@ -523,23 +538,23 @@ pub fn handle_received_items_packet(
                         0x19 => {
                             // Awakened Rebellion
                             data.add_dt();
-                            game_manager::give_magic(constants::ONE_ORB * 3.0, &data);
+                            if item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize {
+                                game_manager::give_magic(constants::ONE_ORB * 3.0, &data);
+                            }
                         }
                         0x22..0x24 => {
                             // Quicksilver and Doppel
                         }
                         0x24..0x3A => {
                             // For key items
-                            log::debug!("Setting newly acquired key items");
-                            match MISSION_ITEM_MAP.get(&(get_mission())) {
-                                None => {} // No items for the mission
-                                Some(item_list) => {
-                                    if item_list.contains(&&*item.item().name()) {
-                                        game_manager::set_item(&item.item().name(), true, true);
-                                    }
-                                }
+                            if let Some(item_list) = MISSION_ITEM_MAP.get(&(get_mission()))
+                                && item_list.contains(&&*item.item().name())
+                            {
+                                log::debug!("Adding key item: {}", item.item().name());
+                                game_manager::set_item(&item.item().name(), true, true);
                             }
                         }
+
                         0x3A..0x53 => {
                             // For skills
                             if let ModModeData::Normal(mapping) = client.slot_data()
@@ -552,6 +567,7 @@ pub fn handle_received_items_packet(
                         0x53..0x58 => {
                             // Gun Levels
                             data.add_gun_level((item.item().id() - 0x53) as usize);
+                            game_manager::set_gun_levels(&data);
                         }
                         0x60..0x64 => {
                             // Style Handling
@@ -570,9 +586,11 @@ pub fn handle_received_items_packet(
                         // Weapons
                         0x16..=0x18 => {
                             // Rebellion, Cerberus, Agni and Rudra
+                            set_weapons_in_inv(&data);
                         }
                         0x1A..=0x1B => {
                             // Nevan, Beowulf
+                            set_weapons_in_inv(&data);
                         }
                         0x1C..=0x21 => {
                             // All guns
@@ -597,6 +615,7 @@ pub fn handle_received_items_packet(
 
                                 TX_HINT.get().unwrap().send(ids)?;
                             }
+                            set_weapons_in_inv(&data);
                         }
                         _ => {
                             log::warn!(
@@ -607,7 +626,6 @@ pub fn handle_received_items_packet(
                         }
                     }
 
-                    data.add_item(item.item().name().into());
                     if item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize {
                         CURRENT_INDEX.store((item.index() + 1) as i64, Ordering::SeqCst);
                     }

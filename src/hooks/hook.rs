@@ -1,22 +1,20 @@
 use crate::archipelago::TX_DEATHLINK;
 use crate::constants::*;
 use crate::constants::{ItemEntry, Style};
+use crate::data::game_structs::{CharacterData, GameData, MissionData, SessionData, TotalRankings};
 use crate::data::generated_locations;
 use crate::game_manager::{
     ARCHIPELAGO_DATA, get_difficulty, get_mission, get_room, set_item, set_loc_chk_flg,
-    set_weapons_in_inv, with_rankings_read, with_session,
+    set_weapons_in_inv,
 };
-use crate::hooks::store_hook;
+use crate::hooks::{check_handler, save_handler, store_hook};
 use crate::location_handler::in_key_item_room;
 use crate::mapping::{Goal, MAPPING, Mapping, run_scouts_for_room};
 use crate::tracker::{StyleLevels, initial_connection_updates, send_room_transition};
 use crate::ui::text_handler;
 use crate::ui::text_handler::LAST_OBTAINED_ID;
 use crate::utilities::{DMC3_ADDRESS, read_data_from_address};
-use crate::{
-    AP_CORE, archipelago, check_handler, create_hook, game_manager, save_handler, skill_manager,
-    tracker, utilities,
-};
+use crate::{AP_CORE, archipelago, create_hook, game_manager, skill_manager, utilities};
 use archipelago_rs::CreateAsHint;
 use bitflags::bitflags;
 use minhook::{MH_STATUS, MinHook};
@@ -25,7 +23,7 @@ use randomizer_utilities::item_sync::CURRENT_INDEX;
 use randomizer_utilities::replace_single_byte;
 use std::arch::asm;
 use std::cmp::min;
-use std::ptr::{read_unaligned, write};
+use std::ptr::write;
 use std::sync::atomic::Ordering;
 use std::sync::{LazyLock, OnceLock};
 use std::{ptr, slice};
@@ -323,7 +321,7 @@ fn modify_adjudicator(
                     replace_single_byte(adjudicator_data + RANKING_OFFSET, data.ranking);
                     replace_single_byte(
                         adjudicator_data + WEAPON_OFFSET,
-                        get_weapon_id(&data.weapon),
+                        get_unlocked_weapon_id(&data.weapon),
                     );
                 }
             }
@@ -422,15 +420,13 @@ pub static ORIGINAL_DAMAGE_CALC: OnceLock<
 
 fn monitor_hp(damage_calc: usize, param_1: usize, param_2: usize, param_3: usize) {
     unsafe { ORIGINAL_DAMAGE_CALC.get().unwrap()(damage_calc, param_1, param_2, param_3) }
-    if let Some(char_data_ptr) = utilities::get_active_char_address() {
-        unsafe {
-            let hp = read_unaligned((char_data_ptr + 0x411C) as *mut f32);
-            if hp <= 0.0 {
-                log::debug!("Dante died!");
-                send_deathlink();
-            }
+    let _ = CharacterData::with_read(|c| {
+        if c.hp <= 0.0 {
+            log::debug!("Dante died!");
+            send_deathlink();
         }
-    }
+    })
+    .is_err();
 }
 
 fn send_deathlink() {
@@ -452,49 +448,41 @@ pub static ORIGINAL_EQUIPMENT_SCREEN: OnceLock<unsafe extern "C" fn(cuid_weapon:
     OnceLock::new();
 /// Edits the initially selected index when viewing weapons in the status screen
 fn edit_initial_index(custom_weapon: usize) -> i32 {
-    let current_inv_addr = utilities::get_inv_address();
-    if current_inv_addr.is_none() {
-        log::error!(
-            "Failed to get inventory address in {}",
-            "edit_initial_index"
-        );
-        unsafe {
-            if let Some(original) = ORIGINAL_EQUIPMENT_SCREEN.get() {
-                return original(custom_weapon);
-            }
-        }
-    }
     let base = *DMC3_ADDRESS;
-    let mut starting_index = 0;
-    if read_data_from_address::<u8>(custom_weapon + 0x419E) == 4 {
-        // Gun
-        for index in 0..5 {
-            if read_data_from_address::<bool>(current_inv_addr.unwrap() + 0x58 + index) {
-                starting_index = index;
-                break;
+    log::debug!("Editing initial index");
+    let starting_index = MissionData::with_read(|m| {
+        if read_data_from_address::<u8>(custom_weapon + 0x419E) == 4 {
+            // Gun
+            for index in 0..5 {
+                if m.items[0x1C + index] == 1 {
+                    return index;
+                }
+            }
+            if m.items[0x21] == 1 {
+                return 4;
+            }
+        } else {
+            // Melee
+            for index in 0..=3 {
+                if m.items[0x16 + index] == 1 {
+                    return index;
+                }
+            }
+            if m.items[0x1A] == 1 {
+                // Nevan
+                return 3;
+            }
+            if m.items[0x1B] == 1 {
+                // Beowulf
+                return 4;
             }
         }
-        if read_data_from_address::<bool>(current_inv_addr.unwrap() + 0x5D) {
-            // Kalina Ann
-            starting_index = 4;
-        }
-    } else {
-        // Melee
-        for index in 0..3 {
-            if read_data_from_address::<bool>(current_inv_addr.unwrap() + 0x52 + index) {
-                starting_index = index;
-                break;
-            }
-        }
-        if read_data_from_address::<bool>(current_inv_addr.unwrap() + 0x56) {
-            // Nevan
-            starting_index = 3;
-        }
-        if read_data_from_address::<bool>(current_inv_addr.unwrap() + 0x57) {
-            // Beowulf
-            starting_index = 4;
-        }
-    }
+        0
+    })
+    .unwrap_or_else(|_| {
+        log::error!("Unable to calculate starting index for equipment screen");
+        0
+    });
     unsafe {
         replace_single_byte(base + 0x28CC36, starting_index as u8);
     }
@@ -567,7 +555,7 @@ fn dummy_replace(location_key: &&str, item_addr: *mut i32) -> bool {
 
 fn set_relevant_key_items() {
     if let Ok(data) = ARCHIPELAGO_DATA.read() {
-        with_session(|s| {
+        SessionData::with_read(|s| {
             match MISSION_ITEM_MAP.get(&(s.mission)) {
                 None => {} // No items for the mission
                 Some(item_list) => {
@@ -646,7 +634,7 @@ pub fn load_new_room(param_1: usize) -> bool {
         Ok(mut core) => {
             let client = core.connection.client_mut().unwrap();
             run_scouts_for_room(client, CreateAsHint::No);
-            if let Err(e) = tracker::send_room_transition(client, false) {
+            if let Err(e) = send_room_transition(client, false) {
                 log::error!("Failed to send room transition: {}", e);
             }
         }
@@ -654,7 +642,7 @@ pub fn load_new_room(param_1: usize) -> bool {
             log::error!("Failed to lock AP_CORE: {}", err);
         }
     }
-    set_weapons_in_inv();
+    set_weapons_in_inv(&ARCHIPELAGO_DATA.read().unwrap());
     set_relevant_key_items();
     check_handler::clear_high_roller();
     LAST_OBTAINED_ID.store(0, Ordering::SeqCst); // Should stop random item jumpscares
@@ -677,7 +665,7 @@ pub fn set_player_data(param_1: usize) -> bool {
     game_manager::set_max_hp_and_magic();
     if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
         if mapping.randomize_gun_levels {
-            game_manager::set_gun_levels();
+            game_manager::set_gun_levels(&ARCHIPELAGO_DATA.read().unwrap());
         }
         if mapping.randomize_skills {
             skill_manager::set_skills(&ARCHIPELAGO_DATA.read().unwrap());
@@ -753,29 +741,27 @@ pub static ORIGINAL_GIVE_STYLE_XP: OnceLock<
 pub fn give_xp_hook(param_1: usize, xp_amount: f32) -> f32 {
     if let Some(orig) = ORIGINAL_GIVE_STYLE_XP.get() {
         // Get original style level
-        let current_style_level = if let Some(char_data_ptr) = utilities::get_active_char_address()
-        {
-            // TODO I should probably make this into a proper struct at some point
-            read_data_from_address(char_data_ptr + 0x6358)
-        } else {
-            log::error!("Unable to get actor data");
-            0
-        };
+
+        let current_style_level =
+            CharacterData::with_read(|c| c.style_level).unwrap_or_else(|_| {
+                log::error!("Unable to get current style level");
+                0
+            });
         let res = if MAPPING.read().unwrap().as_ref().unwrap().randomize_styles {
             unsafe { orig(param_1, 0f32) }
         } else {
             // If Styles are items in world, do not give XP
             unsafe { orig(param_1, xp_amount) }
         };
-        if let Some(char_data_ptr) = utilities::get_active_char_address() {
-            let new_style_level = read_data_from_address(char_data_ptr + 0x6358);
+
+        CharacterData::with_read(|c| {
+            let new_style_level = c.style_level;
             if new_style_level > current_style_level {
                 // TODO I don't know if I like this
                 if let Ok(mut core) = AP_CORE.get().unwrap().as_ref().lock()
                     && let Some(client) = core.connection.client_mut()
                     && let Err(e) = StyleLevels::update(
-                        Style::INTERNAL_ORDER
-                            [read_data_from_address::<u32>(char_data_ptr + 0x6338) as usize],
+                        Style::INTERNAL_ORDER[c.style as usize],
                         new_style_level,
                         client,
                     )
@@ -783,9 +769,11 @@ pub fn give_xp_hook(param_1: usize, xp_amount: f32) -> f32 {
                     log::error!("Failed to update StyleLevels: {}", e);
                 }
             }
-        } else {
-            log::error!("Unable to get actor data");
-        };
+        })
+        .unwrap_or_else(|_| {
+            log::error!("Unable to get current style");
+        });
+
         res
     } else {
         panic!("Failed to get original give style xp method")
@@ -892,7 +880,7 @@ pub fn set_rando_session_data(ptr: usize) {
         }
     }
     log::debug!("Starting new game, setting appropriate data");
-    with_session(|s| {
+    SessionData::with_mut(|s| {
         if s.char != Character::Dante as u8 {
             log::error!(
                 "Character is {} not Dante",
@@ -927,10 +915,10 @@ pub fn set_rando_session_data(ptr: usize) {
             }
 
             // Set starter weapons
-            s.weapons[0] = mapping.start_melee;
-            s.weapons[1] = mapping.start_second_melee;
-            s.weapons[2] = mapping.start_gun;
-            s.weapons[3] = mapping.start_second_gun;
+            s.weapons[0] = 0xFF; //mapping.start_melee;
+            //s.weapons[1] = mapping.start_second_melee;
+            s.weapons[2] = 0xFF; //mapping.start_gun;
+            //s.weapons[3] = mapping.start_second_gun;
 
             // Unlock DT off the bat
             s.unlocked_dt = true;
@@ -959,7 +947,7 @@ pub fn set_rando_session_data(ptr: usize) {
     })
     .unwrap();
     skill_manager::set_skills(&ARCHIPELAGO_DATA.read().unwrap());
-    set_weapons_in_inv();
+    set_weapons_in_inv(&ARCHIPELAGO_DATA.read().unwrap());
     match AP_CORE.get().unwrap().lock() {
         Ok(mut core) => {
             CURRENT_INDEX.store(0, Ordering::SeqCst);
@@ -993,7 +981,7 @@ pub fn rewrite_mission_order(ptr: usize) {
         match val {
             0 => {
                 if mapping.goal != Goal::Standard {
-                    with_session(|s| {
+                    SessionData::with_read(|s| {
                         // Sets the mission selected on the select screen to be the correct one
                         unsafe {
                             replace_single_byte(
@@ -1021,7 +1009,7 @@ pub fn rewrite_mission_order(ptr: usize) {
             }
             6 => {
                 if mapping.goal == Goal::RandomOrder {
-                    with_session(|s| {
+                    SessionData::with_mut(|s| {
                         log::debug!("Original Mission was: {}", s.mission);
                         log::debug!("Original O Mission was: {}", s.other_mission);
                         if let Some(mission_order) = &mapping.mission_order {
@@ -1040,7 +1028,7 @@ pub fn rewrite_mission_order(ptr: usize) {
 
 pub fn calculate_max_mission(mapping: &Mapping, difficulty: Difficulty) -> u8 {
     const NOT_COMPLETED: u8 = 0xFF;
-    with_rankings_read(|r| {
+    TotalRankings::with_read(|r| {
         match mapping.goal {
             Goal::RandomOrder => {
                 // Check the rankings, this is how we know what missions are available
@@ -1126,7 +1114,7 @@ fn set_actual_mission(cscene_result: usize, param_1: usize, param_2: usize, para
     {
         match val {
             0x12 => {
-                with_session(|s| {
+                SessionData::with_mut(|s| {
                     s.mission = mapping.mission_order.as_ref().unwrap()
                         [min(mapping.get_index_for_mission(current_mission) + 1, 19)]
                         as u32;

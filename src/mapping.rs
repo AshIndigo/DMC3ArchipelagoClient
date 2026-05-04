@@ -204,10 +204,12 @@ pub struct Mapping {
     // For mapping JSON
     pub starter_items: Vec<String>,
     pub adjudicators: Option<HashMap<String, AdjudicatorData>>,
-    pub start_melee: u8,
-    pub start_second_melee: u8,
-    pub start_gun: u8,
-    pub start_second_gun: u8,
+    // Deprecated
+    start_melee: Option<u8>,
+    start_second_melee: Option<u8>,
+    start_gun: Option<u8>,
+    start_second_gun: Option<u8>,
+
     pub randomize_skills: bool,
     pub randomize_gun_levels: bool,
     pub randomize_styles: bool,
@@ -296,18 +298,6 @@ pub fn get_locations_by_room(client: &Client<ModModeData>, room: i32) -> Vec<Loc
     generated_locations::ITEM_MISSION_MAP
         .iter()
         .filter(|(_k, v)| v.room_number == room && v.mission != 0)
-        .filter(|(k, _v)| {
-            if let ModModeData::Normal(data) = client.slot_data() {
-                // If it's SS Rank, check if SS Ranks are allowed
-                if k.contains("SS Rank") {
-                    data.enabled_ss_rank
-                } else {
-                    true
-                }
-            } else {
-                true
-            }
-        })
         .filter_map(|(k, _v)| current_game.location_by_name(*k))
         .collect()
 }
@@ -328,4 +318,26 @@ pub fn get_adjudicators(client: &Client<ModModeData>) -> Vec<Location> {
         .filter(|(k, _v)| k.contains("Combat Adjudicator"))
         .filter_map(|(k, _v)| current_game.location_by_name(*k))
         .collect()
+}
+pub fn get_mission_completes(client: &Client<ModModeData>) -> Vec<Location> {
+    let current_game = client.this_game();
+    let mut res = Vec::new();
+    if let ModModeData::Normal(data) = client.slot_data() {
+        for i in 1..=20 {
+            res.push(
+                current_game
+                    .location_by_name(format!("Mission #{i} Complete"))
+                    .unwrap(),
+            );
+            // Check if SS Ranks are allowed
+            if data.enabled_ss_rank {
+                res.push(
+                    current_game
+                        .location_by_name(format!("Mission #{i} SS Rank"))
+                        .unwrap(),
+                );
+            }
+        }
+    }
+    res
 }

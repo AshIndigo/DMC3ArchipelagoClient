@@ -1,9 +1,10 @@
 use crate::DMC3_ADDRESS;
-use crate::check_handler::{Location, LocationType};
 use crate::constants::{EMPTY_COORDINATES, GUN_NAMES};
+use crate::hooks::check_handler;
+use crate::hooks::check_handler::{Location, LocationType};
 use crate::mapping::MAPPING;
 use crate::ui::overlay::CANT_PURCHASE;
-use crate::{AP_CORE, check_handler, create_hook, tracker};
+use crate::{AP_CORE, create_hook, tracker};
 use minhook::{MH_STATUS, MinHook};
 use randomizer_utilities::read_data_from_address;
 use std::ptr::write;
@@ -13,10 +14,22 @@ use std::sync::{LazyLock, OnceLock, RwLock};
 pub fn create_hooks() -> Result<(), MH_STATUS> {
     unsafe {
         create_hook!(
-            SKILL_SHOP_ADDR,
-            deny_skill_purchasing,
-            ORIGINAL_SKILL_SHOP,
+            FRAME_SKILL_SHOP_ADDR,
+            skill_shop_frame,
+            ORIGINAL_FRAME_SKILL_SHOP,
             "Deny purchases of skills"
+        );
+        create_hook!(
+            SKILL_SHOP_CONSTRUCTOR,
+            skill_shop_constructor,
+            ORIGINAL_SKILL_SHOP_CONSTRUCTOR,
+            "Skill purchase constructor"
+        );
+        create_hook!(
+            SKILL_SHOP_DECONSTRUCTOR,
+            skill_shop_deconstructor,
+            ORIGINAL_SKILL_SHOP_DECONSTRUCTOR,
+            "Skill purchase deconstructor"
         );
         create_hook!(
             GUN_SHOP_CONSTRUCTOR_ADDR,
@@ -65,8 +78,10 @@ pub fn create_hooks() -> Result<(), MH_STATUS> {
 }
 
 pub(crate) static HOOK_ADDRESSES: LazyLock<Vec<usize>> = LazyLock::new(|| {
-    const ADDRESSES: [usize; 8] = [
-        SKILL_SHOP_ADDR,
+    const ADDRESSES: [usize; 10] = [
+        SKILL_SHOP_CONSTRUCTOR,
+        SKILL_SHOP_DECONSTRUCTOR,
+        FRAME_SKILL_SHOP_ADDR,
         GUN_SHOP_CONSTRUCTOR_ADDR,
         GUN_SHOP_EXIT_ADDR,
         SOMETHING_GUN_ADDR,
@@ -78,21 +93,51 @@ pub(crate) static HOOK_ADDRESSES: LazyLock<Vec<usize>> = LazyLock::new(|| {
     ADDRESSES.to_vec()
 });
 
-pub const SKILL_SHOP_ADDR: usize = 0x288280;
-pub static ORIGINAL_SKILL_SHOP: OnceLock<unsafe extern "C" fn(custom_skill: usize)> =
+pub const SKILL_SHOP_CONSTRUCTOR: usize = 0x287dd0;
+pub static ORIGINAL_SKILL_SHOP_CONSTRUCTOR: OnceLock<unsafe extern "C" fn(custom_skill: usize)> =
     OnceLock::new();
 
-pub fn deny_skill_purchasing(custom_skill: usize) {
+pub fn skill_shop_constructor(custom_skill: usize) {
+    if let Some(orig) = ORIGINAL_SKILL_SHOP_CONSTRUCTOR.get() {
+        unsafe {
+            orig(custom_skill);
+        }
+    }
+    if let Some(mapping) = MAPPING.read().unwrap().as_ref()
+        && mapping.randomize_skills
+        && !mapping.shop_skill_checks
+    {
+        CANT_PURCHASE.store(true, Ordering::SeqCst);
+    }
+}
+
+pub const SKILL_SHOP_DECONSTRUCTOR: usize = 0x287f20;
+pub static ORIGINAL_SKILL_SHOP_DECONSTRUCTOR: OnceLock<unsafe extern "C" fn(custom_skill: usize)> =
+    OnceLock::new();
+
+pub fn skill_shop_deconstructor(custom_skill: usize) {
+    if let Some(orig) = ORIGINAL_SKILL_SHOP_DECONSTRUCTOR.get() {
+        unsafe {
+            orig(custom_skill);
+        }
+    }
+    CANT_PURCHASE.store(false, Ordering::SeqCst);
+}
+
+pub const FRAME_SKILL_SHOP_ADDR: usize = 0x288280;
+pub static ORIGINAL_FRAME_SKILL_SHOP: OnceLock<unsafe extern "C" fn(custom_skill: usize)> =
+    OnceLock::new();
+
+pub fn skill_shop_frame(custom_skill: usize) {
     if let Some(mapping) = MAPPING.read().unwrap().as_ref()
         && mapping.randomize_skills
     {
-        CANT_PURCHASE.store(true, Ordering::SeqCst);
         if read_data_from_address::<u8>(custom_skill + 0x08) == 0x05 {
             //unsafe { replace_single_byte(custom_skill + 0x08, 0x01) }
         }
     }
 
-    if let Some(orig) = ORIGINAL_SKILL_SHOP.get() {
+    if let Some(orig) = ORIGINAL_FRAME_SKILL_SHOP.get() {
         unsafe {
             orig(custom_skill);
         }
@@ -104,6 +149,7 @@ pub const SOMETHING_GUN_ADDR: usize = 0x282fa0;
 pub static ORIGINAL_SOMETHING_GUN: OnceLock<unsafe extern "C" fn(custom_gun: usize)> =
     OnceLock::new();
 
+// TODO Better name for this
 pub fn something_gun(custom_gun: usize) {
     if let Some(orig) = ORIGINAL_SOMETHING_GUN.get() {
         unsafe {

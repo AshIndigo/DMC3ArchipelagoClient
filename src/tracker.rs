@@ -1,7 +1,8 @@
 //! PopTracker related stuff
 
 use crate::constants::{Difficulty, GUN_NAMES, Style};
-use crate::game_manager::{get_mission, get_room, with_rankings_read, with_session_read};
+use crate::data::game_structs::{ActiveMissionActorData, GameData, SessionData, TotalRankings};
+use crate::game_manager::{get_mission, get_room};
 use crate::hooks::hook::calculate_max_mission;
 use crate::mapping::{MAPPING, Mapping, ModModeData};
 use archipelago_rs::{BounceOptions, Client, DataStorageOperation};
@@ -72,7 +73,7 @@ fn get_unlocked_missions(difficulty: Difficulty, mapping: &Mapping) -> Vec<u8> {
     let mut res = vec![];
     const NOT_COMPLETED: u8 = 0xFF;
     // Check the rankings, this is how we know what missions are available
-    with_rankings_read(|r| {
+    TotalRankings::with_read(|r| {
         let rankings = r.get_ranking_for_difficulty(difficulty);
         for (ind, ranking) in rankings.iter().enumerate() {
             if *ranking != NOT_COMPLETED {
@@ -179,6 +180,28 @@ pub struct SkillUpdate {
     pub skills: [u32; 8],
 }
 
+impl HasKey for SkillUpdate {
+    const KEY: &'static str = "SkillUpdate";
+}
+
+impl SkillUpdate {
+    fn new() -> Self {
+        // If MissionActorData is available use that, otherwise use SessionData
+        if let Ok(sk) = ActiveMissionActorData::with_read(|a| SkillUpdate {
+            skills: a.expertise,
+        }) {
+            return sk;
+        }
+        if let Ok(sk) = SessionData::with_read(|a| SkillUpdate {
+            skills: a.expertise,
+        }) {
+            return sk;
+        }
+        SkillUpdate { skills: [0; 8] }
+    }
+    // TODO Need to implement an update() for this
+}
+
 fn update_data_storage<T>(
     value: T,
     client: &mut Client<ModModeData>,
@@ -209,7 +232,7 @@ pub fn initial_connection_updates(
     {
         // Unlocked missions, always set
         update_data_storage(AvailableMissions::new(mapping), client)?;
-        if with_session_read(|s| -> Result<(), archipelago_rs::Error> {
+        if SessionData::with_read(|s| -> Result<(), archipelago_rs::Error> {
             // Add extra information if the respective elements aren't randomized
             if !mapping.randomize_gun_levels {
                 update_data_storage(GunLevels::new(s.ranged_weapon_levels), client)?;
@@ -217,10 +240,9 @@ pub fn initial_connection_updates(
             if !mapping.randomize_styles {
                 update_data_storage(StyleLevels::new(s.style_levels), client)?;
             }
-            // TODO SkillUpdate related stuff
-            // if !mapping.randomize_skills {
-            //     update_data_storage(SkillUpdate::new(), client)?;
-            // }
+            if !mapping.randomize_skills {
+                update_data_storage(SkillUpdate::new(), client)?;
+            }
             Ok(())
         })
         .is_err()

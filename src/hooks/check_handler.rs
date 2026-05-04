@@ -1,9 +1,10 @@
 use crate::constants::{Coordinates, Difficulty, EMPTY_COORDINATES, Rank};
+use crate::data::game_structs::{GameData, MissionData, SessionData};
 use crate::data::generated_locations;
-use crate::game_manager::{ARCHIPELAGO_DATA, get_mission, set_item, with_session_read};
+use crate::game_manager::{ARCHIPELAGO_DATA, get_mission, set_item};
 use crate::mapping::MAPPING;
 use crate::ui::text_handler;
-use crate::utilities::{DMC3_ADDRESS, get_inv_address};
+use crate::utilities::DMC3_ADDRESS;
 use crate::{constants, create_hook, game_manager, location_handler};
 use minhook::{MH_STATUS, MinHook};
 use randomizer_utilities::read_data_from_address;
@@ -12,20 +13,6 @@ use std::fmt::{Display, Formatter};
 use std::sync::OnceLock;
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::mpsc::Sender;
-
-pub const ITEM_HANDLE_PICKUP_ADDR: usize = 0x1b45a0;
-pub static ORIGINAL_HANDLE_PICKUP: OnceLock<unsafe extern "C" fn(item_struct: usize)> =
-    OnceLock::new();
-
-pub const ITEM_PICKED_UP_ADDR: usize = 0x1aa6e0;
-pub static ORIGINAL_ITEM_PICKED_UP: OnceLock<
-    unsafe extern "C" fn(loc_chk_id: usize, param_2: i16, item_id: i32),
-> = OnceLock::new();
-
-pub const RESULT_CALC_ADDR: usize = 0x2a0f10;
-pub static ORIGINAL_RESULT_CALC: OnceLock<
-    unsafe extern "C" fn(cuid_result: usize, ranking: i32) -> i32,
-> = OnceLock::new();
 
 pub fn setup_check_hooks() -> Result<(), MH_STATUS> {
     log::debug!("Setting up check related hooks");
@@ -57,6 +44,10 @@ pub fn setup_check_hooks() -> Result<(), MH_STATUS> {
     }
     Ok(())
 }
+
+pub const ITEM_HANDLE_PICKUP_ADDR: usize = 0x1b45a0;
+pub static ORIGINAL_HANDLE_PICKUP: OnceLock<unsafe extern "C" fn(item_struct: usize)> =
+    OnceLock::new();
 
 /// Hook into item handle method (1b45a0). Handles non-event item pick up locations
 pub fn item_non_event(item_struct: usize) {
@@ -148,6 +139,11 @@ fn is_valid_id(item_id: u32) -> bool {
     !INVALID_IDS.contains(&item_id)
 }
 
+pub const ITEM_PICKED_UP_ADDR: usize = 0x1aa6e0;
+pub static ORIGINAL_ITEM_PICKED_UP: OnceLock<
+    unsafe extern "C" fn(loc_chk_id: usize, param_2: i16, item_id: i32),
+> = OnceLock::new();
+
 /// Hook into item picked up method (1aa6e0). Handles item pick up locations
 pub fn item_event(loc_chk_flg: usize, item_id: i16, unknown: i32) {
     unsafe {
@@ -186,7 +182,7 @@ pub fn item_event(loc_chk_flg: usize, item_id: i16, unknown: i32) {
                 }
                 Err(err) => {
                     log::error!("Couldn't find location (Event): {}", err);
-                    with_session_read(|s| {
+                    SessionData::with_read(|s| {
                         log::debug!("Session Info: Mission: {} - Room: {}", s.mission, s.room);
                     })
                     .unwrap();
@@ -210,6 +206,11 @@ pub fn item_event(loc_chk_flg: usize, item_id: i16, unknown: i32) {
     }
 }
 
+pub const RESULT_CALC_ADDR: usize = 0x2a0f10;
+pub static ORIGINAL_RESULT_CALC: OnceLock<
+    unsafe extern "C" fn(cuid_result: usize, ranking: i32) -> i32,
+> = OnceLock::new();
+
 /// To check off a mission as being completed
 pub fn mission_complete_check(cuid_result: usize, ranking: i32) -> i32 {
     let final_ranking = if let Some(original) = ORIGINAL_RESULT_CALC.get() {
@@ -217,7 +218,7 @@ pub fn mission_complete_check(cuid_result: usize, ranking: i32) -> i32 {
     } else {
         panic!("Result Calc doesn't exist??");
     };
-    with_session_read(|s| {
+    SessionData::with_read(|s| {
         let rank = Rank::from_repr(final_ranking as usize).unwrap();
         let difficulty = if s.hoh {
             Difficulty::HeavenOrHell
@@ -384,18 +385,10 @@ pub(crate) fn send_off_location_coords(loc: Location, to_display: u32) {
 }
 
 pub(crate) fn take_away_received_item(id: u32) {
-    if let Some(current_inv_addr) = get_inv_address() {
-        let offset = *constants::ITEM_OFFSET_MAP
-            .get(constants::ITEM_MAP.get_by_right(&id).unwrap())
-            .unwrap_or_else(|| panic!("Item offset not found: {}", id));
-        log::debug!("Stripping ID: {:#X} - Offset: {:#X}", id, offset);
-        unsafe {
-            randomizer_utilities::replace_single_byte(
-                current_inv_addr + offset as usize,
-                read_data_from_address::<u8>(current_inv_addr + offset as usize).saturating_sub(1),
-            );
-        }
-    }
+    log::debug!("Stripping ID: {:#X}", id);
+    let _ = MissionData::with_mut(|m| {
+        m.items[id as usize] -= 1;
+    });
 }
 
 pub(crate) fn should_snatch_item(id: u32) -> bool {

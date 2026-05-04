@@ -1,6 +1,5 @@
 use crate::skill_manager::ID_SKILL_MAP;
 use bimap::BiMap;
-use randomizer_utilities::dmc::dmc_constants::GameConfig;
 use serde::{Deserialize, Serialize};
 use std::cmp::PartialEq;
 use std::collections::HashMap;
@@ -11,14 +10,7 @@ pub(crate) static DUMMY_ID: LazyLock<u32> =
 
 pub(crate) static REMOTE_ID: LazyLock<u32> =
     LazyLock::new(|| *ITEM_MAP.get_by_left("Remote").unwrap());
-
-pub struct DMC3Config;
 pub const GAME_NAME: &str = "Devil May Cry 3";
-
-impl GameConfig for DMC3Config {
-    const REMOTE_ID: u32 = 0x26;
-    const GAME_NAME: &'static str = GAME_NAME;
-}
 
 // DMC3 Offsets+Functions - Offsets are from 2022 DDMK's version
 
@@ -32,7 +24,6 @@ pub const MAX_MAGIC: f32 = 10000.0;
 pub struct Item {
     pub id: u32,
     pub name: &'static str,
-    pub offset: Option<u8>, // Inventory offset
     pub category: ItemCategory,
     pub mission: Option<u32>, // Mission the key item is used in, typically the same that it is acquired in
     pub _max_amount: Option<i32>, // Max amount of a consumable
@@ -52,7 +43,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x00,
         name: "Red Orb - 1",
-        offset: Some(0x38), // Note: I think this offset is wrong
         category: ItemCategory::RedOrb,
         mission: None,
         _max_amount: Some(999999), // Is what fits on screen, could theoretically go up to MAX_INT
@@ -61,7 +51,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x01,
         name: "Red Orb - 5",
-        offset: Some(0x38),
         category: ItemCategory::RedOrb,
         mission: None,
         _max_amount: Some(999999),
@@ -70,7 +59,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x02,
         name: "Red Orb - 20",
-        offset: Some(0x38),
         category: ItemCategory::RedOrb,
         mission: None,
         _max_amount: Some(999999),
@@ -79,7 +67,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x03,
         name: "Red Orb - 100",
-        offset: Some(0x38),
         category: ItemCategory::RedOrb,
         mission: None,
         _max_amount: Some(999999),
@@ -88,7 +75,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x04,
         name: "Red Orb - 1000",
-        offset: Some(0x38),
         category: ItemCategory::RedOrb,
         mission: None,
         _max_amount: Some(999999),
@@ -97,7 +83,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x05,
         name: "Gold Orb",
-        offset: None,
         category: ItemCategory::Misc,
         mission: None,
         _max_amount: Some(3),
@@ -106,7 +91,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x06,
         name: "Yellow Orb",
-        offset: None,
         category: ItemCategory::Misc,
         mission: None,
         _max_amount: Some(99),
@@ -115,7 +99,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x07,
         name: "Blue Orb",
-        offset: None,
         category: ItemCategory::Misc,
         mission: None,
         _max_amount: None,
@@ -124,7 +107,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x08,
         name: "Purple Orb",
-        offset: None,
         category: ItemCategory::Misc,
         mission: None,
         _max_amount: None,
@@ -133,7 +115,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x09,
         name: "Blue Orb Fragment",
-        offset: Some(0x45),
         category: ItemCategory::Misc,
         mission: None,
         _max_amount: Some(4),
@@ -142,7 +123,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x0A,
         name: "Green Orb - Small",
-        offset: None,
         category: ItemCategory::Misc,
         mission: None,
         _max_amount: None,
@@ -151,7 +131,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x0B,
         name: "Green Orb - Medium",
-        offset: None,
         category: ItemCategory::Misc,
         mission: None,
         _max_amount: None,
@@ -160,7 +139,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x0C,
         name: "Green Orb - Large",
-        offset: None,
         category: ItemCategory::Misc,
         mission: None,
         _max_amount: None,
@@ -169,7 +147,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x0D,
         name: "Unknown D",
-        offset: None,
         category: ItemCategory::Misc,
         mission: None,
         _max_amount: None,
@@ -178,7 +155,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x0E,
         name: "Unknown E",
-        offset: None,
         category: ItemCategory::Misc,
         mission: None,
         _max_amount: None,
@@ -187,7 +163,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x0F,
         name: "Unknown F",
-        offset: None,
         category: ItemCategory::Misc,
         mission: None,
         _max_amount: None,
@@ -196,7 +171,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x10,
         name: "Vital Star L",
-        offset: Some(0x4C),
         category: ItemCategory::Consumable,
         mission: None,
         _max_amount: Some(30),
@@ -205,7 +179,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x11,
         name: "Vital Star S",
-        offset: Some(0x4D),
         category: ItemCategory::Consumable,
         mission: None,
         _max_amount: Some(30),
@@ -214,7 +187,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x12,
         name: "Devil Star",
-        offset: Some(0x4E),
         category: ItemCategory::Consumable,
         mission: None,
         _max_amount: Some(10),
@@ -223,7 +195,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x13,
         name: "Holy Water",
-        offset: Some(0x4F),
         category: ItemCategory::Consumable,
         mission: None,
         _max_amount: Some(30),
@@ -232,7 +203,7 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x14,
         name: "Scent of Fear", // Scent of Fear test item, old dummy
-        offset: None,
+
         category: ItemCategory::Misc,
         mission: None,
         _max_amount: None,
@@ -241,7 +212,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x15,
         name: "Amulet (Casino Coins)",
-        offset: None,
         category: ItemCategory::Misc,
         mission: None,
         _max_amount: None,
@@ -250,7 +220,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x16,
         name: "Rebellion",
-        offset: Some(0x52),
         category: ItemCategory::Weapon,
         mission: None,
         _max_amount: None,
@@ -259,7 +228,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x17,
         name: "Cerberus",
-        offset: Some(0x53),
         category: ItemCategory::Weapon,
         mission: None,
         _max_amount: None,
@@ -268,7 +236,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x18,
         name: "Agni and Rudra",
-        offset: Some(0x54),
         category: ItemCategory::Weapon,
         mission: None,
         _max_amount: None,
@@ -277,8 +244,8 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x19,
         name: "Devil Trigger", // Awakened Rebellion
-        offset: Some(0x55), // Offset is most likely wrong, but since we use this to give 3 runes, rather than an actual weapon, it should be fine
-        category: ItemCategory::Weapon,
+
+        category: ItemCategory::Misc,
         mission: None,
         _max_amount: None,
         _value: None,
@@ -286,7 +253,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x1A,
         name: "Nevan",
-        offset: Some(0x56),
         category: ItemCategory::Weapon,
         mission: None,
         _max_amount: None,
@@ -295,7 +261,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x1B,
         name: "Beowulf",
-        offset: Some(0x57),
         category: ItemCategory::Weapon,
         mission: None,
         _max_amount: None,
@@ -304,7 +269,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x1C,
         name: "Ebony & Ivory",
-        offset: Some(0x58),
         category: ItemCategory::Weapon,
         mission: None,
         _max_amount: None,
@@ -313,7 +277,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x1D,
         name: "Shotgun",
-        offset: Some(0x59),
         category: ItemCategory::Weapon,
         mission: None,
         _max_amount: None,
@@ -322,7 +285,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x1E,
         name: "Artemis",
-        offset: Some(0x5A),
         category: ItemCategory::Weapon,
         mission: None,
         _max_amount: None,
@@ -331,7 +293,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x1F,
         name: "Spiral",
-        offset: Some(0x5B),
         category: ItemCategory::Weapon,
         mission: None,
         _max_amount: None,
@@ -339,8 +300,8 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     },
     Item {
         id: 0x20,
-        name: "Dummy",      // Bomb!
-        offset: Some(0x5C), // ??
+        name: "Dummy", // Bomb!
+
         category: ItemCategory::Misc,
         mission: None,
         _max_amount: None,
@@ -349,7 +310,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x21,
         name: "Kalina Ann",
-        offset: Some(0x5D),
         category: ItemCategory::Weapon,
         mission: None,
         _max_amount: None,
@@ -358,7 +318,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x22,
         name: "Quicksilver Style",
-        offset: Some(0x5E),
         category: ItemCategory::Weapon,
         mission: None,
         _max_amount: None,
@@ -367,7 +326,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x23,
         name: "Doppelganger Style",
-        offset: Some(0x5F),
         category: ItemCategory::Weapon,
         mission: None,
         _max_amount: None,
@@ -376,7 +334,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x24,
         name: "Astronomical Board",
-        offset: Some(0x60),
         category: ItemCategory::Key,
         mission: Some(5),
         _max_amount: None,
@@ -385,7 +342,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x25,
         name: "Vajura",
-        offset: Some(0x61),
         category: ItemCategory::Key,
         mission: Some(5),
         _max_amount: None,
@@ -394,7 +350,7 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x26,
         name: "Remote", // High Roller Card!
-        offset: Some(0x62),
+
         category: ItemCategory::Misc,
         mission: None,
         _max_amount: None,
@@ -403,7 +359,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x27,
         name: "Soul of Steel",
-        offset: Some(0x63),
         category: ItemCategory::Key,
         mission: Some(5),
         _max_amount: None,
@@ -412,7 +367,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x28,
         name: "Essence of Fighting",
-        offset: Some(0x64),
         category: ItemCategory::Key,
         mission: Some(6),
         _max_amount: None,
@@ -421,7 +375,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x29,
         name: "Essence of Technique",
-        offset: Some(0x65),
         category: ItemCategory::Key,
         mission: Some(6),
         _max_amount: None,
@@ -430,7 +383,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x2A,
         name: "Essence of Intelligence",
-        offset: Some(0x66),
         category: ItemCategory::Key,
         mission: Some(6),
         _max_amount: None,
@@ -439,7 +391,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x2B,
         name: "Orihalcon Fragment",
-        offset: Some(0x67),
         category: ItemCategory::Key,
         mission: Some(7),
         _max_amount: None,
@@ -448,7 +399,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x2C,
         name: "Siren's Shriek",
-        offset: Some(0x68),
         category: ItemCategory::Key,
         mission: Some(7),
         _max_amount: None,
@@ -457,7 +407,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x2D,
         name: "Crystal Skull",
-        offset: Some(0x69),
         category: ItemCategory::Key,
         mission: Some(7),
         _max_amount: None,
@@ -466,7 +415,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x2E,
         name: "Ignis Fatuus",
-        offset: Some(0x6A),
         category: ItemCategory::Key,
         mission: Some(8),
         _max_amount: None,
@@ -475,7 +423,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x2F,
         name: "Ambrosia",
-        offset: Some(0x6B),
         category: ItemCategory::Key,
         mission: Some(9),
         _max_amount: None,
@@ -484,7 +431,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x30,
         name: "Stone Mask",
-        offset: Some(0x6C),
         category: ItemCategory::Key,
         mission: Some(10),
         _max_amount: None,
@@ -493,7 +439,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x31,
         name: "Neo Generator",
-        offset: Some(0x6D),
         category: ItemCategory::Key,
         mission: Some(10),
         _max_amount: None,
@@ -502,7 +447,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x32,
         name: "Haywire Neo Generator",
-        offset: Some(0x6E),
         category: ItemCategory::Key,
         mission: Some(12),
         _max_amount: None,
@@ -511,7 +455,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x33,
         name: "Full Orihalcon",
-        offset: Some(0x6F),
         category: ItemCategory::Key,
         mission: Some(13),
         _max_amount: None,
@@ -520,7 +463,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x34,
         name: "Orihalcon Fragment (Right)",
-        offset: Some(0x70),
         category: ItemCategory::Key,
         mission: Some(15),
         _max_amount: None,
@@ -529,7 +471,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x35,
         name: "Orihalcon Fragment (Bottom)",
-        offset: Some(0x71),
         category: ItemCategory::Key,
         mission: Some(15),
         _max_amount: None,
@@ -538,7 +479,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x36,
         name: "Orihalcon Fragment (Left)",
-        offset: Some(0x72),
         category: ItemCategory::Key,
         mission: Some(15),
         _max_amount: None,
@@ -547,7 +487,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x37,
         name: "Golden Sun",
-        offset: Some(0x73),
         category: ItemCategory::Key,
         mission: Some(16),
         _max_amount: None,
@@ -556,7 +495,6 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x38,
         name: "Onyx Moonshard",
-        offset: Some(0x74),
         category: ItemCategory::Key,
         mission: Some(16),
         _max_amount: None,
@@ -565,20 +503,12 @@ pub(crate) const ALL_ITEMS: [Item; 58] = [
     Item {
         id: 0x39,
         name: "Samsara",
-        offset: Some(0x75),
         category: ItemCategory::Key,
         mission: Some(19),
         _max_amount: None,
         _value: None,
     },
 ];
-
-pub static ITEM_OFFSET_MAP: LazyLock<HashMap<&'static str, u8>> = LazyLock::new(|| {
-    ALL_ITEMS
-        .iter()
-        .filter_map(|item| item.offset.map(|o| (item.name, o)))
-        .collect()
-});
 
 pub static MISSION_ITEM_MAP: LazyLock<HashMap<u32, Vec<&'static str>>> = LazyLock::new(|| {
     let mut map: HashMap<u32, Vec<&'static str>> = HashMap::new();
@@ -931,6 +861,7 @@ pub static MELEE_NAMES: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
     ])
 });
 
+// These two are stupid.
 pub fn get_weapon_id(weapon: &str) -> u8 {
     match weapon {
         "Rebellion" => 0,
@@ -943,6 +874,27 @@ pub fn get_weapon_id(weapon: &str) -> u8 {
         "Artemis" => 7,
         "Spiral" => 8,
         "Kalina Ann" => 9,
+        "Quicksilver Style" => 10,
+        "Doppelganger Style" => 11,
+        "None" => 0xFF,
+        _ => 0xFF,
+    }
+}
+
+pub fn get_unlocked_weapon_id(weapon: &str) -> u8 {
+    match weapon {
+        "Rebellion" => 0,
+        "Cerberus" => 1,
+        "Agni and Rudra" => 2,
+        "Nevan" => 4,
+        "Beowulf" => 5,
+        "Ebony & Ivory" => 6,
+        "Shotgun" => 7,
+        "Artemis" => 8,
+        "Spiral" => 9,
+        "Kalina Ann" => 11,
+        "Quicksilver Style" => 12,
+        "Doppelganger Style" => 13,
         "None" => 0xFF,
         _ => 0xFF,
     }
