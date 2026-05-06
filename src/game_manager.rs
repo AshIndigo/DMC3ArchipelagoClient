@@ -322,14 +322,8 @@ pub fn set_session_weapons() {
 }
 
 pub(crate) fn set_weapons_in_inv(data: &ArchipelagoData) {
-    let mut flag;
     for weapon in get_items_by_category(ItemCategory::Weapon) {
-        if data.items.contains(weapon) {
-            flag = true;
-        } else {
-            flag = false;
-        }
-        set_item(weapon, flag, true);
+        set_item(weapon, data.items.contains(weapon), true);
     }
 }
 

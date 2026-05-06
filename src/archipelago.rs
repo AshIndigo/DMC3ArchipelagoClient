@@ -439,9 +439,10 @@ fn has_reached_goal(client: &mut Client<ModModeData>) -> bool {
         }
         ModModeData::Normal(mapping) => {
             match mapping.goal {
+                // Should only goal when M20 is completed
                 Goal::Standard => chk.any(|loc| loc.name() == "Mission #20 Complete"),
                 Goal::All => {
-                    for i in 1..20 {
+                    for i in 1..=20 {
                         // If we are missing a mission complete check then we cannot goal
                         if !chk.any(|loc| loc.name() == format!("Mission #{} Complete", i).as_str())
                         {
