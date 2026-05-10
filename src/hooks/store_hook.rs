@@ -45,7 +45,7 @@ pub fn create_hooks() -> Result<(), MH_STATUS> {
         );
         create_hook!(
             SOMETHING_GUN_ADDR,
-            something_gun,
+            setup_gun_store_levels,
             ORIGINAL_SOMETHING_GUN,
             "Gun Screen related (D)"
         );
@@ -149,8 +149,7 @@ pub const SOMETHING_GUN_ADDR: usize = 0x282fa0;
 pub static ORIGINAL_SOMETHING_GUN: OnceLock<unsafe extern "C" fn(custom_gun: usize)> =
     OnceLock::new();
 
-// TODO Better name for this
-pub fn something_gun(custom_gun: usize) {
+pub fn setup_gun_store_levels(custom_gun: usize) {
     if let Some(orig) = ORIGINAL_SOMETHING_GUN.get() {
         unsafe {
             orig(custom_gun);

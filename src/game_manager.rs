@@ -1,13 +1,13 @@
 use crate::constants::{
-    BASE_HP, Difficulty, GUN_NAMES, ITEM_MAP, ItemCategory, MAX_HP, MAX_MAGIC, MELEE_NAMES,
-    ONE_ORB, Style, get_items_by_category, get_unlocked_weapon_id, get_weapon_id,
+    get_items_by_category, get_unlocked_weapon_id, get_weapon_id, Difficulty, ItemCategory, Style, BASE_HP, GUN_NAMES,
+    ITEM_MAP, MAX_HP, MAX_MAGIC, MELEE_NAMES, ONE_ORB,
 };
 use crate::data::game_structs::{
     ActiveMissionActorData, CharacterData, GameData, MissionData, SessionData,
 };
 use crate::hooks::hook::ORIGINAL_GIVE_STYLE_XP;
 use crate::mapping::MAPPING;
-use crate::utilities::{DMC3_ADDRESS, read_data_from_address};
+use crate::utilities::{read_data_from_address, DMC3_ADDRESS};
 use archipelago_rs::Item;
 use randomizer_utilities::replace_single_byte;
 use std::collections::HashSet;
@@ -200,19 +200,21 @@ const LOCATION_FLAGS: usize = 0xc90e28;
 pub fn set_loc_chk_flg(item_name: &str, set_flag: bool) {
     let ptr: usize = read_data_from_address(*DMC3_ADDRESS + LOCATION_FLAGS);
     let item_id: i32 = *ITEM_MAP.get_by_left(item_name).unwrap() as i32;
-    let loc_chk_flags = read_data_from_address::<usize>(ptr + 0x30);
+    if ptr != 0 {
+        let loc_chk_flags = read_data_from_address::<usize>(ptr + 0x30);
 
-    let item_flag: usize = (item_id + (item_id >> 0x1F & 0x7) >> 3) as usize;
-    let mask: u8 = 1 << (item_id & 7);
+        let item_flag: usize = (item_id + (item_id >> 0x1F & 0x7) >> 3) as usize;
+        let mask: u8 = 1 << (item_id & 7);
 
-    unsafe {
-        for base in [0x7DAusize, 0x7E2usize] {
-            let addr = loc_chk_flags + item_flag + base;
-            let val = read_data_from_address::<u8>(addr);
-            if set_flag {
-                replace_single_byte(addr, val | mask);
-            } else {
-                replace_single_byte(addr, val & !mask);
+        unsafe {
+            for base in [0x7DAusize, 0x7E2usize] {
+                let addr = loc_chk_flags + item_flag + base;
+                let val = read_data_from_address::<u8>(addr);
+                if set_flag {
+                    replace_single_byte(addr, val | mask);
+                } else {
+                    replace_single_byte(addr, val & !mask);
+                }
             }
         }
     }
@@ -370,30 +372,28 @@ pub(crate) fn apply_style_levels(style: Style) {
         // Note these are based on default values. If I randomized them I will to update this section
         const LEVEL_1_XP: f32 = 30000f32; // XP To get to LV2
         const LEVEL_2_XP: f32 = 99999f32; // LV2 -> LV3
-        let equipped_style = CharacterData::with_read(|c| c.style).unwrap_or_else(|_| {
-            log::error!("Unable to get current style");
-            0
-        });
-        if style.get_internal_order_index() == equipped_style as usize {
-            let level = CharacterData::with_read(|c| c.style_level).unwrap_or_else(|_| {
-                log::error!("Unable to get current style level");
-                0
-            });
-            match level {
-                0 => {
-                    ORIGINAL_GIVE_STYLE_XP.get().unwrap()(CharacterData::ptr(), LEVEL_1_XP);
-                }
-                1 => {
-                    ORIGINAL_GIVE_STYLE_XP.get().unwrap()(CharacterData::ptr(), LEVEL_2_XP);
-                }
-                2 => {
-                    log::debug!("Style {style} is max level");
-                }
-                _ => {
-                    log::error!("Unknown {style} level: {level}");
+
+        CharacterData::with_read(|c| {
+            if style.get_internal_order_index() == c.style as usize {
+                match c.style_level {
+                    0 => {
+                        ORIGINAL_GIVE_STYLE_XP.get().unwrap()(CharacterData::ptr(), LEVEL_1_XP);
+                    }
+                    1 => {
+                        ORIGINAL_GIVE_STYLE_XP.get().unwrap()(CharacterData::ptr(), LEVEL_2_XP);
+                    }
+                    2 => {
+                        log::debug!("Style {style} is max level");
+                    }
+                    _ => {
+                        log::error!("Unknown {style} level: {}", c.style_level);
+                    }
                 }
             }
-        }
+        })
+        .unwrap_or_else(|_| {
+            log::error!("Unable to read character data");
+        });
     }
 }
 

@@ -429,7 +429,6 @@ fn handle_item_receive(
     }
     Ok(())
 }
-
 fn has_reached_goal(client: &mut Client<ModModeData>) -> bool {
     let mut chk = client.checked_locations();
     match client.slot_data() {
@@ -440,7 +439,14 @@ fn has_reached_goal(client: &mut Client<ModModeData>) -> bool {
         ModModeData::Normal(mapping) => {
             match mapping.goal {
                 // Should only goal when M20 is completed
-                Goal::Standard => chk.any(|loc| loc.name() == "Mission #20 Complete"),
+                // TODO Its well, not doing that.
+                Goal::Standard => {
+                    if chk.any(|loc| loc.name() == "Mission #20 Complete") {
+                        log::debug!("Attempted to goal (Standard)! Checked Locations: {:?}", chk);
+                        return false
+                    }
+                    false
+                },
                 Goal::All => {
                     for i in 1..=20 {
                         // If we are missing a mission complete check then we cannot goal
@@ -450,12 +456,17 @@ fn has_reached_goal(client: &mut Client<ModModeData>) -> bool {
                         }
                     }
                     // If we have them all, goal
-                    true
+                    log::debug!("Attempted to goal (All)! Checked Locations: {:?}", chk);
+                    false
+
                 }
                 Goal::RandomOrder => {
                     if let Some(order) = &mapping.mission_order {
                         return chk.any(|loc| {
-                            loc.name() == format!("Mission #{} Complete", order[19]).as_str()
+                            if loc.name() == format!("Mission #{} Complete", order[19]).as_str() {
+                                log::debug!("Attempted to goal (Random Order)!");
+                            }
+                            false
                         });
                     }
                     false

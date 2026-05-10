@@ -321,7 +321,7 @@ fn modify_adjudicator(
                     replace_single_byte(adjudicator_data + RANKING_OFFSET, data.ranking);
                     replace_single_byte(
                         adjudicator_data + WEAPON_OFFSET,
-                        get_unlocked_weapon_id(&data.weapon),
+                        get_weapon_id(&data.weapon),
                     );
                 }
             }
