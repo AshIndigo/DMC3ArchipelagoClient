@@ -1,4 +1,5 @@
 use crate::archipelago::CONNECTED;
+use crate::hooks::store_hook::BACKUP_LEVELS;
 use crate::utilities::is_crimson_loaded;
 use crate::{mapping, utilities};
 use randomizer_utilities::dmc::loader_parser::LOADER_STATUS;
@@ -18,6 +19,7 @@ pub fn get_default_color() -> &'static FontColorCB {
 }
 
 pub(crate) static CANT_PURCHASE: AtomicBool = AtomicBool::new(false);
+pub(crate) static SHOW_GUN_LEVELS: AtomicBool = AtomicBool::new(false);
 
 pub(crate) unsafe extern "system" fn present_hook(
     orig_swap_chain: IDXGISwapChain,
@@ -73,8 +75,7 @@ pub(crate) unsafe extern "system" fn present_hook(
             if CANT_PURCHASE.load(Ordering::SeqCst)
                 && let Some(atlas) = &state.atlas
             {
-                // TODO Modify this text
-                const NO_PURCHASE: &str = "Cannot purchase upgrades";
+                const NO_PURCHASE: &str = "Cannot purchase from here";
                 const NO_PURCHASE_L2: &str = "due to world settings";
                 font_handler::draw_string(
                     &state,
@@ -104,6 +105,36 @@ pub(crate) unsafe extern "system" fn present_hook(
                     screen_height,
                     &WHITE,
                 );
+            }
+
+            if SHOW_GUN_LEVELS.load(Ordering::SeqCst)
+                && let Some(atlas) = &state.atlas
+            {
+                const TEXT: &str = "Current Gun Levels";
+                font_handler::draw_string(
+                    &state,
+                    TEXT,
+                    480.0 + (TEXT.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>() / 2.0),
+                    100.0,
+                    screen_width,
+                    screen_height,
+                    &WHITE,
+                );
+
+                // Print each gun level next to their guns in the shop.
+                // TODO Sort out positioning here
+                for (idx, lvl) in BACKUP_LEVELS.read().unwrap().iter().enumerate() {
+                    let txt = format!("{lvl}");
+                    font_handler::draw_string(
+                        &state,
+                        &txt,
+                        480.0 + (txt.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>() / 2.0),
+                        150.0 + (idx as f32 * 50.0),
+                        screen_width,
+                        screen_height,
+                        &WHITE,
+                    );
+                }
             }
 
             overlay_messages::pop_buffer_message();

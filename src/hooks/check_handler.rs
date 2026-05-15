@@ -1,11 +1,13 @@
 use crate::constants::{Coordinates, Difficulty, EMPTY_COORDINATES, Rank};
 use crate::data::game_structs::{GameData, MissionData, SessionData};
-use crate::data::generated_locations;
+use crate::data::{game_structs, generated_locations};
 use crate::game_manager::{ARCHIPELAGO_DATA, get_mission, set_item};
-use crate::mapping::MAPPING;
+use crate::mapping::Goal;
+use crate::mapping::{MAPPING, Mapping};
 use crate::ui::text_handler;
 use crate::utilities::DMC3_ADDRESS;
-use crate::{constants, create_hook, game_manager, location_handler};
+use crate::{AP_CORE, constants, create_hook, game_manager, location_handler};
+use archipelago_rs::ClientStatus;
 use minhook::{MH_STATUS, MinHook};
 use randomizer_utilities::read_data_from_address;
 use std::cmp::PartialEq;
@@ -266,11 +268,52 @@ pub fn mission_complete_check(cuid_result: usize, ranking: i32) -> i32 {
                     },
                     u32::MAX,
                 );
+                // Check the goal if the completed mission meets the clear criteria
+                if check_goal(mapping, s.mission, difficulty)
+                    && let Ok(mut client) = AP_CORE.get().unwrap().try_lock()
+                    && let Err(e) = client
+                        .connection
+                        .client_mut()
+                        .unwrap()
+                        .set_status(ClientStatus::Goal)
+                {
+                    log::error!("Couldn't goal: {}", e);
+                }
             }
         }
     })
     .expect("Session Data was not available?");
     final_ranking
+}
+
+fn check_goal(mapping: &Mapping, mission: u32, difficulty: Difficulty) -> bool {
+    match mapping.goal {
+        Goal::Standard => mission == 20,
+        // All missions for a specific difficulty should have a rank equal to or above the required rank
+        // TODO Double check this
+        Goal::All => game_structs::TotalRankings::with_read(|t| {
+            t.get_ranking_for_difficulty(difficulty).iter().all(|r| {
+                if let Some(rank) = Rank::from_repr(*r as usize) {
+                    rank >= mapping.mission_clear_rank
+                } else {
+                    if *r != 0xFF {
+                        log::error!("Unknown rank: {}", r);
+                    }
+                    false
+                }
+            })
+        })
+        .unwrap_or(false),
+        // Same as standard, just checking with mission order instead
+        Goal::RandomOrder => {
+            if let Some(order) = &mapping.mission_order {
+                mission == order[19] as u32
+            } else {
+                log::error!("Mission Order is None");
+                false
+            }
+        }
+    }
 }
 
 pub const PURCHASE_ITEM_ADDR: usize = 0x285bb0;

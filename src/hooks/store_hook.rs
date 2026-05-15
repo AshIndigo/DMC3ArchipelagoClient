@@ -3,7 +3,7 @@ use crate::constants::{EMPTY_COORDINATES, GUN_NAMES};
 use crate::hooks::check_handler;
 use crate::hooks::check_handler::{Location, LocationType};
 use crate::mapping::MAPPING;
-use crate::ui::overlay::CANT_PURCHASE;
+use crate::ui::overlay::{CANT_PURCHASE, SHOW_GUN_LEVELS};
 use crate::{AP_CORE, create_hook, tracker};
 use minhook::{MH_STATUS, MinHook};
 use randomizer_utilities::read_data_from_address;
@@ -155,7 +155,7 @@ pub fn setup_gun_store_levels(custom_gun: usize) {
             orig(custom_gun);
         }
     }
-    match BACKUP_LEVELS.try_write() {
+    match BACKUP_LEVELS.write() {
         Ok(mut levels) => {
             *levels = read_data_from_address(custom_gun + 0x3d10);
         }
@@ -190,11 +190,15 @@ pub fn gun_upgrade_constructor(custom_gun: usize) {
             orig(custom_gun);
         }
     }
-    if let Some(mapping) = MAPPING.read().unwrap().as_ref()
-        && mapping.randomize_gun_levels
-        && !mapping.shop_gun_checks
-    {
-        CANT_PURCHASE.store(true, Ordering::SeqCst);
+    if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
+        // Gun upgrades are items and can't purchase checks
+        if mapping.randomize_gun_levels && !mapping.shop_gun_checks {
+            CANT_PURCHASE.store(true, Ordering::SeqCst);
+        }
+
+        if mapping.randomize_gun_levels && mapping.shop_gun_checks {
+            SHOW_GUN_LEVELS.store(true, Ordering::SeqCst);
+        }
     }
 }
 
@@ -205,6 +209,7 @@ pub static ORIGINAL_GUN_SHOP_EXIT: OnceLock<unsafe extern "C" fn(custom_gun: usi
 
 pub fn exit_gun_upgrade_screen(custom_gun: usize) -> bool {
     CANT_PURCHASE.store(false, Ordering::SeqCst);
+    SHOW_GUN_LEVELS.store(false, Ordering::SeqCst);
 
     if let Some(mapping) = MAPPING.read().unwrap().as_ref()
         && mapping.shop_gun_checks

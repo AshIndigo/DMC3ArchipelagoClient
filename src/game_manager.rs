@@ -1,13 +1,13 @@
 use crate::constants::{
-    get_items_by_category, get_unlocked_weapon_id, get_weapon_id, Difficulty, ItemCategory, Style, BASE_HP, GUN_NAMES,
-    ITEM_MAP, MAX_HP, MAX_MAGIC, MELEE_NAMES, ONE_ORB,
+    BASE_HP, Difficulty, GUN_NAMES, ITEM_MAP, ItemCategory, MAX_HP, MAX_MAGIC, MELEE_NAMES,
+    ONE_ORB, Style, get_items_by_category, get_unlocked_weapon_id, get_weapon_id,
 };
 use crate::data::game_structs::{
     ActiveMissionActorData, CharacterData, GameData, MissionData, SessionData,
 };
 use crate::hooks::hook::ORIGINAL_GIVE_STYLE_XP;
 use crate::mapping::MAPPING;
-use crate::utilities::{read_data_from_address, DMC3_ADDRESS};
+use crate::utilities::{DMC3_ADDRESS, read_data_from_address};
 use archipelago_rs::Item;
 use randomizer_utilities::replace_single_byte;
 use std::collections::HashSet;

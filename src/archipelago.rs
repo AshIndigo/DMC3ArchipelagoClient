@@ -423,57 +423,7 @@ fn handle_item_receive(
         }
         None => Err(anyhow::anyhow!("Location not found: {}", location_key))?,
     }
-    // Add to checked locations
-    if has_reached_goal(client) {
-        client.set_status(ClientStatus::Goal)?
-    }
     Ok(())
-}
-fn has_reached_goal(client: &mut Client<ModModeData>) -> bool {
-    let mut chk = client.checked_locations();
-    match client.slot_data() {
-        ModModeData::HintGame(_) => {
-            log::error!("Trying to check for goal in HintGame mode");
-            false
-        }
-        ModModeData::Normal(mapping) => {
-            match mapping.goal {
-                // Should only goal when M20 is completed
-                // TODO Its well, not doing that.
-                Goal::Standard => {
-                    if chk.any(|loc| loc.name() == "Mission #20 Complete") {
-                        log::debug!("Attempted to goal (Standard)! Checked Locations: {:?}", chk);
-                        return false
-                    }
-                    false
-                },
-                Goal::All => {
-                    for i in 1..=20 {
-                        // If we are missing a mission complete check then we cannot goal
-                        if !chk.any(|loc| loc.name() == format!("Mission #{} Complete", i).as_str())
-                        {
-                            return false;
-                        }
-                    }
-                    // If we have them all, goal
-                    log::debug!("Attempted to goal (All)! Checked Locations: {:?}", chk);
-                    false
-
-                }
-                Goal::RandomOrder => {
-                    if let Some(order) = &mapping.mission_order {
-                        return chk.any(|loc| {
-                            if loc.name() == format!("Mission #{} Complete", order[19]).as_str() {
-                                log::debug!("Attempted to goal (Random Order)!");
-                            }
-                            false
-                        });
-                    }
-                    false
-                }
-            }
-        }
-    }
 }
 
 pub fn handle_received_items_packet(
