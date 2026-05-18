@@ -14,9 +14,9 @@ use std::sync::{LazyLock, OnceLock, RwLock};
 pub fn create_hooks() -> Result<(), MH_STATUS> {
     unsafe {
         create_hook!(
-            FRAME_SKILL_SHOP_ADDR,
-            skill_shop_frame,
-            ORIGINAL_FRAME_SKILL_SHOP,
+            PURCHASE_SKILL_SHOP_ADDR,
+            skill_shop_purchase,
+            ORIGINAL_PURCHASE_SKILL_SHOP,
             "Deny purchases of skills"
         );
         create_hook!(
@@ -81,7 +81,7 @@ pub(crate) static HOOK_ADDRESSES: LazyLock<Vec<usize>> = LazyLock::new(|| {
     const ADDRESSES: [usize; 10] = [
         SKILL_SHOP_CONSTRUCTOR,
         SKILL_SHOP_DECONSTRUCTOR,
-        FRAME_SKILL_SHOP_ADDR,
+        PURCHASE_SKILL_SHOP_ADDR,
         GUN_SHOP_CONSTRUCTOR_ADDR,
         GUN_SHOP_EXIT_ADDR,
         SOMETHING_GUN_ADDR,
@@ -124,20 +124,22 @@ pub fn skill_shop_deconstructor(custom_skill: usize) {
     CANT_PURCHASE.store(false, Ordering::SeqCst);
 }
 
-pub const FRAME_SKILL_SHOP_ADDR: usize = 0x288280;
-pub static ORIGINAL_FRAME_SKILL_SHOP: OnceLock<unsafe extern "C" fn(custom_skill: usize)> =
+pub const PURCHASE_SKILL_SHOP_ADDR: usize = 0x288f80;
+pub static ORIGINAL_PURCHASE_SKILL_SHOP: OnceLock<unsafe extern "C" fn(custom_skill: usize)> =
     OnceLock::new();
 
-pub fn skill_shop_frame(custom_skill: usize) {
+pub fn skill_shop_purchase(custom_skill: usize) {
     if let Some(mapping) = MAPPING.read().unwrap().as_ref()
         && mapping.randomize_skills
     {
-        if read_data_from_address::<u8>(custom_skill + 0x08) == 0x05 {
-            //unsafe { replace_single_byte(custom_skill + 0x08, 0x01) }
+        let mode = read_data_from_address::<u8>(custom_skill + 0x09);
+        // Prevent the display of purchase skill or not enough orbs prompts
+        if mode == 0x02 || mode == 0xA {
+            unsafe { write((custom_skill + 0x08) as *mut u16, 0x01) }
         }
     }
 
-    if let Some(orig) = ORIGINAL_FRAME_SKILL_SHOP.get() {
+    if let Some(orig) = ORIGINAL_PURCHASE_SKILL_SHOP.get() {
         unsafe {
             orig(custom_skill);
         }
@@ -195,7 +197,7 @@ pub fn gun_upgrade_constructor(custom_gun: usize) {
         if mapping.randomize_gun_levels && !mapping.shop_gun_checks {
             CANT_PURCHASE.store(true, Ordering::SeqCst);
         }
-
+        // Gun upgrades are items and can purchase checks
         if mapping.randomize_gun_levels && mapping.shop_gun_checks {
             SHOW_GUN_LEVELS.store(true, Ordering::SeqCst);
         }
@@ -241,7 +243,14 @@ pub fn gun_upgrade_confirm(custom_gun: usize) {
     if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
         // If randomize gun levels and no checks for them, deny purchasing
         if mapping.randomize_gun_levels && !mapping.shop_gun_checks {
-            return;
+            let mode = read_data_from_address::<u8>(custom_gun + 0x9);
+            // Prevents the purchasing of gun upgrades (also stops the "Not enough orbs" prompt from appearing)
+            if mode == 0xA || mode == 0xB || mode == 0x15 || mode == 0x14 {
+                unsafe {
+                    write((custom_gun + 0x8) as *mut u16, 2);
+                }
+                return;
+            }
         }
         // Run original code
         if let Some(orig) = ORIGINAL_GUN_PURCHASE_CONFIRMATION.get() {
@@ -249,7 +258,6 @@ pub fn gun_upgrade_confirm(custom_gun: usize) {
                 orig(custom_gun);
             }
         }
-        // TODO Overlay to show actual gun levels as well
         let gun_levels_new = read_data_from_address::<[u8; 5]>(custom_gun + 0x3D10);
         for gun_idx in 0..5 {
             if gun_levels_new[gun_idx] > backup_gun_levels[gun_idx] {

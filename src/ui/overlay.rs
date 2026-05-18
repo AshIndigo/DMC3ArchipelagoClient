@@ -1,4 +1,6 @@
 use crate::archipelago::CONNECTED;
+use crate::constants::GUN_NAMES;
+use crate::game_manager::ARCHIPELAGO_DATA;
 use crate::hooks::store_hook::BACKUP_LEVELS;
 use crate::utilities::is_crimson_loaded;
 use crate::{mapping, utilities};
@@ -107,33 +109,56 @@ pub(crate) unsafe extern "system" fn present_hook(
                 );
             }
 
-            if SHOW_GUN_LEVELS.load(Ordering::SeqCst)
-                && let Some(atlas) = &state.atlas
-            {
-                const TEXT: &str = "Current Gun Levels";
+            if SHOW_GUN_LEVELS.load(Ordering::SeqCst) {
+                const CHECK_LEVEL: &str = "Check Level";
                 font_handler::draw_string(
                     &state,
-                    TEXT,
-                    480.0 + (TEXT.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>() / 2.0),
-                    100.0,
+                    CHECK_LEVEL,
+                    750.0,
+                    180.0,
                     screen_width,
                     screen_height,
                     &WHITE,
                 );
 
-                // Print each gun level next to their guns in the shop.
-                // TODO Sort out positioning here
-                for (idx, lvl) in BACKUP_LEVELS.read().unwrap().iter().enumerate() {
-                    let txt = format!("{lvl}");
-                    font_handler::draw_string(
-                        &state,
-                        &txt,
-                        480.0 + (txt.chars().map(|c| atlas.glyph_advance(c)).sum::<f32>() / 2.0),
-                        150.0 + (idx as f32 * 50.0),
-                        screen_width,
-                        screen_height,
-                        &WHITE,
-                    );
+                const GUN_LEVEL: &str = "Gun Level";
+                font_handler::draw_string(
+                    &state,
+                    GUN_LEVEL,
+                    270.0,
+                    180.0,
+                    screen_width,
+                    screen_height,
+                    &WHITE,
+                );
+
+                if let Ok(data) = ARCHIPELAGO_DATA.read() {
+                    // Print each gun level next to their guns in the shop.
+                    for (idx, lvl) in BACKUP_LEVELS.read().unwrap().iter().enumerate() {
+                        // Level text
+                        font_handler::draw_string(
+                            &state,
+                            &format!("Lv{}", lvl + 1),
+                            270.0,
+                            250.0 + (idx as f32 * 140.0),
+                            screen_width,
+                            screen_height,
+                            &WHITE,
+                        );
+                        let gun_name = GUN_NAMES[idx];
+                        if !data.items.contains(gun_name) {
+                            // Unobtained gun names
+                            font_handler::draw_string(
+                                &state,
+                                gun_name,
+                                470.0,
+                                250.0 + (idx as f32 * 140.0),
+                                screen_width,
+                                screen_height,
+                                &WHITE,
+                            );
+                        }
+                    }
                 }
             }
 

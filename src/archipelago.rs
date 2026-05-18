@@ -2,7 +2,7 @@ use crate::constants::{MISSION_ITEM_MAP, REMOTE_ID, Style};
 use crate::game_manager::{ARCHIPELAGO_DATA, ArchipelagoData, get_mission, set_weapons_in_inv};
 use crate::hooks::check_handler::{Location, LocationType, TX_LOCATION, take_away_received_item};
 use crate::mapping::{
-    AutoHint, DeathlinkSetting, Goal, MAPPING, ModMode, ModModeData, OVERLAY_INFO, OverlayInfo,
+    AutoHint, DeathlinkSetting, MAPPING, ModMode, ModModeData, OVERLAY_INFO, OverlayInfo,
     get_adjudicators, get_mission_completes, get_secret_missions,
 };
 use crate::ui::text_handler;
@@ -15,7 +15,7 @@ use crate::data::generated_locations;
 use crate::hint_game::TX_HINT;
 use crate::hooks::{check_handler, hook};
 use archipelago_rs::{
-    AsItemId, Client, ClientStatus, Connection, ConnectionOptions, ConnectionState, CreateAsHint,
+    AsItemId, Client, Connection, ConnectionOptions, ConnectionState, CreateAsHint,
     DeathLinkOptions, Event, ItemHandling,
 };
 use randomizer_utilities::archipelago_utilities::{DeathLinkData, handle_print};

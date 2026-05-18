@@ -447,9 +447,9 @@ pub const EQUIPMENT_SCREEN_ADDR: usize = 0x28CBD0;
 pub static ORIGINAL_EQUIPMENT_SCREEN: OnceLock<unsafe extern "C" fn(cuid_weapon: usize) -> i32> =
     OnceLock::new();
 /// Edits the initially selected index when viewing weapons in the status screen
+// Runs every frame
 fn edit_initial_index(custom_weapon: usize) -> i32 {
     let base = *DMC3_ADDRESS;
-    log::debug!("Editing initial index");
     let starting_index = MissionData::with_read(|m| {
         if read_data_from_address::<u8>(custom_weapon + 0x419E) == 4 {
             // Gun
