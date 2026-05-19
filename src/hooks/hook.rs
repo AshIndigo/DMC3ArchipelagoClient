@@ -24,7 +24,7 @@ use randomizer_utilities::replace_single_byte;
 use std::arch::asm;
 use std::cmp::min;
 use std::ptr::write;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{LazyLock, OnceLock};
 use std::{ptr, slice};
 
@@ -110,6 +110,7 @@ pub(crate) unsafe fn create_hooks() -> Result<(), MH_STATUS> {
             ORIGINAL_MISSION_SELECT_SCREEN_CONSTRUCTOR,
             "Mission Select Constructor"
         );
+        create_hook!(BLANK_SCENE_VAL, blank_scene, ORIGINAL_BLANK_SCENE, "Bleen");
         text_handler::setup_text_hooks()?;
         save_handler::setup_save_hooks()?;
         store_hook::create_hooks()?;
@@ -118,7 +119,7 @@ pub(crate) unsafe fn create_hooks() -> Result<(), MH_STATUS> {
 }
 
 static HOOK_ADDRESSES: LazyLock<Vec<usize>> = LazyLock::new(|| {
-    const ADDRESSES: [usize; 24] = [
+    const ADDRESSES: [usize; 25] = [
         // Check handling
         check_handler::ITEM_HANDLE_PICKUP_ADDR,
         check_handler::ITEM_PICKED_UP_ADDR,
@@ -138,6 +139,7 @@ static HOOK_ADDRESSES: LazyLock<Vec<usize>> = LazyLock::new(|| {
         SELECT_MISSION_BUTTON,
         RESULT_SCREEN_BUTTON_ADDR,
         MISSION_SELECT_SCREEN_CONSTRUCTOR_ADDR,
+        BLANK_SCENE_VAL,
         // Save handler
         save_handler::LOAD_GAME_ADDR,
         save_handler::SAVE_GAME_ADDR,
@@ -756,18 +758,16 @@ pub fn give_xp_hook(param_1: usize, xp_amount: f32) -> f32 {
 
         CharacterData::with_read(|c| {
             let new_style_level = c.style_level;
-            if new_style_level > current_style_level {
-                // TODO I don't know if I like this
-                if let Ok(mut core) = AP_CORE.get().unwrap().as_ref().lock()
-                    && let Some(client) = core.connection.client_mut()
-                    && let Err(e) = StyleLevels::update(
-                        Style::INTERNAL_ORDER[c.style as usize],
-                        new_style_level,
-                        client,
-                    )
-                {
-                    log::error!("Failed to update StyleLevels: {}", e);
-                }
+            if new_style_level > current_style_level
+                && let Ok(mut core) = AP_CORE.get().unwrap().as_ref().lock()
+                && let Some(client) = core.connection.client_mut()
+                && let Err(e) = StyleLevels::update(
+                    Style::INTERNAL_ORDER[c.style as usize],
+                    new_style_level,
+                    client,
+                )
+            {
+                log::error!("Failed to update StyleLevels: {}", e);
             }
         })
         .unwrap_or_else(|_| {
@@ -1050,7 +1050,6 @@ pub fn calculate_max_mission(mapping: &Mapping, difficulty: Difficulty) -> u8 {
             }
             Goal::Standard => {
                 // Check the rankings, this is how we know what missions are available
-                // TODO I could probably reduce some code dupe here.
                 let rankings = r.get_ranking_for_difficulty(difficulty);
                 let mut max_idx = 1;
                 // For each mission, see if it's completed
@@ -1125,4 +1124,16 @@ fn set_actual_mission(cscene_result: usize, param_1: usize, param_2: usize, para
         }
     }
     res
+}
+
+pub static SCENE: AtomicI32 = AtomicI32::new(-1);
+
+pub const BLANK_SCENE_VAL: usize = 0x315270;
+pub static ORIGINAL_BLANK_SCENE: OnceLock<unsafe extern "C" fn(usize) -> i32> = OnceLock::new();
+pub fn blank_scene(param_1: usize) -> i32 {
+    let val = read_data_from_address::<i32>(param_1 + 0x38);
+    if val != -1 {
+        SCENE.store(val, Ordering::SeqCst);
+    }
+    unsafe { ORIGINAL_BLANK_SCENE.get().unwrap()(param_1) }
 }

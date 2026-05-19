@@ -187,7 +187,7 @@ pub(crate) fn give_hp(life_value: f32, data: &ArchipelagoData) {
 
 /// Use for weapons/key items
 pub(crate) fn set_item(item_name: &str, has_item: bool, set_flag: bool) {
-    log::debug!("Setting item {} to {}", item_name, has_item);
+    log::trace!("Setting item {} to {}", item_name, has_item);
     let _ = MissionData::with_mut(|m| {
         m.items[*ITEM_MAP.get_by_left(item_name).unwrap() as usize] = has_item as u8;
         if set_flag {
@@ -392,7 +392,9 @@ pub(crate) fn apply_style_levels(style: Style) {
             }
         })
         .unwrap_or_else(|_| {
-            log::error!("Unable to read character data");
+            log::error!(
+                "Unable to read character data (If you are not mid-mission this can be ignored)"
+            );
         });
     }
 }

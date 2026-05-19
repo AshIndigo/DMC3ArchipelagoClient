@@ -1,6 +1,8 @@
 use crate::constants::Difficulty;
+use crate::hooks::hook::SCENE;
 use crate::utilities::DMC3_ADDRESS;
 use randomizer_utilities::read_data_from_address;
+use std::sync::atomic::Ordering;
 
 /// Error type for accessing data
 #[derive(Debug)]
@@ -263,5 +265,87 @@ impl GameData for ActiveMissionActorData {
 
     fn is_valid() -> bool {
         MissionData::is_valid()
+    }
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct EventData {
+    unknown: [u8; 24],
+    room: u32,
+    position: u32,
+    pub(crate) event: Event,
+    subevent: u32,
+    screen: u32,
+    next_screen: u32,
+}
+#[allow(dead_code)]
+#[repr(u32)]
+#[derive(Debug, strum_macros::Display, strum_macros::FromRepr, PartialEq)]
+pub enum Event {
+    Init,
+    Main,
+    Teleport,
+    Pause,
+    Status,
+    Options,
+    Death,
+    Item,
+    Message,
+    Customize,
+    Save,
+    Delete,
+    End,
+}
+
+impl GameData for EventData {
+    fn ptr() -> usize {
+        *DMC3_ADDRESS + 0xC90E10
+    }
+
+    fn is_valid() -> bool {
+        unsafe {
+            if SCENE.load(Ordering::SeqCst) != 5 {
+                return false;
+            }
+            let ptr = *(Self::ptr() as *const *const *const u8);
+            if ptr.is_null() || (*ptr.add(8)).is_null() {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn with_mut<F, R>(f: F) -> Result<R, GameDataError>
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        unsafe {
+            if !Self::is_valid() {
+                return Err(GameDataError::NotUsable);
+            }
+
+            let ptr = *(Self::ptr() as *const *const *const u8);
+
+            let event_data = &mut *((*ptr.add(8)) as *mut EventData);
+
+            Ok(f(event_data))
+        }
+    }
+
+    fn with_read<F, R>(f: F) -> Result<R, GameDataError>
+    where
+        F: FnOnce(&Self) -> R,
+    {
+        unsafe {
+            if !Self::is_valid() {
+                return Err(GameDataError::NotUsable);
+            }
+
+            let ptr = *(Self::ptr() as *const *const *const u8);
+            let event_data = &*((*ptr.add(8)) as *const EventData);
+
+            Ok(f(event_data))
+        }
     }
 }

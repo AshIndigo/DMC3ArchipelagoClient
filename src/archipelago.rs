@@ -8,11 +8,13 @@ use crate::mapping::{
 use crate::ui::text_handler;
 use crate::{constants, game_manager, hint_game, location_handler, skill_manager, utilities};
 use randomizer_utilities::ui::font_handler::{WHITE, YELLOW};
+use std::collections::VecDeque;
 use std::env;
 
 use crate::data::game_structs::{GameData, SessionData};
-use crate::data::generated_locations;
+use crate::data::{game_structs, generated_locations};
 use crate::hint_game::TX_HINT;
+use crate::hooks::hook::SCENE;
 use crate::hooks::{check_handler, hook};
 use archipelago_rs::{
     AsItemId, Client, Connection, ConnectionOptions, ConnectionState, CreateAsHint,
@@ -34,6 +36,7 @@ pub static TX_DEATHLINK: OnceLock<Sender<DeathLinkData>> = OnceLock::new();
 
 pub struct ArchipelagoCore {
     pub connection: Connection<ModModeData>,
+    received_items_queue: VecDeque<usize>,
     hooks_installed: bool,
     hooks_enabled: bool,
 
@@ -57,6 +60,7 @@ impl ArchipelagoCore {
                     starting_inventory: true,
                 }),
             ),
+            received_items_queue: VecDeque::new(),
             hooks_installed: false,
             hooks_enabled: false,
             hint_hooks_installed: false,
@@ -108,6 +112,7 @@ impl ArchipelagoCore {
                             overlay_info.client_version = mapping.client_version;
                             overlay_info.mode = ModMode::Normal;
                             MAPPING.write()?.replace(mapping.clone());
+                            self.received_items_queue.clear();
                             item_sync::send_offline_checks(self.connection.client_mut().unwrap())?;
                             if !self.hooks_installed {
                                 // Hooks needed to modify the game
@@ -155,9 +160,7 @@ impl ArchipelagoCore {
                     let str = handle_print(print);
                     log::info!("Print from server: {}", str);
                 }
-                Event::ReceivedItems(idx) => {
-                    handle_received_items_packet(idx, self.connection.client_mut().unwrap())?;
-                }
+                Event::ReceivedItems(idx) => self.received_items_queue.push_back(idx),
                 Event::Error(err) => log::error!("{}", err),
                 Event::Bounce {
                     games: _,
@@ -222,6 +225,16 @@ impl ArchipelagoCore {
             }
         }
         self.handle_channels()?;
+        let _ = game_structs::EventData::with_read(|s| {
+            if s.event == game_structs::Event::Main
+                && let Some(idx) = self.received_items_queue.pop_front()
+                && let Err(e) =
+                    handle_received_items_packet(idx, self.connection.client_mut().unwrap())
+            {
+                log::error!("Failed to receive items: {:?}", e);
+            }
+        });
+
         Ok(())
     }
 
@@ -282,7 +295,7 @@ pub fn run_setup(client: &mut Client<ModModeData>) -> Result<(), Box<dyn Error>>
         client.scout_locations(get_mission_completes(client), CreateAsHint::No),
     );
 
-    // Handle auto hinting
+    // Scout shop checks
     if let ModModeData::Normal(mapping) = client.slot_data() {
         let mut locations_to_scout: Vec<i64> = vec![];
         if mapping.shop_orb_checks {
@@ -305,7 +318,6 @@ pub fn run_setup(client: &mut Client<ModModeData>) -> Result<(), Box<dyn Error>>
                 })
                 .map(|(&k, _)| client.this_game().location_by_name(k).unwrap().id())
                 .collect::<Vec<i64>>();
-            log::debug!("Gun checks: {:?}", gun_checks);
             locations_to_scout.extend(&gun_checks);
         }
         // if AutoHint::All == mapping.auto_skill_hints {
@@ -446,7 +458,7 @@ pub fn handle_received_items_packet(
 
                 for item in client.received_items().iter() {
                     // Display overlay text if we're not at the main menu
-                    if !utilities::is_on_main_menu()
+                    if (!utilities::is_on_main_menu() || SCENE.load(Ordering::SeqCst) == 5)
                         && item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize
                     {
                         let rec_msg: Vec<MessageSegment> = vec![

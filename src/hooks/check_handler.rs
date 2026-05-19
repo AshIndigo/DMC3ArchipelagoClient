@@ -290,7 +290,7 @@ fn check_goal(mapping: &Mapping, mission: u32, difficulty: Difficulty) -> bool {
     match mapping.goal {
         Goal::Standard => mission == 20,
         // All missions for a specific difficulty should have a rank equal to or above the required rank
-        // TODO Double check this
+        // NOTE Not tested, but I think its fine?
         Goal::All => game_structs::TotalRankings::with_read(|t| {
             t.get_ranking_for_difficulty(difficulty).iter().all(|r| {
                 if let Some(rank) = Rank::from_repr(*r as usize) {
