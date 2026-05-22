@@ -199,7 +199,20 @@ impl SkillUpdate {
         }
         SkillUpdate { skills: [0; 8] }
     }
-    // TODO Need to implement an update() for this
+    pub(crate) fn update(client: &mut Client<ModModeData>) -> Result<(), archipelago_rs::Error> {
+        match to_value(Self::new()) {
+            Ok(ser) => {
+                client.change(
+                    format!("{}_{}", Self::KEY, client.this_player().name()),
+                    ser.clone(),
+                    [DataStorageOperation::Replace(ser)],
+                    false,
+                )?;
+                Ok(())
+            }
+            Err(err) => Err(archipelago_rs::Error::Serialize(err)),
+        }
+    }
 }
 
 fn update_data_storage<T>(

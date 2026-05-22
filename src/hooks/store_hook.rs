@@ -129,19 +129,26 @@ pub static ORIGINAL_PURCHASE_SKILL_SHOP: OnceLock<unsafe extern "C" fn(custom_sk
     OnceLock::new();
 
 pub fn skill_shop_purchase(custom_skill: usize) {
-    if let Some(mapping) = MAPPING.read().unwrap().as_ref()
-        && mapping.randomize_skills
-    {
+    if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
         let mode = read_data_from_address::<u8>(custom_skill + 0x09);
-        // Prevent the display of purchase skill or not enough orbs prompts
         if mode == 0x02 || mode == 0xA {
-            unsafe { write((custom_skill + 0x08) as *mut u16, 0x01) }
+            if mapping.randomize_skills {
+                // Prevent the display of purchase skill or not enough orbs prompts
+                unsafe { write((custom_skill + 0x08) as *mut u16, 0x01) }
+            } else {
+                if let Ok(mut core) = AP_CORE.get().unwrap().as_ref().lock()
+                    && let Some(client) = core.connection.client_mut()
+                    && let Err(e) = tracker::SkillUpdate::update(client)
+                {
+                    log::error!("Skill update failed: {}", e);
+                }
+            }
         }
-    }
 
-    if let Some(orig) = ORIGINAL_PURCHASE_SKILL_SHOP.get() {
-        unsafe {
-            orig(custom_skill);
+        if let Some(orig) = ORIGINAL_PURCHASE_SKILL_SHOP.get() {
+            unsafe {
+                orig(custom_skill);
+            }
         }
     }
 }
