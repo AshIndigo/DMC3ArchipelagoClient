@@ -1,10 +1,13 @@
 use crate::constants::{Coordinates, Difficulty, EMPTY_COORDINATES, Rank};
-use crate::data::generated_locations;
-use crate::game_manager::{ARCHIPELAGO_DATA, get_mission, set_item, with_session_read};
-use crate::mapping::MAPPING;
+use crate::data::game_structs::{GameData, MissionData, SessionData};
+use crate::data::{game_structs, generated_locations};
+use crate::game_manager::{ARCHIPELAGO_DATA, get_mission, set_item};
+use crate::mapping::Goal;
+use crate::mapping::{MAPPING, Mapping};
 use crate::ui::text_handler;
-use crate::utilities::{DMC3_ADDRESS, get_inv_address};
-use crate::{constants, create_hook, game_manager, location_handler};
+use crate::utilities::DMC3_ADDRESS;
+use crate::{AP_CORE, constants, create_hook, game_manager, location_handler};
+use archipelago_rs::ClientStatus;
 use minhook::{MH_STATUS, MinHook};
 use randomizer_utilities::read_data_from_address;
 use std::cmp::PartialEq;
@@ -12,20 +15,6 @@ use std::fmt::{Display, Formatter};
 use std::sync::OnceLock;
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::mpsc::Sender;
-
-pub const ITEM_HANDLE_PICKUP_ADDR: usize = 0x1b45a0;
-pub static ORIGINAL_HANDLE_PICKUP: OnceLock<unsafe extern "C" fn(item_struct: usize)> =
-    OnceLock::new();
-
-pub const ITEM_PICKED_UP_ADDR: usize = 0x1aa6e0;
-pub static ORIGINAL_ITEM_PICKED_UP: OnceLock<
-    unsafe extern "C" fn(loc_chk_id: usize, param_2: i16, item_id: i32),
-> = OnceLock::new();
-
-pub const RESULT_CALC_ADDR: usize = 0x2a0f10;
-pub static ORIGINAL_RESULT_CALC: OnceLock<
-    unsafe extern "C" fn(cuid_result: usize, ranking: i32) -> i32,
-> = OnceLock::new();
 
 pub fn setup_check_hooks() -> Result<(), MH_STATUS> {
     log::debug!("Setting up check related hooks");
@@ -58,6 +47,10 @@ pub fn setup_check_hooks() -> Result<(), MH_STATUS> {
     Ok(())
 }
 
+pub const ITEM_HANDLE_PICKUP_ADDR: usize = 0x1b45a0;
+pub static ORIGINAL_HANDLE_PICKUP: OnceLock<unsafe extern "C" fn(item_struct: usize)> =
+    OnceLock::new();
+
 /// Hook into item handle method (1b45a0). Handles non-event item pick up locations
 pub fn item_non_event(item_struct: usize) {
     unsafe {
@@ -83,6 +76,7 @@ pub fn item_non_event(item_struct: usize) {
                         y: y_coord_val,
                         z: z_coord_val,
                     },
+                    to_display: false,
                 };
                 let location_name = location_handler::get_location_name_by_data(&loc);
                 log::debug!(
@@ -147,6 +141,11 @@ fn is_valid_id(item_id: u32) -> bool {
     !INVALID_IDS.contains(&item_id)
 }
 
+pub const ITEM_PICKED_UP_ADDR: usize = 0x1aa6e0;
+pub static ORIGINAL_ITEM_PICKED_UP: OnceLock<
+    unsafe extern "C" fn(loc_chk_id: usize, param_2: i16, item_id: i32),
+> = OnceLock::new();
+
 /// Hook into item picked up method (1aa6e0). Handles item pick up locations
 pub fn item_event(loc_chk_flg: usize, item_id: i16, unknown: i32) {
     unsafe {
@@ -157,6 +156,7 @@ pub fn item_event(loc_chk_flg: usize, item_id: i16, unknown: i32) {
                 room: game_manager::get_room(),
                 mission: get_mission(),
                 coordinates: EMPTY_COORDINATES,
+                to_display: false,
             };
             const EXTRA_OUTPUT: bool = true;
             if EXTRA_OUTPUT && !EXTRA_EXTRA_OUTPUT {
@@ -184,7 +184,7 @@ pub fn item_event(loc_chk_flg: usize, item_id: i16, unknown: i32) {
                 }
                 Err(err) => {
                     log::error!("Couldn't find location (Event): {}", err);
-                    with_session_read(|s| {
+                    SessionData::with_read(|s| {
                         log::debug!("Session Info: Mission: {} - Room: {}", s.mission, s.room);
                     })
                     .unwrap();
@@ -208,6 +208,11 @@ pub fn item_event(loc_chk_flg: usize, item_id: i16, unknown: i32) {
     }
 }
 
+pub const RESULT_CALC_ADDR: usize = 0x2a0f10;
+pub static ORIGINAL_RESULT_CALC: OnceLock<
+    unsafe extern "C" fn(cuid_result: usize, ranking: i32) -> i32,
+> = OnceLock::new();
+
 /// To check off a mission as being completed
 pub fn mission_complete_check(cuid_result: usize, ranking: i32) -> i32 {
     let final_ranking = if let Some(original) = ORIGINAL_RESULT_CALC.get() {
@@ -215,7 +220,7 @@ pub fn mission_complete_check(cuid_result: usize, ranking: i32) -> i32 {
     } else {
         panic!("Result Calc doesn't exist??");
     };
-    with_session_read(|s| {
+    SessionData::with_read(|s| {
         let rank = Rank::from_repr(final_ranking as usize).unwrap();
         let difficulty = if s.hoh {
             Difficulty::HeavenOrHell
@@ -243,6 +248,7 @@ pub fn mission_complete_check(cuid_result: usize, ranking: i32) -> i32 {
                         room: 0,
                         mission: s.mission,
                         coordinates: EMPTY_COORDINATES,
+                        to_display: true,
                     },
                     u32::MAX,
                 );
@@ -258,14 +264,56 @@ pub fn mission_complete_check(cuid_result: usize, ranking: i32) -> i32 {
                         room: 0,
                         mission: s.mission,
                         coordinates: EMPTY_COORDINATES,
+                        to_display: true,
                     },
                     u32::MAX,
                 );
+                // Check the goal if the completed mission meets the clear criteria
+                if check_goal(mapping, s.mission, difficulty)
+                    && let Ok(mut client) = AP_CORE.get().unwrap().try_lock()
+                    && let Err(e) = client
+                        .connection
+                        .client_mut()
+                        .unwrap()
+                        .set_status(ClientStatus::Goal)
+                {
+                    log::error!("Couldn't goal: {}", e);
+                }
             }
         }
     })
     .expect("Session Data was not available?");
     final_ranking
+}
+
+fn check_goal(mapping: &Mapping, mission: u32, difficulty: Difficulty) -> bool {
+    match mapping.goal {
+        Goal::Standard => mission == 20,
+        // All missions for a specific difficulty should have a rank equal to or above the required rank
+        // NOTE Not tested, but I think its fine?
+        Goal::All => game_structs::TotalRankings::with_read(|t| {
+            t.get_ranking_for_difficulty(difficulty).iter().all(|r| {
+                if let Some(rank) = Rank::from_repr(*r as usize) {
+                    rank >= mapping.mission_clear_rank
+                } else {
+                    if *r != 0xFF {
+                        log::error!("Unknown rank: {}", r);
+                    }
+                    false
+                }
+            })
+        })
+        .unwrap_or(false),
+        // Same as standard, just checking with mission order instead
+        Goal::RandomOrder => {
+            if let Some(order) = &mapping.mission_order {
+                mission == order[19] as u32
+            } else {
+                log::error!("Mission Order is None");
+                false
+            }
+        }
+    }
 }
 
 pub const PURCHASE_ITEM_ADDR: usize = 0x285bb0;
@@ -279,8 +327,10 @@ pub fn purchase_item_check(ptr: usize) {
         }
     }
 
+    log::debug!("Purchase item check");
     if let Some(mapping) = MAPPING.read().unwrap().as_ref()
         && mapping.shop_orb_checks
+    // TODO This might be laggy? Set an atomic instead? Disable the hooks if its not needed?
     {
         // Figure out the index of the item we just bought from the store.
         // 0xC8F263 is to check whether we are on gold or yellow
@@ -314,6 +364,7 @@ pub fn purchase_item_check(ptr: usize) {
                     mission: amt as u32,
                     room: 0,
                     coordinates: EMPTY_COORDINATES,
+                    to_display: true,
                 },
                 u32::MAX,
             );
@@ -338,11 +389,16 @@ pub(crate) struct Location {
     pub(crate) room: i32,
     pub(crate) mission: u32,
     pub coordinates: Coordinates,
+    pub to_display: bool,
 }
 
 impl Display for Location {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Room ID: {:#} Item ID: {:#x}", self.room, self.item_id)
+        write!(
+            f,
+            "Mission: {:#} Room ID: {:#} Item ID: {:#x}",
+            self.mission, self.room, self.item_id
+        )
     }
 }
 
@@ -372,18 +428,10 @@ pub(crate) fn send_off_location_coords(loc: Location, to_display: u32) {
 }
 
 pub(crate) fn take_away_received_item(id: u32) {
-    if let Some(current_inv_addr) = get_inv_address() {
-        let offset = *constants::ITEM_OFFSET_MAP
-            .get(constants::ITEM_MAP.get_by_right(&id).unwrap())
-            .unwrap_or_else(|| panic!("Item offset not found: {}", id));
-        log::debug!("Stripping ID: {:#X} - Offset: {:#X}", id, offset);
-        unsafe {
-            randomizer_utilities::replace_single_byte(
-                current_inv_addr + offset as usize,
-                read_data_from_address::<u8>(current_inv_addr + offset as usize).saturating_sub(1),
-            );
-        }
-    }
+    log::debug!("Stripping ID: {:#X}", id);
+    let _ = MissionData::with_mut(|m| {
+        m.items[id as usize] -= 1;
+    });
 }
 
 pub(crate) fn should_snatch_item(id: u32) -> bool {

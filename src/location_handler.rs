@@ -1,15 +1,16 @@
-use crate::check_handler::{Location, LocationType};
 use crate::constants::{DUMMY_ID, EVENT_TABLES, EventCode, ITEM_MAP, ItemCategory, REMOTE_ID};
+use crate::data::game_structs::{GameData, SessionData};
 use crate::data::generated_locations;
 use crate::game_manager::get_mission;
-use crate::{constants, game_manager, utilities};
+use crate::hooks::check_handler::{Location, LocationType};
+use crate::{constants, utilities};
 use anyhow::anyhow;
 use randomizer_utilities::archipelago_utilities;
 use std::error::Error;
 
 /// If we are in a room with a key item+appropriate mission, return Ok(location_key)
 pub fn in_key_item_room() -> Result<&'static str, Box<dyn Error>> {
-    game_manager::with_session_read(|s| {
+    SessionData::with_read(|s| {
         for (location_key, item_entry) in generated_locations::ITEM_MISSION_MAP.iter() {
             if (constants::get_items_by_category(ItemCategory::Key)
                 .contains(&constants::get_item_name(item_entry.item_id)))

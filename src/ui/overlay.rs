@@ -1,139 +1,35 @@
 use crate::archipelago::CONNECTED;
+use crate::constants::GUN_NAMES;
+use crate::game_manager::ARCHIPELAGO_DATA;
+use crate::hooks::store_hook::BACKUP_LEVELS;
 use crate::utilities::is_crimson_loaded;
 use crate::{mapping, utilities};
-use archipelago_rs::LocatedItem;
 use randomizer_utilities::dmc::loader_parser::LOADER_STATUS;
-use randomizer_utilities::ui::dx11::{ORIGINAL_PRESENT, ORIGINAL_RESIZE_BUFFERS};
+use randomizer_utilities::ui::dx11_state::{D3D11State, update_screen_size};
+use randomizer_utilities::ui::dx11_types::ORIGINAL_PRESENT;
 use randomizer_utilities::ui::font_handler::{BLACK, FontAtlas, FontColorCB, GREEN, RED, WHITE};
-use randomizer_utilities::ui::overlay::{D3D11State, STATE};
-use randomizer_utilities::ui::{font_handler, overlay};
-use std::collections::VecDeque;
+use randomizer_utilities::ui::overlay_messages::ACTIVE_MESSAGES;
+use randomizer_utilities::ui::{dx11_state, font_handler, overlay_messages};
+use std::sync::RwLockReadGuard;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{LazyLock, Mutex, RwLockReadGuard};
-use std::time::{Duration, Instant};
-use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
+use std::time::Instant;
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::*;
-use windows::core::Interface;
-
-static MESSAGE_QUEUE: LazyLock<Mutex<VecDeque<OverlayMessage>>> =
-    LazyLock::new(|| Mutex::new(VecDeque::new()));
-
-static ACTIVE_MESSAGES: LazyLock<Mutex<VecDeque<TimedMessage>>> =
-    LazyLock::new(|| Mutex::new(VecDeque::new()));
-
-pub struct MessageSegment {
-    pub text: String,
-    pub color: FontColorCB,
-}
-
-impl MessageSegment {
-    pub fn new(text: String, color: FontColorCB) -> Self {
-        Self { text, color }
-    }
-}
-pub struct OverlayMessage {
-    segments: Vec<MessageSegment>,
-    duration: Duration,
-    _x: f32,
-    _y: f32,
-    _msg_type: MessageType,
-}
-
-impl OverlayMessage {
-    pub(crate) fn new(
-        segments: Vec<MessageSegment>,
-        duration: Duration,
-        x: f32,
-        y: f32,
-        msg_type: MessageType,
-    ) -> OverlayMessage {
-        OverlayMessage {
-            segments,
-            duration,
-            _x: x,
-            _y: y,
-            _msg_type: msg_type,
-        }
-    }
-}
-// TODO This doesn't matter right now, but it could be used later
-pub(crate) enum MessageType {
-    _Default,     // Take the X and Y values as they are given
-    Notification, // Disregard coordinates, automatically align to upper right (Used for newly received items+DL)
-}
 
 pub fn get_default_color() -> &'static FontColorCB {
     if is_crimson_loaded() { &WHITE } else { &BLACK }
 }
 
-pub(crate) fn add_message(overlay: OverlayMessage) {
-    match MESSAGE_QUEUE.lock() {
-        Ok(mut queue) => {
-            queue.push_back(overlay);
-        }
-        Err(err) => {
-            log::error!("PoisonError upon trying to add message {:?}", err);
-        }
-    }
-}
-
-pub(crate) unsafe extern "system" fn resize_hook(
-    swap_chain: *mut IDXGISwapChain,
-    buffer_count: u32,
-    width: u32,
-    height: u32,
-    new_format: Common::DXGI_FORMAT,
-    swap_chain_flags: DXGI_SWAP_CHAIN_FLAG,
-) {
-    unsafe {
-        ORIGINAL_RESIZE_BUFFERS.get().unwrap()(
-            swap_chain,
-            buffer_count,
-            width,
-            height,
-            new_format,
-            swap_chain_flags,
-        )
-    };
-    if let Some(state) = STATE.get() {
-        match state.write() {
-            Ok(mut state) => {
-                state.rtv = None;
-                state.atlas = None;
-            }
-            Err(err) => {
-                log::error!("Unable to edit D3D11State {}", err)
-            }
-        }
-    }
-}
-
 pub(crate) static CANT_PURCHASE: AtomicBool = AtomicBool::new(false);
-
-unsafe fn update_screen_size(swap_chain: &IDXGISwapChain) -> (f32, f32) {
-    let back_buffer: ID3D11Texture2D = {
-        let ptr: ID3D11Texture2D =
-            unsafe { swap_chain.GetBuffer(0) }.expect("Failed to get back buffer");
-        ptr.cast().unwrap()
-    };
-
-    let mut desc = D3D11_TEXTURE2D_DESC::default();
-    unsafe {
-        back_buffer.GetDesc(&mut desc);
-    }
-
-    (desc.Width as f32, desc.Height as f32)
-}
+pub(crate) static SHOW_GUN_LEVELS: AtomicBool = AtomicBool::new(false);
 
 pub(crate) unsafe extern "system" fn present_hook(
     orig_swap_chain: IDXGISwapChain,
     sync_interval: u32,
     flags: u32,
 ) -> i32 {
-    let (screen_width, screen_height) = unsafe { update_screen_size(&orig_swap_chain) };
-    let state = overlay::get_resources(&orig_swap_chain);
-    match state.read() {
+    let (screen_width, screen_height) = update_screen_size(&orig_swap_chain);
+    match dx11_state::get_resources(&orig_swap_chain).read() {
         Ok(state) => {
             unsafe {
                 state
@@ -181,8 +77,7 @@ pub(crate) unsafe extern "system" fn present_hook(
             if CANT_PURCHASE.load(Ordering::SeqCst)
                 && let Some(atlas) = &state.atlas
             {
-                // TODO Modify this text
-                const NO_PURCHASE: &str = "Cannot purchase upgrades";
+                const NO_PURCHASE: &str = "Cannot purchase from here";
                 const NO_PURCHASE_L2: &str = "due to world settings";
                 font_handler::draw_string(
                     &state,
@@ -212,10 +107,62 @@ pub(crate) unsafe extern "system" fn present_hook(
                     screen_height,
                     &WHITE,
                 );
-                CANT_PURCHASE.store(false, Ordering::SeqCst);
             }
 
-            pop_buffer_message();
+            if SHOW_GUN_LEVELS.load(Ordering::SeqCst) {
+                const CHECK_LEVEL: &str = "Check Level";
+                font_handler::draw_string(
+                    &state,
+                    CHECK_LEVEL,
+                    750.0,
+                    180.0,
+                    screen_width,
+                    screen_height,
+                    &WHITE,
+                );
+
+                const GUN_LEVEL: &str = "Gun Level";
+                font_handler::draw_string(
+                    &state,
+                    GUN_LEVEL,
+                    270.0,
+                    180.0,
+                    screen_width,
+                    screen_height,
+                    &WHITE,
+                );
+
+                if let Ok(data) = ARCHIPELAGO_DATA.read() {
+                    // Print each gun level next to their guns in the shop.
+                    for (idx, lvl) in BACKUP_LEVELS.read().unwrap().iter().enumerate() {
+                        // Level text
+                        font_handler::draw_string(
+                            &state,
+                            &format!("Lv{}", lvl + 1),
+                            270.0,
+                            250.0 + (idx as f32 * 140.0),
+                            screen_width,
+                            screen_height,
+                            &WHITE,
+                        );
+                        let gun_name = GUN_NAMES[idx];
+                        if !data.items.contains(gun_name) {
+                            // Unobtained gun names
+                            font_handler::draw_string(
+                                &state,
+                                gun_name,
+                                470.0,
+                                250.0 + (idx as f32 * 140.0),
+                                screen_width,
+                                screen_height,
+                                &WHITE,
+                            );
+                        }
+                    }
+                }
+            }
+
+            overlay_messages::pop_buffer_message();
 
             let now = Instant::now();
             if let Ok(mut active) = ACTIVE_MESSAGES.lock() {
@@ -227,7 +174,13 @@ pub(crate) unsafe extern "system" fn present_hook(
 
                 let mut y = PADDING;
                 for msg in active.iter().rev() {
-                    draw_colored_message(&state, msg, screen_width, screen_height, y);
+                    overlay_messages::draw_colored_message(
+                        &state,
+                        msg,
+                        screen_width,
+                        screen_height,
+                        y,
+                    );
                     y += LINE_HEIGHT + PADDING;
                 }
             }
@@ -357,88 +310,4 @@ fn should_display_anyway() -> bool {
     // Or if version mismatch?
 
     false
-}
-
-fn draw_colored_message(
-    state: &D3D11State,
-    msg: &TimedMessage,
-    screen_width: f32,
-    screen_height: f32,
-    y: f32,
-) {
-    const FALLBACK_MULT: f32 = 32.0;
-    let total_width: f32 = msg
-        .message
-        .segments
-        .iter()
-        .map(|seg| {
-            if let Some(atlas) = &state.atlas {
-                seg.text
-                    .chars()
-                    .map(|c| atlas.glyph_advance(c))
-                    .sum::<f32>()
-            } else {
-                seg.text.len() as f32 * FALLBACK_MULT
-            }
-        })
-        .sum();
-
-    // Start on right
-    let mut cursor_x = screen_width - total_width;
-
-    for segment in msg.message.segments.iter() {
-        font_handler::draw_string(
-            state,
-            &segment.text,
-            cursor_x,
-            y,
-            screen_width,
-            screen_height,
-            &segment.color,
-        );
-
-        if let Some(atlas) = &state.atlas {
-            cursor_x += segment
-                .text
-                .chars()
-                .map(|c| atlas.glyph_advance(c))
-                .sum::<f32>();
-        } else {
-            cursor_x += segment.text.len() as f32 * FALLBACK_MULT;
-        }
-    }
-}
-
-struct TimedMessage {
-    message: OverlayMessage,
-    expiration: Instant,
-}
-
-fn pop_buffer_message() {
-    if let Ok(mut queue) = MESSAGE_QUEUE.lock()
-        && let Some(message) = queue.pop_front()
-    {
-        let expiration = Instant::now() + message.duration;
-        let timed = TimedMessage {
-            message,
-            expiration,
-        };
-        if let Ok(mut active) = ACTIVE_MESSAGES.lock() {
-            active.push_back(timed);
-        }
-    }
-}
-
-pub(crate) fn get_color_for_item(item: &LocatedItem) -> FontColorCB {
-    const CYAN: FontColorCB = FontColorCB::new(0.0, 0.933, 0.933, 1.0);
-    const PLUM: FontColorCB = FontColorCB::new(0.686, 0.6, 0.937, 1.0);
-    const STATE_BLUE: FontColorCB = FontColorCB::new(0.427, 0.545, 0.91, 1.0);
-    const SALMON: FontColorCB = FontColorCB::new(0.98, 0.502, 0.447, 1.0);
-
-    match (item.is_trap(), item.is_useful(), item.is_progression()) {
-        (true, _, _) => SALMON,
-        (false, _, true) => PLUM,
-        (false, true, false) => STATE_BLUE,
-        (false, false, false) => CYAN,
-    }
 }
