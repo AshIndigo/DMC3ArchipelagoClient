@@ -3,7 +3,8 @@ use crate::constants::{
     ONE_ORB, Style, get_items_by_category, get_unlocked_weapon_id, get_weapon_id,
 };
 use crate::data::game_structs::{
-    ActiveMissionActorData, CharacterData, GameData, MissionData, SessionData,
+    ActiveMissionActorData, CharacterData, GameData, MissionData, QueuedMissionActorData,
+    SessionData,
 };
 use crate::hooks::hook::ORIGINAL_GIVE_STYLE_XP;
 use crate::mapping::MAPPING;
@@ -337,21 +338,17 @@ pub(crate) fn set_gun_levels(data: &ArchipelagoData) {
         }
     })
     .expect("Unable to edit session data");
-    // TODO Sort out in game gun level changes
-    // let _ = CharacterData::with_mut(|c| {
-    //     c.weapon_levels = data.gun_levels;
-    //     // TODO for whatever reason this field only keeps track of equipped weapons
-    // });
+    let _ = CharacterData::with_mut(|c| {
+        let _ = ActiveMissionActorData::with_read(|m| {
+            // Set the character level of actively equipped guns
+            c.weapon_levels[2] = data.gun_levels[(m.equipped_weapons[2] - 5) as usize];
+            c.weapon_levels[3] = data.gun_levels[(m.equipped_weapons[3] - 5) as usize];
+        });
+    });
 
-    // let _ = MissionData::with_mut(|c| {
-    //     log::debug!("MD: {:#X}", read_data_from_address::<usize>(MissionData::ptr()));
-    //     log::debug!("Gun?: {:?}", c.gun_stuff);
-    //     //c.levels = data.gun_levels.map(|f| f as u8);
-    // });
-    //
-    // let _ = ActiveMissionActorData::with_mut(|a| {
-    //     log::debug!("Maybe levels: {:?}", a.equipped_weapons)
-    // });
+    let _ = QueuedMissionActorData::with_mut(|a| {
+        a.weapon_levels = data.gun_levels;
+    });
 }
 
 pub(crate) fn set_style_levels() {

@@ -90,21 +90,17 @@ impl GameData for SessionData {
 
 #[repr(C)]
 pub struct MissionData {
-    unknown1: [u8; 12],
-    unknown0: [u8; 5], // Whatever this is, it's not levels
-    unknown2: [u8; 15],
-    pub(crate) gun_stuff: [u32; 5],
-    unk33: u32,
+    unknown0: [u8; 56],
     pub(crate) red_orbs: i32,
     pub(crate) items: [u8; 62],
     pub(crate) bought_items: [u8; 8],
-    pub(crate) unknown3: [u8; 38],
+    unknown1: [u8; 38],
     frame_count: u32,
     damage_taken: u32,
     orbs_collected: u32,
     items_used: u32,
     kill_count: u32,
-    unknown4: [u8; 4],
+    unknown2: [u8; 4],
 }
 
 impl GameData for MissionData {
@@ -245,9 +241,45 @@ impl GameData for TotalRankings {
 }
 
 #[repr(C)]
+pub struct QueuedMissionActorData {
+    weapons: [u8; 5],
+    _unknown0: [u8; 20],
+    pub weapon_levels: [u32; 5],
+    _unknown1: [u32; 7],
+    _padding: [u8; 3],
+    hp: f32,
+    magic: f32,
+    style: u32,
+    style_level: [u32; 6],
+    style_exp: [f32; 6],
+    expertise: [u32; 8],
+}
+
+impl GameData for QueuedMissionActorData {
+    fn ptr() -> usize {
+        read_data_from_address::<usize>(MissionData::ptr()) + 0xC0
+    }
+
+    fn is_valid() -> bool {
+        MissionData::is_valid()
+    }
+}
+
+#[repr(C)]
 pub struct ActiveMissionActorData {
     pub(crate) equipped_weapons: [u8; 5],
-    unknown1: [u8; 51],
+    unknown0: [u8; 3],
+    pub weapon_levels: [u32; 5],
+    melee_index: u32,
+    ranged_index: u32,
+    active_weapon: u8,
+    unknown1: [u8; 3],
+    active_model: u32, // Some internal thing, doesnt matter
+    devil_trigger: bool,
+    unknown2: [u8; 3],
+    mode: i32,
+    costume: u8,
+    unknown3: [u8; 3],
     style: u32,
     style_level: u32,
     pub(crate) expertise: [u32; 8],
