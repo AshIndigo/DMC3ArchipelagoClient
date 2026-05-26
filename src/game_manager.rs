@@ -341,8 +341,13 @@ pub(crate) fn set_gun_levels(data: &ArchipelagoData) {
     let _ = CharacterData::with_mut(|c| {
         let _ = ActiveMissionActorData::with_read(|m| {
             // Set the character level of actively equipped guns
-            c.weapon_levels[2] = data.gun_levels[(m.equipped_weapons[2] - 5) as usize];
-            c.weapon_levels[3] = data.gun_levels[(m.equipped_weapons[3] - 5) as usize];
+            // Make sure there is a gun in the relevant slot
+            if m.equipped_weapons[2] != 0xFF {
+                c.weapon_levels[2] = data.gun_levels[(m.equipped_weapons[2] - 5) as usize];
+            }
+            if m.equipped_weapons[3] != 0xFF {
+                c.weapon_levels[3] = data.gun_levels[(m.equipped_weapons[3] - 5) as usize];
+            }
         });
     });
 

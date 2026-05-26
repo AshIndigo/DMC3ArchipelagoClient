@@ -915,10 +915,8 @@ pub fn set_rando_session_data(ptr: usize) {
             }
 
             // Set starter weapons
-            s.weapons[0] = 0xFF; //mapping.start_melee;
-            //s.weapons[1] = mapping.start_second_melee;
-            s.weapons[2] = 0xFF; //mapping.start_gun;
-            //s.weapons[3] = mapping.start_second_gun;
+            s.weapons[0] = 0xFF;
+            s.weapons[2] = 0xFF;
 
             // Unlock DT off the bat
             s.unlocked_dt = true;
