@@ -668,17 +668,17 @@ pub fn set_player_data(param_1: usize) -> bool {
     game_manager::set_max_hp_and_magic();
     if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
         if mapping.randomize_gun_levels {
-            game_manager::set_gun_levels(&ARCHIPELAGO_DATA.read().unwrap());
+            game_manager::set_gun_levels_dante(&ARCHIPELAGO_DATA.read().unwrap());
             match mapping.character_selection {
                 Character::Dante => {
-                    game_manager::set_gun_levels_dante();
+                    game_manager::set_gun_levels_dante(&ARCHIPELAGO_DATA.read().unwrap());
                 }
                 Character::Vergil => {
                     // Do spiral sword stuff
                     let data = &ARCHIPELAGO_DATA.read().unwrap();
                 }
                 _ => {
-                    game_manager::set_gun_levels_dante();
+                    game_manager::set_gun_levels_dante(&ARCHIPELAGO_DATA.read().unwrap());
                 }
             }
         }
@@ -895,9 +895,9 @@ pub fn set_rando_session_data(ptr: usize) {
     log::debug!("Starting new game, setting appropriate data");
     SessionData::with_mut(|s| {
         if let Some(mapping) = MAPPING.read().unwrap().as_ref() {
-            if s.char != mapping.character_selection as u8 {
+            if s.character != mapping.character_selection {
                 log::warn!("Selected character does not match Slot Character, changing to correct character");
-                s.char = mapping.character_selection as u8;
+                s.character = mapping.character_selection;
             }
             // Unlock difficulties, costumes and modes
             unsafe {

@@ -1,4 +1,4 @@
-use crate::constants::Difficulty;
+use crate::constants::{Character, Difficulty};
 use crate::hooks::hook::SCENE;
 use crate::utilities::DMC3_ADDRESS;
 use randomizer_utilities::read_data_from_address;
@@ -55,7 +55,7 @@ pub struct SessionData {
     pub _unknown2: u8,
     tutorial: bool,
     gold_orb_mode: bool,
-    pub(crate) char: u8,
+    pub(crate) character: Character,
     pub(crate) _unknown3: [u8; 7],
     bloody_palace: bool,
     _unknown4: [u8; 15],

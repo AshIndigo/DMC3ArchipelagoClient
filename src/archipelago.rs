@@ -540,7 +540,7 @@ pub fn handle_received_items_packet(
                         0x53..0x58 => {
                             // Gun Levels
                             data.add_gun_level((item.item().id() - 0x53) as usize);
-                            game_manager::set_gun_levels(&data);
+                            game_manager::set_gun_levels_dante(&data);
                         }
                         0x60..0x64 | 0x75 => {
                             // Style Handling

@@ -184,7 +184,7 @@ where
 {
     let val = Value::deserialize(deserializer)?;
     match val {
-        Value::Number(n) => match Character::from_repr(n.as_i64().unwrap_or_default() as usize) {
+        Value::Number(n) => match Character::from_repr(n.as_i64().unwrap_or_default() as u8) {
             None => Err(serde::de::Error::custom(format!(
                 "Invalid character option: {}",
                 n

@@ -2,9 +2,9 @@ use crate::game_manager::ArchipelagoData;
 use std::collections::HashMap;
 use std::ops::BitOrAssign;
 
+use crate::constants::Character;
 use crate::data::game_structs::{CharacterData, GameData, SessionData};
 use bitflags::bitflags;
-use crate::constants::Character;
 use std::sync::LazyLock;
 
 struct SkillData {
@@ -541,14 +541,21 @@ static DEFAULT_SKILLS_VERGIL: [u32; 8] = [
     0xF4FFF9CF, 0xFFC7FE37, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF,
 ];
 
-pub(crate) fn reset_expertise() { // TODO Vergil and Dante
+pub(crate) fn reset_expertise() {
+    // TODO Vergil and Dante
     SessionData::with_mut(|s| {
-        s.expertise = DEFAULT_SKILLS;
+        s.expertise = match s.character {
+            Character::Vergil => DEFAULT_SKILLS_VERGIL,
+            _ => DEFAULT_SKILLS_DANTE,
+        };
+        let _ = CharacterData::with_mut(|c| {
+            c.expertise = match s.character {
+                Character::Vergil => DEFAULT_SKILLS_VERGIL,
+                _ => DEFAULT_SKILLS_DANTE,
+            };
+        });
     })
     .expect("Unable to reset expertise");
-    let _ = CharacterData::with_mut(|c| {
-        c.expertise = DEFAULT_SKILLS;
-    });
 }
 
 fn give_skill(skill_id: &usize) {

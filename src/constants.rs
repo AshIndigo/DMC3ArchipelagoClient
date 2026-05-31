@@ -919,7 +919,8 @@ impl Coordinates {
     }
 }
 
-#[derive(Copy, Clone, Default, Debug, strum_macros::Display, strum_macros::FromRepr)]
+#[derive(Copy, Clone, Default, Debug, strum_macros::Display, strum_macros::FromRepr, PartialEq, Serialize, Deserialize)]
+#[repr(u8)]
 pub enum Character {
     // Values from DDMK, only care about Dante or Vergil though
     #[default]
