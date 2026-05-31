@@ -1,5 +1,6 @@
 use crate::constants::{Character, Difficulty, Rank};
 use crate::data::generated_locations;
+use crate::game_manager::get_room;
 use archipelago_rs::{Client, CreateAsHint, Location};
 use randomizer_utilities::{APVersion, archipelago_utilities};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -7,6 +8,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::sync::{LazyLock, RwLock};
+
 pub static MAPPING: LazyLock<RwLock<Option<Mapping>>> = LazyLock::new(|| RwLock::new(None));
 
 pub static OVERLAY_INFO: LazyLock<RwLock<OverlayInfo>> =
@@ -217,21 +219,11 @@ pub enum AutoHint {
     None,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Mapping {
-    // For mapping JSON
-    pub starter_items: Vec<String>,
+    #[serde(deserialize_with = "parse_character")]
+    pub character_selection: Character,
     pub adjudicators: Option<HashMap<String, AdjudicatorData>>,
-    #[serde(default)]
-    pub start_melee: u8,
-    #[serde(default)]
-    pub start_second_melee: u8,
-    #[serde(default)]
-    pub start_gun: u8,
-    #[serde(default)]
-    pub start_second_gun: u8,
-    #[serde(default)]
-    pub start_melee_vergil: u8,
     pub randomize_skills: bool,
     pub randomize_gun_levels: bool,
     pub randomize_styles: bool,
@@ -268,8 +260,14 @@ pub struct Mapping {
     pub mission_clear_difficulty: Difficulty,
     #[serde(default = "default_difficulty_list")]
     pub initially_unlocked_difficulties: Vec<Difficulty>,
-    #[serde(deserialize_with = "parse_character")]
-    pub character_selection: Character,
+
+    // Deprecated
+    starter_items: Vec<String>,
+    start_melee: Option<u8>,
+    start_second_melee: Option<u8>,
+    start_gun: Option<u8>,
+    start_second_gun: Option<u8>,
+
 }
 
 impl Mapping {
@@ -311,29 +309,17 @@ pub struct AdjudicatorData {
     pub ranking: u8,
 }
 
-pub fn run_scouts_for_mission(client: &mut Client<ModModeData>, mission: u32, hint: CreateAsHint) {
+pub fn run_scouts_for_room(client: &mut Client<ModModeData>, hint: CreateAsHint) {
     archipelago_utilities::run_scouts(
-        client.scout_locations(get_locations_by_mission(client, mission), hint),
+        client.scout_locations(get_locations_by_room(client, get_room()), hint),
     );
 }
 
-pub fn get_locations_by_mission(client: &Client<ModModeData>, mission: u32) -> Vec<Location> {
+pub fn get_locations_by_room(client: &Client<ModModeData>, room: i32) -> Vec<Location> {
     let current_game = client.this_game();
     generated_locations::ITEM_MISSION_MAP
         .iter()
-        .filter(|(_k, v)| v.mission == mission)
-        .filter(|(k, _v)| {
-            if let ModModeData::Normal(data) = client.slot_data() {
-                // If it's SS Rank, check if SS Ranks are allowed
-                if k.contains("SS Rank") {
-                    data.enabled_ss_rank
-                } else {
-                    true
-                }
-            } else {
-                true
-            }
-        })
+        .filter(|(_k, v)| v.room_number == room && v.mission != 0)
         .filter_map(|(k, _v)| current_game.location_by_name(*k))
         .collect()
 }
@@ -354,4 +340,26 @@ pub fn get_adjudicators(client: &Client<ModModeData>) -> Vec<Location> {
         .filter(|(k, _v)| k.contains("Combat Adjudicator"))
         .filter_map(|(k, _v)| current_game.location_by_name(*k))
         .collect()
+}
+pub fn get_mission_completes(client: &Client<ModModeData>) -> Vec<Location> {
+    let current_game = client.this_game();
+    let mut res = Vec::new();
+    if let ModModeData::Normal(data) = client.slot_data() {
+        for i in 1..=20 {
+            res.push(
+                current_game
+                    .location_by_name(format!("Mission #{i} Complete"))
+                    .unwrap(),
+            );
+            // Check if SS Ranks are allowed
+            if data.enabled_ss_rank {
+                res.push(
+                    current_game
+                        .location_by_name(format!("Mission #{i} SS Rank"))
+                        .unwrap(),
+                );
+            }
+        }
+    }
+    res
 }

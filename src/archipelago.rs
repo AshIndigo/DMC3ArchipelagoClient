@@ -1,27 +1,29 @@
-use crate::check_handler::{Location, LocationType, TX_LOCATION, take_away_received_item};
-use crate::constants::{MISSION_ITEM_MAP, REMOTE_ID};
-use crate::game_manager::{ARCHIPELAGO_DATA, ArchipelagoData, Style, get_mission};
+use crate::constants::{MISSION_ITEM_MAP, REMOTE_ID, Style};
+use crate::game_manager::{ARCHIPELAGO_DATA, ArchipelagoData, get_mission, set_weapons_in_inv};
+use crate::hooks::check_handler::{Location, LocationType, TX_LOCATION, take_away_received_item};
 use crate::mapping::{
-    AutoHint, DeathlinkSetting, Goal, MAPPING, ModMode, ModModeData, OVERLAY_INFO, OverlayInfo,
-    get_adjudicators, get_secret_missions,
+    AutoHint, DeathlinkSetting, MAPPING, ModMode, ModModeData, OVERLAY_INFO, OverlayInfo,
+    get_adjudicators, get_mission_completes, get_secret_missions,
 };
-use crate::ui::overlay::{MessageSegment, MessageType, OverlayMessage};
-use crate::ui::{overlay, text_handler};
-use crate::{
-    check_handler, constants, game_manager, hint_game, hook, location_handler, skill_manager,
-    utilities,
-};
+use crate::ui::text_handler;
+use crate::{constants, game_manager, hint_game, location_handler, skill_manager, utilities};
 use randomizer_utilities::ui::font_handler::{WHITE, YELLOW};
+use std::collections::VecDeque;
 use std::env;
 
-use crate::data::generated_locations;
+use crate::data::game_structs::{GameData, SessionData};
+use crate::data::{game_structs, generated_locations};
 use crate::hint_game::TX_HINT;
+use crate::hooks::hook::SCENE;
+use crate::hooks::{check_handler, hook};
 use archipelago_rs::{
-    AsItemId, Client, ClientStatus, Connection, ConnectionOptions, ConnectionState, CreateAsHint,
+    AsItemId, Client, Connection, ConnectionOptions, ConnectionState, CreateAsHint,
     DeathLinkOptions, Event, ItemHandling,
 };
 use randomizer_utilities::archipelago_utilities::{DeathLinkData, handle_print};
 use randomizer_utilities::item_sync::CURRENT_INDEX;
+use randomizer_utilities::ui::overlay_messages;
+use randomizer_utilities::ui::overlay_messages::{MessageSegment, MessageType, OverlayMessage};
 use randomizer_utilities::{archipelago_utilities, item_sync, setup_channel_pair};
 use std::error::Error;
 use std::sync::OnceLock;
@@ -34,6 +36,7 @@ pub static TX_DEATHLINK: OnceLock<Sender<DeathLinkData>> = OnceLock::new();
 
 pub struct ArchipelagoCore {
     pub connection: Connection<ModModeData>,
+    received_items_queue: VecDeque<usize>,
     hooks_installed: bool,
     hooks_enabled: bool,
 
@@ -57,6 +60,7 @@ impl ArchipelagoCore {
                     starting_inventory: true,
                 }),
             ),
+            received_items_queue: VecDeque::new(),
             hooks_installed: false,
             hooks_enabled: false,
             hint_hooks_installed: false,
@@ -108,6 +112,7 @@ impl ArchipelagoCore {
                             overlay_info.client_version = mapping.client_version;
                             overlay_info.mode = ModMode::Normal;
                             MAPPING.write()?.replace(mapping.clone());
+                            self.received_items_queue.clear();
                             item_sync::send_offline_checks(self.connection.client_mut().unwrap())?;
                             if !self.hooks_installed {
                                 // Hooks needed to modify the game
@@ -155,9 +160,7 @@ impl ArchipelagoCore {
                     let str = handle_print(print);
                     log::info!("Print from server: {}", str);
                 }
-                Event::ReceivedItems(idx) => {
-                    handle_received_items_packet(idx, self.connection.client_mut().unwrap())?;
-                }
+                Event::ReceivedItems(idx) => self.received_items_queue.push_back(idx),
                 Event::Error(err) => log::error!("{}", err),
                 Event::Bounce {
                     games: _,
@@ -176,15 +179,8 @@ impl ArchipelagoCore {
                         hint_game::FLOORS_PER_HINT.store(val, Ordering::SeqCst);
                     }
                 }
-                Event::DeathLink {
-                    games: _,
-                    slots: _,
-                    tags: _,
-                    time: _,
-                    cause,
-                    source,
-                } => {
-                    overlay::add_message(OverlayMessage::new(
+                Event::DeathLink { cause, source, .. } => {
+                    overlay_messages::add_message(OverlayMessage::new(
                         vec![MessageSegment::new(
                             format!("{}: {}", source, cause.unwrap_or_default()),
                             WHITE,
@@ -229,6 +225,16 @@ impl ArchipelagoCore {
             }
         }
         self.handle_channels()?;
+        let _ = game_structs::EventData::with_read(|s| {
+            if s.event == game_structs::Event::Main
+                && let Some(idx) = self.received_items_queue.pop_front()
+                && let Err(e) =
+                    handle_received_items_packet(idx, self.connection.client_mut().unwrap())
+            {
+                log::error!("Failed to receive items: {:?}", e);
+            }
+        });
+
         Ok(())
     }
 
@@ -284,8 +290,12 @@ pub fn run_setup(client: &mut Client<ModModeData>) -> Result<(), Box<dyn Error>>
     archipelago_utilities::run_scouts(
         client.scout_locations(get_adjudicators(client), CreateAsHint::No),
     );
+    // Mission Completion Scouts
+    archipelago_utilities::run_scouts(
+        client.scout_locations(get_mission_completes(client), CreateAsHint::No),
+    );
 
-    // Handle auto hinting
+    // Scout shop checks
     if let ModModeData::Normal(mapping) = client.slot_data() {
         let mut locations_to_scout: Vec<i64> = vec![];
         if mapping.shop_orb_checks {
@@ -308,7 +318,6 @@ pub fn run_setup(client: &mut Client<ModModeData>) -> Result<(), Box<dyn Error>>
                 })
                 .map(|(&k, _)| client.this_game().location_by_name(k).unwrap().id())
                 .collect::<Vec<i64>>();
-            log::debug!("Gun checks: {:?}", gun_checks);
             locations_to_scout.extend(&gun_checks);
         }
         // if AutoHint::All == mapping.auto_skill_hints {
@@ -378,6 +387,24 @@ fn handle_item_receive(
         .get(location_key)
     {
         Some(located_item) => {
+            if received_item.to_display {
+                let rec_msg: Vec<MessageSegment> = vec![
+                    MessageSegment::new("Sent ".to_string(), WHITE),
+                    MessageSegment::new(
+                        located_item.item().name().to_string(),
+                        overlay_messages::get_color_for_item(located_item),
+                    ),
+                    MessageSegment::new(" to ".to_string(), WHITE),
+                    MessageSegment::new(located_item.receiver().alias().parse()?, YELLOW),
+                ];
+                overlay_messages::add_message(OverlayMessage::new(
+                    rec_msg,
+                    Duration::from_secs(3),
+                    0.0,
+                    0.0,
+                    MessageType::Notification,
+                ));
+            }
             location_handler::edit_end_event(location_key); // Needed so a mission will end properly after picking up its trigger.
             text_handler::replace_unused_with_text(archipelago_utilities::get_description(
                 located_item,
@@ -408,73 +435,42 @@ fn handle_item_receive(
         }
         None => Err(anyhow::anyhow!("Location not found: {}", location_key))?,
     }
-    // Add to checked locations
-    if has_reached_goal(client) {
-        client.set_status(ClientStatus::Goal)?
-    }
     Ok(())
-}
-
-fn has_reached_goal(client: &mut Client<ModModeData>) -> bool {
-    let mut chk = client.checked_locations();
-    match client.slot_data() {
-        ModModeData::HintGame(_) => {
-            log::error!("Trying to check for goal in HintGame mode");
-            false
-        }
-        ModModeData::Normal(mapping) => {
-            match mapping.goal {
-                Goal::Standard => chk.any(|loc| loc.name() == "Mission #20 Complete"),
-                Goal::All => {
-                    for i in 1..20 {
-                        // If we are missing a mission complete check then we cannot goal
-                        if !chk.any(|loc| loc.name() == format!("Mission #{} Complete", i).as_str())
-                        {
-                            return false;
-                        }
-                    }
-                    // If we have them all, goal
-                    true
-                }
-                Goal::RandomOrder => {
-                    if let Some(order) = &mapping.mission_order {
-                        return chk.any(|loc| {
-                            loc.name() == format!("Mission #{} Complete", order[19]).as_str()
-                        });
-                    }
-                    false
-                }
-            }
-        }
-    }
 }
 
 pub fn handle_received_items_packet(
     index: usize,
     client: &mut Client<ModModeData>,
 ) -> Result<(), Box<dyn Error>> {
-    if game_manager::session_is_valid() {
+    if SessionData::is_valid() {
         if index == 0 {
             // If 0 reset stored data
             *ARCHIPELAGO_DATA.write()? = ArchipelagoData::default();
         }
         match ARCHIPELAGO_DATA.write() {
             Ok(mut data) => {
+                // Not particularly proud of this
+                // TODO Maybe try to save+restore ARCHIPELAGO_DATA's state?
+                data.blue_orbs = 0;
+                data.purple_orbs = 0;
+                data.reset_gun_levels();
+                data.reset_style_levels();
+
                 for item in client.received_items().iter() {
                     // Display overlay text if we're not at the main menu
-                    if !utilities::is_on_main_menu()
+                    if (!utilities::is_on_main_menu() || SCENE.load(Ordering::SeqCst) == 5)
                         && item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize
                     {
                         let rec_msg: Vec<MessageSegment> = vec![
                             MessageSegment::new("Received ".to_string(), WHITE),
                             MessageSegment::new(
                                 item.item().name().to_string(),
-                                overlay::get_color_for_item(item.as_ref()),
+                                overlay_messages::get_color_for_item(item.as_ref()),
                             ),
                             MessageSegment::new(" from ".to_string(), WHITE),
                             MessageSegment::new(item.sender().alias().parse()?, YELLOW),
                         ];
-                        overlay::add_message(OverlayMessage::new(
+                        overlay_messages::add_message(OverlayMessage::new(
                             rec_msg,
                             Duration::from_secs(3),
                             0.0,
@@ -482,7 +478,7 @@ pub fn handle_received_items_packet(
                             MessageType::Notification,
                         ));
                     }
-
+                    data.add_item(item.item().name().into());
                     match item.item().as_item_id() {
                         0x01..0x04 => {
                             if item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize {
@@ -497,11 +493,15 @@ pub fn handle_received_items_packet(
                         }
                         0x07 => {
                             data.add_blue_orb();
-                            game_manager::give_hp(constants::ONE_ORB);
+                            if item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize {
+                                game_manager::give_hp(constants::ONE_ORB, &data);
+                            }
                         }
                         0x08 => {
                             data.add_purple_orb();
-                            game_manager::give_magic(constants::ONE_ORB, &data);
+                            if item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize {
+                                game_manager::give_magic(constants::ONE_ORB, &data);
+                            }
                         }
                         0x10..0x14 => {
                             // Don't add duplicate consumables
@@ -512,21 +512,20 @@ pub fn handle_received_items_packet(
                         0x19 => {
                             // Awakened Rebellion
                             data.add_dt();
-                            game_manager::give_magic(constants::ONE_ORB * 3.0, &data);
+                            if item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize {
+                                game_manager::give_magic(constants::ONE_ORB * 3.0, &data);
+                            }
                         }
                         0x22..0x24 => {
                             // Quicksilver and Doppel
                         }
                         0x24..0x3A => {
                             // For key items
-                            log::debug!("Setting newly acquired key items");
-                            match MISSION_ITEM_MAP.get(&(get_mission())) {
-                                None => {} // No items for the mission
-                                Some(item_list) => {
-                                    if item_list.contains(&&*item.item().name()) {
-                                        game_manager::set_item(&item.item().name(), true, true);
-                                    }
-                                }
+                            if let Some(item_list) = MISSION_ITEM_MAP.get(&(get_mission()))
+                                && item_list.contains(&&*item.item().name())
+                            {
+                                log::debug!("Adding key item: {}", item.item().name());
+                                game_manager::set_item(&item.item().name(), true, true);
                             }
                         }
                         0x3A..0x53 | 0x76..0x80 => {
@@ -541,6 +540,7 @@ pub fn handle_received_items_packet(
                         0x53..0x58 => {
                             // Gun Levels
                             data.add_gun_level((item.item().id() - 0x53) as usize);
+                            game_manager::set_gun_levels(&data);
                         }
                         0x60..0x64 | 0x75 => {
                             // Style Handling
@@ -559,9 +559,11 @@ pub fn handle_received_items_packet(
                         // Weapons
                         0x16..=0x18 => {
                             // Rebellion, Cerberus, Agni and Rudra
+                            set_weapons_in_inv(&data);
                         }
                         0x1A..=0x1B => {
                             // Nevan, Beowulf
+                            set_weapons_in_inv(&data);
                         }
                         0x1C..=0x21 => {
                             // All guns
@@ -586,9 +588,11 @@ pub fn handle_received_items_packet(
 
                                 TX_HINT.get().unwrap().send(ids)?;
                             }
+                            set_weapons_in_inv(&data);
                         }
                         0x70..=0x72 => {
                             // Vergil Weapons
+                            set_weapons_in_inv(&data);
                         }
                         _ => {
                             log::warn!(
@@ -599,7 +603,6 @@ pub fn handle_received_items_packet(
                         }
                     }
 
-                    data.add_item(item.item().name().into());
                     if item.index() >= CURRENT_INDEX.load(Ordering::SeqCst) as usize {
                         CURRENT_INDEX.store((item.index() + 1) as i64, Ordering::SeqCst);
                     }

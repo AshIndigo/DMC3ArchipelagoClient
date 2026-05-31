@@ -1,18 +1,18 @@
 use crate::constants::{
-    BASE_HP, Difficulty, GUN_NAMES, ITEM_MAP, ITEM_OFFSET_MAP, ItemCategory, MAX_HP, MAX_MAGIC,
-    MELEE_NAMES, ONE_ORB, get_items_by_category, get_weapon_id,
+    BASE_HP, Difficulty, GUN_NAMES, ITEM_MAP, ItemCategory, MAX_HP, MAX_MAGIC, MELEE_NAMES,
+    ONE_ORB, Style, get_items_by_category, get_unlocked_weapon_id, get_weapon_id,
 };
-use crate::hook::ORIGINAL_GIVE_STYLE_XP;
+use crate::data::game_structs::{
+    ActiveMissionActorData, CharacterData, GameData, MissionData, QueuedMissionActorData,
+    SessionData,
+};
+use crate::hooks::hook::ORIGINAL_GIVE_STYLE_XP;
 use crate::mapping::MAPPING;
-use crate::utilities;
-use crate::utilities::{DMC3_ADDRESS, get_inv_address, read_data_from_address};
+use crate::utilities::{DMC3_ADDRESS, read_data_from_address};
 use archipelago_rs::Item;
 use randomizer_utilities::replace_single_byte;
 use std::collections::HashSet;
-use std::ptr::{read_unaligned, write_unaligned};
 use std::sync::{LazyLock, RwLock};
-
-pub(crate) const GAME_SESSION_DATA: usize = 0xC8F250;
 
 #[derive(Debug, Default)]
 pub(crate) struct ArchipelagoData {
@@ -35,29 +35,6 @@ pub(crate) struct ArchipelagoData {
     pub(crate) darkslayer_level: u8,
     pub(crate) summoned_swords: u8,
     pub(crate) spiral_swords: bool,
-}
-
-#[derive(Copy, Clone, strum_macros::Display, strum_macros::FromRepr)]
-pub(crate) enum Style {
-    Trickster = 0,
-    Swordmaster = 1,
-    Gunslinger = 2,
-    Royalguard = 3,
-}
-
-impl Style {
-    pub fn index(&self) -> usize {
-        *self as usize
-    }
-
-    pub fn get_internal_order(&self) -> usize {
-        match &self {
-            Style::Trickster => 2,
-            Style::Swordmaster => 0,
-            Style::Gunslinger => 1,
-            Style::Royalguard => 3,
-        }
-    }
 }
 
 pub static ARCHIPELAGO_DATA: LazyLock<RwLock<ArchipelagoData>> =
@@ -100,6 +77,10 @@ impl ArchipelagoData {
         self.gun_levels[gun_index] = (self.gun_levels[gun_index] + 1).min(2);
     }
 
+    pub(crate) fn reset_gun_levels(&mut self) {
+        self.gun_levels = [0; 5];
+    }
+
     pub(crate) fn add_style_level(&mut self, style: Style) {
         /*
         0 = not unlocked
@@ -110,6 +91,10 @@ impl ArchipelagoData {
         In terms of style levelling, the game considers 0 to be level 1
          */
         self.style_levels[style.index()] = (self.style_levels[style.index()] + 1).min(3);
+    }
+
+    pub(crate) fn reset_style_levels(&mut self) {
+        self.style_levels = [0; 4];
     }
 
     pub(crate) fn get_style_unlocked(&self) -> [bool; 4] {
@@ -156,83 +141,9 @@ impl ArchipelagoData {
     }
 }
 
-#[repr(C)]
-pub struct SessionData {
-    pub(crate) mission: u32,
-    pub(crate) other_mission: u32, // Don't know what this does, copies from mission after a second
-    pub(crate) room: i32,          // Should be right?
-    pub(crate) difficulty: u32,
-    pub(crate) hoh: bool,
-    pub _unknown2: u8,
-    tutorial: bool,
-    gold_orb_mode: bool,
-    pub(crate) char: u8,
-    pub(crate) _unknown3: [u8; 7],
-    bloody_palace: bool,
-    _unknown4: [u8; 15],
-    pub(crate) red_orbs: i32,
-    pub(crate) items: [u8; 20],
-    unknown5: [u8; 2],
-    unlocks: [bool; 14],
-    unknown6: [u8; 48],
-    pub(crate) weapons: [u8; 8],
-    unknown7: [u8; 20],
-    pub(crate) ranged_weapon_levels: [u32; 5],
-    pub(crate) unknown8: [u8; 20],
-    pub melee_index: u32,
-    pub gun_index: u32,
-    costume: u8,
-    pub unlocked_dt: bool,
-    pub unknown9: [u8; 2],
-    pub max_hp: f32,
-    pub max_magic: f32,
-    pub style: u32,
-    style_levels: [u32; 6],
-    style_xp: [f32; 6],
-    pub(crate) expertise: [u32; 8],
-}
-
-/// Error type for session access
-#[derive(Debug)]
-pub enum GameDataError {
-    NotUsable, // If the requested data is unavailable
-}
-
-static SESSION_PTR: LazyLock<usize> = LazyLock::new(|| *DMC3_ADDRESS + GAME_SESSION_DATA);
-
-pub fn with_session_read<F, R>(f: F) -> Result<R, GameDataError>
-where
-    F: FnOnce(&SessionData) -> R,
-{
-    unsafe {
-        if !session_is_valid() {
-            return Err(GameDataError::NotUsable);
-        }
-        Ok(f(&*(*SESSION_PTR as *const SessionData)))
-    }
-}
-
-pub fn with_session<F, R>(f: F) -> Result<R, GameDataError>
-where
-    F: FnOnce(&mut SessionData) -> R,
-{
-    unsafe {
-        if !session_is_valid() {
-            return Err(GameDataError::NotUsable);
-        }
-        Ok(f(&mut *(*SESSION_PTR as *mut SessionData)))
-    }
-}
-
-pub(crate) fn session_is_valid() -> bool {
-    // let data = read_data_from_address::<usize>(*SESSION_PTR);
-    // log::debug!("ses data: {}", data);
-    read_data_from_address::<usize>(*SESSION_PTR) != 0
-}
-
 /// Get current mission
 pub fn get_mission() -> u32 {
-    with_session_read(|s| s.mission).unwrap_or_else(|_| {
+    SessionData::with_read(|s| s.mission).unwrap_or_else(|_| {
         log::debug!("Attempting to get mission before session data is ready");
         0
     })
@@ -240,146 +151,86 @@ pub fn get_mission() -> u32 {
 
 /// Get current room
 pub fn get_room() -> i32 {
-    with_session_read(|s| s.room).unwrap()
+    SessionData::with_read(|s| s.room).unwrap()
 }
 
 /// Get current difficulty
 pub fn get_difficulty() -> Difficulty {
     Difficulty::from_repr(
-        with_session_read(|s| if s.hoh { 5 } else { s.difficulty }).unwrap() as usize,
+        SessionData::with_read(|s| if s.hoh { 5 } else { s.difficulty }).unwrap() as usize,
     )
     .unwrap()
 }
 
-const MISSION_CHARACTER_DATA: usize = 0xC90E30;
-
-#[repr(C)]
-pub struct MissionData {
-    unknown1: [u8; 56],
-    red_orbs: i32,
-    items: [u8; 62],
-    bought_items: [u8; 8],
-    unknown2: [u8; 38],
-    frame_count: u32,
-    damage_taken: u32,
-    orbs_collected: u32,
-    items_used: u32,
-    kill_count: u32,
-    unknown3: [u8; 4],
-}
-
-static MISSION_DATA_PTR: LazyLock<usize> = LazyLock::new(|| *DMC3_ADDRESS + MISSION_CHARACTER_DATA);
-fn is_mission_valid() -> bool {
-    read_data_from_address::<usize>(*MISSION_DATA_PTR) != 0
-}
-
-pub fn with_mission_data<F, R>(f: F) -> Result<R, GameDataError>
-where
-    F: FnOnce(&mut MissionData) -> R,
-{
-    let addr = *MISSION_DATA_PTR;
-    unsafe {
-        if !is_mission_valid() {
-            return Err(GameDataError::NotUsable);
+pub(crate) fn give_magic(magic_val: f32, data: &ArchipelagoData) {
+    log::debug!("Supplying added Magic");
+    let _ = SessionData::with_mut(|s| {
+        if data.dt_unlocked {
+            s.max_magic = f32::min(data.purple_orbs as f32 * ONE_ORB, MAX_MAGIC);
+        } else {
+            s.max_magic = 0.0
         }
-
-        let ptr = *(addr as *mut *mut MissionData);
-        let s = &mut *ptr;
-
-        Ok(f(s))
-    }
-}
-// TODO These offsets are wildly inaccurate
-pub(crate) fn give_magic(magic_val: f32, arch_data: &ArchipelagoData) {
-    let base = *DMC3_ADDRESS;
-    if arch_data.dt_unlocked {
-        log::debug!("Supplying added Magic");
-        unsafe {
-            write_unaligned(
-                (base + GAME_SESSION_DATA + 0xD8) as *mut f32,
-                read_unaligned((base + GAME_SESSION_DATA + 0xD8) as *mut f32) + magic_val,
-            );
-            write_unaligned(
-                (base + MISSION_CHARACTER_DATA + 0x16C + 0x6C) as *mut f32,
-                read_unaligned((base + MISSION_CHARACTER_DATA + 0x16C + 0x6C) as *mut f32)
-                    + magic_val,
-            ); // Magic
-            write_unaligned(
-                (base + MISSION_CHARACTER_DATA + 0x16C + 0x70) as *mut f32,
-                read_unaligned((base + MISSION_CHARACTER_DATA + 0x16C + 0x70) as *mut f32)
-                    + magic_val,
-            ); // Max magic
-            if let Some(char_data_ptr) = utilities::get_active_char_address() {
-                write_unaligned(
-                    (char_data_ptr + 0x3EB8) as *mut f32,
-                    read_unaligned((char_data_ptr + 0x3EB8) as *mut f32) + magic_val,
-                ); // Magic char
-                write_unaligned(
-                    (char_data_ptr + 0x3EBC) as *mut f32,
-                    read_unaligned((char_data_ptr + 0x3EBC) as *mut f32) + magic_val,
-                ); // Max magic char
-            }
+    });
+    let _ = ActiveMissionActorData::with_mut(|d| {
+        d.magic += magic_val;
+        if data.dt_unlocked {
+            d.max_magic = f32::min(data.purple_orbs as f32 * ONE_ORB, MAX_MAGIC);
+        } else {
+            d.max_magic = 0.0
         }
-    }
+    });
+    let _ = CharacterData::with_mut(|d| {
+        d.magic += magic_val;
+        if data.dt_unlocked {
+            d.max_magic = f32::min(data.purple_orbs as f32 * ONE_ORB, MAX_MAGIC);
+        } else {
+            d.max_magic = 0.0
+        }
+    });
 }
 
-pub(crate) fn give_hp(life_value: f32) {
-    let base = *DMC3_ADDRESS;
+pub(crate) fn give_hp(life_value: f32, data: &ArchipelagoData) {
     log::debug!("Supplying added HP");
-    unsafe {
-        write_unaligned(
-            (base + MISSION_CHARACTER_DATA + 0x16C + 0x64) as *mut f32,
-            read_unaligned((base + MISSION_CHARACTER_DATA + 0x16C + 0x64) as *mut f32) + life_value,
-        ); // Life
-        write_unaligned(
-            (base + MISSION_CHARACTER_DATA + 0x16C + 0x68) as *mut f32,
-            read_unaligned((base + MISSION_CHARACTER_DATA + 0x16C + 0x68) as *mut f32) + life_value,
-        ); // Max life
-        if let Some(char_data_ptr) = utilities::get_active_char_address() {
-            write_unaligned(
-                (char_data_ptr + 0x411C) as *mut f32,
-                read_unaligned((char_data_ptr + 0x411C) as *mut f32) + life_value,
-            ); // Life char
-            write_unaligned(
-                (char_data_ptr + 0x40EC) as *mut f32,
-                read_unaligned((char_data_ptr + 0x40EC) as *mut f32) + life_value,
-            ); // Max Life char
-        }
-    }
+    let _ = ActiveMissionActorData::with_mut(|d| {
+        d.hp += life_value;
+        d.max_hp = f32::min(BASE_HP + (data.blue_orbs as f32 * ONE_ORB), MAX_HP);
+    });
+    let _ = CharacterData::with_mut(|f| {
+        f.hp += life_value;
+        f.max_hp = f32::min(BASE_HP + (data.blue_orbs as f32 * ONE_ORB), MAX_HP);
+    });
 }
 
 /// Use for weapons/key items
 pub(crate) fn set_item(item_name: &str, has_item: bool, set_flag: bool) {
-    if let Some(inv_address) = get_inv_address() {
-        unsafe {
-            replace_single_byte(
-                inv_address + *ITEM_OFFSET_MAP.get(item_name).unwrap() as usize,
-                has_item as u8,
-            )
-        };
+    log::trace!("Setting item {} to {}", item_name, has_item);
+    let _ = MissionData::with_mut(|m| {
+        m.items[*ITEM_MAP.get_by_left(item_name).unwrap() as usize] = has_item as u8;
         if set_flag {
             set_loc_chk_flg(item_name, has_item);
         }
-    }
+    });
 }
 
 const LOCATION_FLAGS: usize = 0xc90e28;
 pub fn set_loc_chk_flg(item_name: &str, set_flag: bool) {
     let ptr: usize = read_data_from_address(*DMC3_ADDRESS + LOCATION_FLAGS);
     let item_id: i32 = *ITEM_MAP.get_by_left(item_name).unwrap() as i32;
-    let loc_chk_flags = read_data_from_address::<usize>(ptr + 0x30);
+    if ptr != 0 {
+        let loc_chk_flags = read_data_from_address::<usize>(ptr + 0x30);
 
-    let item_flag: usize = (item_id + (item_id >> 0x1F & 0x7) >> 3) as usize;
-    let mask: u8 = 1 << (item_id & 7);
+        let item_flag: usize = (item_id + (item_id >> 0x1F & 0x7) >> 3) as usize;
+        let mask: u8 = 1 << (item_id & 7);
 
-    unsafe {
-        for base in [0x7DAusize, 0x7E2usize] {
-            let addr = loc_chk_flags + item_flag + base;
-            let val = read_data_from_address::<u8>(addr);
-            if set_flag {
-                replace_single_byte(addr, val | mask);
-            } else {
-                replace_single_byte(addr, val & !mask);
+        unsafe {
+            for base in [0x7DAusize, 0x7E2usize] {
+                let addr = loc_chk_flags + item_flag + base;
+                let val = read_data_from_address::<u8>(addr);
+                if set_flag {
+                    replace_single_byte(addr, val | mask);
+                } else {
+                    replace_single_byte(addr, val & !mask);
+                }
             }
         }
     }
@@ -403,7 +254,7 @@ pub fn has_item_by_flags(item_name: &str) -> bool {
 }
 
 pub fn set_max_hp_and_magic() {
-    with_session(|s| {
+    SessionData::with_mut(|s| {
         log::debug!(
             "Modifying player attributes- Original HP: {}, Magic: {}",
             s.max_hp,
@@ -438,111 +289,91 @@ pub(crate) fn hurt_dante() {
         // Insta kill
         Difficulty::HeavenOrHell => 1.0,
     };
-    if let Some(char_data_ptr) = utilities::get_active_char_address() {
-        let hp_addr = char_data_ptr + 0x411C;
-        unsafe {
-            let max_hp = read_unaligned((char_data_ptr + 0x40EC) as *mut f32);
-            write_unaligned(
-                hp_addr as *mut f32,
-                f32::max(
-                    read_unaligned(hp_addr as *const f32) - (max_hp * damage_fraction),
-                    0.0,
-                ),
-            );
-        }
-    }
+    let _ = CharacterData::with_mut(|c| {
+        c.hp = f32::max(c.hp - (c.max_hp * damage_fraction), 0.0);
+    });
 }
 
 pub(crate) fn kill_dante() {
-    if let Some(char_data_ptr) = utilities::get_active_char_address() {
-        unsafe {
-            write_unaligned((char_data_ptr + 0x411C) as *mut f32, 0.0);
-        }
-    }
+    let _ = CharacterData::with_mut(|c| {
+        c.hp = 0.0;
+    });
 }
 
 // Dante Specific
 pub fn set_session_weapons() {
     if let Ok(data) = ARCHIPELAGO_DATA.read() {
-        with_session(|s| {
+        SessionData::with_mut(|s| {
             for weapon in get_items_by_category(ItemCategory::Weapon) {
+                let weapon_id = get_weapon_id(weapon);
                 if data.items.contains(weapon) {
-                    let weapon_id = get_weapon_id(weapon);
-                    if MELEE_NAMES.contains(&weapon)
-                        && s.weapons[0] != weapon_id
-                        && s.weapons[1] == 0xFF
-                    {
-                        log::debug!("Inserting {} into second melee slot", weapon);
-                        s.weapons[1] = weapon_id;
+                    if MELEE_NAMES.contains(&weapon) {
+                        // First slot
+                        if s.weapons[0] == 0xFF {
+                            log::debug!("Inserting {} into first melee slot", weapon);
+                            s.weapons[0] = weapon_id;
+                        }
+                        // Second slot
+                        if s.weapons[0] != weapon_id && s.weapons[1] == 0xFF {
+                            log::debug!("Inserting {} into second melee slot", weapon);
+                            s.weapons[1] = weapon_id;
+                        }
                     }
-
-                    if GUN_NAMES.contains(&weapon)
-                        && s.weapons[2] != weapon_id
-                        && s.weapons[3] == 0xFF
-                    {
-                        log::debug!("Inserting {} into second gun slot", weapon);
-                        s.weapons[3] = weapon_id;
+                    if GUN_NAMES.contains(&weapon) {
+                        // First slot
+                        if s.weapons[2] == 0xFF {
+                            log::debug!("Inserting {} into first gun slot", weapon);
+                            s.weapons[2] = weapon_id;
+                        }
+                        // Second slot
+                        if s.weapons[2] != weapon_id && s.weapons[3] == 0xFF {
+                            log::debug!("Inserting {} into second gun slot", weapon);
+                            s.weapons[3] = weapon_id;
+                        }
                     }
                 }
+                s.weapon_style_unlocks[get_unlocked_weapon_id(weapon) as usize] =
+                    data.items.contains(weapon);
             }
         })
         .unwrap();
     }
 }
-//const WEAPON_SLOT: usize = 0x045FF2D8;
-pub(crate) fn set_weapons_in_inv() {
-    let mut flag;
-    if let Ok(data) = ARCHIPELAGO_DATA.read() {
-        for weapon in get_items_by_category(ItemCategory::Weapon) {
-            if data.items.contains(weapon) {
-                flag = true;
-                log::debug!("Adding weapon/style to inventory {}", weapon);
-            } else {
-                flag = false;
-            }
-            set_item(weapon, flag, true);
-        }
+
+pub(crate) fn set_weapons_in_inv(data: &ArchipelagoData) {
+    for weapon in get_items_by_category(ItemCategory::Weapon) {
+        set_item(weapon, data.items.contains(weapon), true);
     }
 }
 
-pub(crate) fn set_gun_levels_dante() {
+pub(crate) fn set_gun_levels_dante(data: &ArchipelagoData) {
     log::debug!("Setting gun levels");
-    with_session(|s| match ARCHIPELAGO_DATA.read() {
-        Ok(data) => {
-            for i in 0..s.ranged_weapon_levels.len() {
-                s.ranged_weapon_levels[i] = data.gun_levels[i];
-            }
-        }
-        Err(err) => {
-            log::error!("Failed to read data from ARCHIPELAGO_DATA: {}", err);
+    SessionData::with_mut(|s| {
+        for i in 0..s.ranged_weapon_levels.len() {
+            s.ranged_weapon_levels[i] = data.gun_levels[i];
         }
     })
     .expect("Unable to edit session data");
-    const GUN_UPGRADE_OFFSET: usize = 0x3FEC;
-    if let Some(char_data_ptr) = utilities::get_active_char_address() {
-        unsafe {
-            let mut gun_levels =
-                read_unaligned((char_data_ptr + GUN_UPGRADE_OFFSET) as *mut [u32; 10]);
-            match ARCHIPELAGO_DATA.read() {
-                Ok(data) => {
-                    for i in 0..(*GUN_NAMES).len() {
-                        gun_levels[get_weapon_id(GUN_NAMES[i]) as usize] += data.gun_levels[i];
-                    }
-                }
-                Err(err) => {
-                    log::error!("Failed to read data from ARCHIPELAGO_DATA: {}", err);
-                }
+    let _ = CharacterData::with_mut(|c| {
+        let _ = ActiveMissionActorData::with_read(|m| {
+            // Set the character level of actively equipped guns
+            // Make sure there is a gun in the relevant slot
+            if m.equipped_weapons[2] != 0xFF {
+                c.weapon_levels[2] = data.gun_levels[(m.equipped_weapons[2] - 5) as usize];
             }
-            write_unaligned(
-                (char_data_ptr + GUN_UPGRADE_OFFSET) as *mut [u32; 10],
-                gun_levels,
-            )
-        }
-    }
+            if m.equipped_weapons[3] != 0xFF {
+                c.weapon_levels[3] = data.gun_levels[(m.equipped_weapons[3] - 5) as usize];
+            }
+        });
+    });
+
+    let _ = QueuedMissionActorData::with_mut(|a| {
+        a.weapon_levels = data.gun_levels;
+    });
 }
 
 pub(crate) fn set_style_levels() {
-    with_session(|s| match ARCHIPELAGO_DATA.read() {
+    SessionData::with_mut(|s| match ARCHIPELAGO_DATA.read() {
         Ok(data) => {
             s.style_levels = data.get_style_level_array();
         }
@@ -555,73 +386,44 @@ pub(crate) fn set_style_levels() {
 
 pub(crate) fn apply_style_levels(style: Style) {
     //set_style_levels();
-    if let Some(char_data_ptr) = utilities::get_active_char_address() {
-        unsafe {
-            const LEVEL_1_XP: f32 = 30000f32; // XP To get to LV2
-            const LEVEL_2_XP: f32 = 99999f32; // LV2 -> LV3
-            let equipped_style = read_data_from_address::<u32>(char_data_ptr + 0x6338) as usize;
-            if style.get_internal_order() == equipped_style {
-                let level = read_data_from_address::<u32>(char_data_ptr + 0x6358);
-                if let Some(char_data_ptr) = utilities::get_active_char_address() {
-                    match level {
-                        0 => {
-                            ORIGINAL_GIVE_STYLE_XP.get().unwrap()(char_data_ptr, LEVEL_1_XP);
-                        }
-                        1 => {
-                            ORIGINAL_GIVE_STYLE_XP.get().unwrap()(char_data_ptr, LEVEL_2_XP);
-                        }
-                        2 => {
-                            log::debug!("Style {style} is max level");
-                        }
-                        _ => {
-                            log::error!("Unknown {style} level: {level}");
-                        }
+    unsafe {
+        // Note these are based on default values. If I randomized them I will to update this section
+        const LEVEL_1_XP: f32 = 30000f32; // XP To get to LV2
+        const LEVEL_2_XP: f32 = 99999f32; // LV2 -> LV3
+
+        CharacterData::with_read(|c| {
+            if style.get_internal_order_index() == c.style as usize {
+                match c.style_level {
+                    0 => {
+                        ORIGINAL_GIVE_STYLE_XP.get().unwrap()(CharacterData::ptr(), LEVEL_1_XP);
+                    }
+                    1 => {
+                        ORIGINAL_GIVE_STYLE_XP.get().unwrap()(CharacterData::ptr(), LEVEL_2_XP);
+                    }
+                    2 => {
+                        log::debug!("Style {style} is max level");
+                    }
+                    _ => {
+                        log::error!("Unknown {style} level: {}", c.style_level);
                     }
                 }
             }
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Debug)]
-pub struct TotalRankings {
-    pub easy_ranking: [u8; 20],
-    pub normal_ranking: [u8; 20],
-    pub hard_ranking: [u8; 20],
-    pub very_hard_ranking: [u8; 20],
-    pub dmd_ranking: [u8; 20],
-    pub hoh_ranking: [u8; 20],
-}
-
-static RANKING_PTR: LazyLock<usize> = LazyLock::new(|| *DMC3_ADDRESS + 0xC8F8E5);
-
-pub fn with_rankings_read<F, R>(f: F) -> Result<R, GameDataError>
-where
-    F: FnOnce(&TotalRankings) -> R,
-{
-    let addr = *RANKING_PTR;
-    unsafe {
-        let s = &*(addr as *const TotalRankings);
-        Ok(f(s))
+        })
+        .unwrap_or_else(|_| {
+            log::error!(
+                "Unable to read character data (If you are not mid-mission this can be ignored)"
+            );
+        });
     }
 }
 
 pub(crate) fn add_consumable(item: Item) {
     log::debug!("Adding Consumable item {}", item);
     // Add to mission inv
-    if let Some(inv_addr) = get_inv_address()
-        && let Some(offset) = ITEM_OFFSET_MAP.get(item.name().as_str())
-    {
-        unsafe {
-            replace_single_byte(
-                inv_addr + *offset as usize,
-                read_data_from_address::<u8>(inv_addr + *offset as usize).saturating_add(1),
-            );
-        }
-    }
-
-    with_session(|session| {
+    let _ = MissionData::with_mut(|m| {
+        m.items[item.id() as usize] += 1;
+    });
+    SessionData::with_mut(|session| {
         session.items[item.id() as usize] += 1;
     })
     .unwrap();
@@ -629,8 +431,8 @@ pub(crate) fn add_consumable(item: Item) {
 
 pub(crate) fn give_red_orbs(orbs: i32) {
     log::debug!("Giving {} orbs", orbs);
-    if with_session(|session| session.red_orbs += orbs).is_err() {
+    if SessionData::with_mut(|session| session.red_orbs += orbs).is_err() {
         log::warn!("Failed to give red orbs for session data");
     };
-    if with_mission_data(|m| m.red_orbs += orbs).is_err() {};
+    if MissionData::with_mut(|m| m.red_orbs += orbs).is_err() {};
 }
