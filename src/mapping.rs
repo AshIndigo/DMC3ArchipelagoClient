@@ -201,15 +201,7 @@ pub enum AutoHint {
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Mapping {
-    // For mapping JSON
-    pub starter_items: Vec<String>,
     pub adjudicators: Option<HashMap<String, AdjudicatorData>>,
-    // Deprecated
-    start_melee: Option<u8>,
-    start_second_melee: Option<u8>,
-    start_gun: Option<u8>,
-    start_second_gun: Option<u8>,
-
     pub randomize_skills: bool,
     pub randomize_gun_levels: bool,
     pub randomize_styles: bool,
@@ -246,6 +238,13 @@ pub struct Mapping {
     pub mission_clear_difficulty: Difficulty,
     #[serde(default = "default_difficulty_list")]
     pub initially_unlocked_difficulties: Vec<Difficulty>,
+
+    // Deprecated
+    starter_items: Vec<String>,
+    start_melee: Option<u8>,
+    start_second_melee: Option<u8>,
+    start_gun: Option<u8>,
+    start_second_gun: Option<u8>,
 }
 
 impl Mapping {
