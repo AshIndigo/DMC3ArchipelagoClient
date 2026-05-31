@@ -261,13 +261,6 @@ pub struct Mapping {
     #[serde(default = "default_difficulty_list")]
     pub initially_unlocked_difficulties: Vec<Difficulty>,
 
-    // Deprecated
-    starter_items: Vec<String>,
-    start_melee: Option<u8>,
-    start_second_melee: Option<u8>,
-    start_gun: Option<u8>,
-    start_second_gun: Option<u8>,
-
 }
 
 impl Mapping {
