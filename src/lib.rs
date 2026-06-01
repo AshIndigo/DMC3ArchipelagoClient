@@ -137,13 +137,14 @@ fn main_loop_hook() {
 }
 
 fn main_setup() {
-    exception_handler::install_exception_handler("dmc3_randomizer_latest.log");
+    // For some reason Crimson does not like my Exception Handler? Oh well, it should be able to replace mine
     if is_ddmk_loaded() {
         log::info!("DDMK is loaded!");
         log::warn!(
             "DDMK's Actor system most likely does not work with the DeathLink setting in the randomizer, \
                 please turn it off if you wish to use DeathLink"
         );
+        exception_handler::install_exception_handler("dmc3_randomizer_latest.log");
         compat::ddmk_hook::setup_ddmk_hook();
     } else if is_crimson_loaded() {
         log::info!("Crimson is loaded!");
@@ -153,6 +154,7 @@ fn main_setup() {
         );
         compat::crimson_hook::setup_crimson_hook();
     } else {
+        exception_handler::install_exception_handler("dmc3_randomizer_latest.log");
         log::info!("DDMK or Crimson are not loaded!");
     }
     log::info!("DMC3 Base Address is: {:X}", *DMC3_ADDRESS);
